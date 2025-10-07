@@ -53,27 +53,21 @@ impl ScalarUDFImpl for JsonToVariantUDF {
         &self,
         args: datafusion::logical_expr::ReturnFieldArgs,
     ) -> datafusion::error::Result<Arc<Field>> {
-        let arg_fields = args.arg_fields;
+        let [argument] = args.arg_fields else {
+            return exec_err!("incorrect number of arguments for json_to_variant, expected 1");
+        };
 
-        if arg_fields.len() != 1 {
-            return exec_err!(
-                "Incorrect number of arguments for string_to_uuid. Expected json_to_variant(...)"
-            );
-        }
+        let argument = match argument.data_type() {
+            DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => argument.as_ref(),
+            unsupported => {
+                return exec_err!("expected string argument, got data type: {}", unsupported);
+            }
+        };
 
-        let arg_field = &args.arg_fields[0];
+        let is_nullable = argument.is_nullable();
 
-        let is_argument_string = matches!(
-            arg_field.data_type(),
-            DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8
-        );
-
-        if !is_argument_string {
-            return exec_err!("Expected string argument");
-        }
-
-        let is_nullable = arg_field.is_nullable();
-
+        // todo: take a closer look and see if this is needed/improved
+        // shredded values will have varying struct array schemas fwiw
         let data_type = DataType::Struct(Fields::from(vec![
             Field::new("metadata", DataType::BinaryView, false),
             Field::new("value", DataType::BinaryView, is_nullable),
