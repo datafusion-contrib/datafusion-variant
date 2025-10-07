@@ -166,10 +166,9 @@ mod tests {
 
     #[test]
     fn test_json_to_variant_udf_scalar_none() {
-        let udf = JsonToVariantUDF::default();
-
         let json_input = ScalarValue::Utf8(None);
 
+        let udf = JsonToVariantUDF::default();
         let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
 
@@ -193,10 +192,9 @@ mod tests {
 
     #[test]
     fn test_json_to_variant_udf_scalar_null() {
-        let udf = JsonToVariantUDF::default();
-
         let json_input = ScalarValue::Utf8(Some("null".into()));
 
+        let udf = JsonToVariantUDF::default();
         let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
 
@@ -220,7 +218,10 @@ mod tests {
     }
 
     #[test]
-    fn test_json_to_variant_udf_scalar() {
+    fn test_json_to_variant_udf_scalar_complex() {
+        let json_input =
+            ScalarValue::Utf8(Some(r#"{"key": 123, "data": [4, 5, "str"]}"#.to_string()));
+
         let udf = JsonToVariantUDF::default();
 
         let (expected_m, expected_v) = {
@@ -243,9 +244,6 @@ mod tests {
         };
 
         let expected_variant = Variant::try_new(&expected_m, &expected_v).unwrap();
-
-        let json_input =
-            ScalarValue::Utf8(Some(r#"{"key": 123, "data": [4, 5, "str"]}"#.to_string()));
 
         let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
@@ -271,11 +269,10 @@ mod tests {
     }
 
     #[test]
-    fn test_json_to_variant_udf_scalar_number() {
-        let udf = JsonToVariantUDF::default();
-
+    fn test_json_to_variant_udf_scalar_primitive() {
         let json_input = ScalarValue::Utf8(Some("123".to_string()));
 
+        let udf = JsonToVariantUDF::default();
         let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
 
