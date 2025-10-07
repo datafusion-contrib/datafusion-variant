@@ -2,20 +2,16 @@
 
 use std::sync::Arc;
 
-use arrow::array::{
-    Array, ArrayRef, BinaryViewArray, LargeStringArray, StringArray, StringViewArray,
-};
-use arrow_schema::{DataType, Field};
+use arrow::array::{Array, ArrayRef, LargeStringArray, StringArray, StringViewArray, StructArray};
+use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
     error::Result as DataFusionResult,
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature},
     scalar::ScalarValue,
 };
-use parquet_variant::VariantBuilder;
+use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
-
-use crate::extension_type::VariantExtensionType;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct JsonToVariantUDF {
@@ -65,17 +61,28 @@ impl ScalarUDFImpl for JsonToVariantUDF {
             );
         }
 
-        match args.arg_fields[0].data_type() {
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {}
-            _ => return exec_err!("Incorrect data type for json_to_variant, expected "),
+        let arg_field = &args.arg_fields[0];
+
+        let is_argument_string = matches!(
+            arg_field.data_type(),
+            DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8
+        );
+
+        if !is_argument_string {
+            return exec_err!("Expected string argument");
         }
 
-        let is_nullable = args.arg_fields[0].is_nullable();
+        let is_nullable = arg_field.is_nullable();
 
-        Ok(Arc::new(
-            Field::new(self.name(), DataType::BinaryView, is_nullable)
-                .with_extension_type(VariantExtensionType),
-        ))
+        let data_type = DataType::Struct(Fields::from(vec![
+            Field::new("metadata", DataType::BinaryView, false),
+            Field::new("value", DataType::BinaryView, is_nullable),
+        ]));
+
+        let return_field =
+            Field::new(self.name(), data_type, is_nullable).with_extension_type(VariantType);
+
+        Ok(Arc::new(return_field))
     }
 
     fn invoke_with_args(
@@ -89,27 +96,24 @@ impl ScalarUDFImpl for JsonToVariantUDF {
 
         let out = match arg {
             ColumnarValue::Scalar(scalar_value) => {
-                let out = if let Some(json_str) = match scalar_value {
+                let json_term = match scalar_value {
                     ScalarValue::Utf8(json)
                     | ScalarValue::Utf8View(json)
                     | ScalarValue::LargeUtf8(json) => json,
                     unsupported => {
                         return exec_err!("Unsupported data type {}", unsupported.data_type());
                     }
-                } {
-                    let mut variant_builder = VariantBuilder::new();
-                    variant_builder
-                        .append_json(json_str)
-                        .map_err(|e| exec_datafusion_err!("Failed to parse JSON: {}", e))?;
-
-                    let (_metadata, value) = variant_builder.finish();
-
-                    Some(value)
-                } else {
-                    None
                 };
 
-                ColumnarValue::Scalar(ScalarValue::BinaryView(out))
+                let mut builder = VariantArrayBuilder::new(1);
+
+                match json_term {
+                    Some(json_str) => builder.append_json(json_str.as_str())?,
+                    None => builder.append_null(),
+                }
+
+                let struct_array: StructArray = builder.build().into();
+                ColumnarValue::Scalar(ScalarValue::Struct(Arc::new(struct_array)))
             }
             ColumnarValue::Array(arr) => match arr.data_type() {
                 DataType::Utf8 => ColumnarValue::Array(from_utf8_arr(arr)?),
@@ -133,30 +137,18 @@ macro_rules! define_from_string_array {
                     "Unable to downcast array as expected by type."
                 ))?;
 
-            let mut out: Vec<Option<Vec<u8>>> = Vec::with_capacity(arr.len());
+            let mut builder = VariantArrayBuilder::new(arr.len());
 
             for v in arr {
-                out.push(if let Some(json_str) = v {
-                    let mut variant_builder = VariantBuilder::new();
-                    variant_builder
-                        .append_json(json_str)
-                        .map_err(|e| exec_datafusion_err!("Failed to parse JSON: {}", e))?;
-
-                    // how do we encode metadata?
-                    let (_m, v) = variant_builder.finish();
-
-                    Some(v)
-                } else {
-                    None
-                });
+                match v {
+                    Some(json_str) => builder.append_json(json_str)?,
+                    None => builder.append_null(),
+                }
             }
 
-            let out_ref = out
-                .iter()
-                .map(|opt| opt.as_ref().map(|v| v.as_slice()))
-                .collect::<Vec<_>>();
+            let variant_array: StructArray = builder.build().into();
 
-            Ok(Arc::new(BinaryViewArray::from(out_ref)))
+            Ok(Arc::new(variant_array) as ArrayRef)
         }
     };
 }
@@ -169,6 +161,8 @@ define_from_string_array!(from_large_utf8_arr, LargeStringArray);
 mod tests {
     use super::*;
     use datafusion::logical_expr::ScalarFunctionArgs;
+    use parquet_variant::{Variant, VariantBuilder};
+    use parquet_variant_compute::VariantArray;
 
     #[test]
     fn test_json_to_variant_udf_scalar_none() {
@@ -184,13 +178,16 @@ mod tests {
             return_field: return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
+            config_options: Default::default(),
         };
 
         let result = udf.invoke_with_args(args).unwrap();
 
         match result {
-            ColumnarValue::Scalar(ScalarValue::BinaryView(None)) => {}
-            _ => panic!("Expected null BinaryView result"),
+            ColumnarValue::Scalar(ScalarValue::Struct(sv)) => {
+                assert!(sv.is_null(0), "expected null struct");
+            }
+            _ => panic!("Expected null struct array result"),
         }
     }
 
@@ -208,27 +205,44 @@ mod tests {
             return_field: return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
+            config_options: Default::default(),
         };
 
         let result = udf.invoke_with_args(args).unwrap();
-
-        let (_expected_m, expected_v) = {
-            let mut expected_variant = VariantBuilder::new();
-            expected_variant.append_value(());
-            expected_variant.finish()
-        };
-
         match result {
-            ColumnarValue::Scalar(ScalarValue::BinaryView(Some(bytes))) => {
-                assert_eq!(bytes, expected_v);
+            ColumnarValue::Scalar(ScalarValue::Struct(v)) => {
+                let variant_array = VariantArray::try_new(v.as_ref()).unwrap();
+                let variant = variant_array.value(0);
+                assert_eq!(variant, Variant::from(()));
             }
-            _ => panic!("Expected non-null BinaryView result"),
+            _ => panic!("Expected scalar BinaryView result"),
         }
     }
 
     #[test]
     fn test_json_to_variant_udf_scalar() {
         let udf = JsonToVariantUDF::default();
+
+        let (expected_m, expected_v) = {
+            let mut variant_builder = VariantBuilder::new();
+            let mut object_builder = variant_builder.new_object();
+
+            object_builder.insert("key", 123_u8);
+
+            let mut inner_array_builder = object_builder.new_list("data");
+
+            inner_array_builder.append_value(4u8);
+            inner_array_builder.append_value(5u8);
+            inner_array_builder.append_value("str");
+
+            inner_array_builder.finish();
+
+            object_builder.finish();
+
+            variant_builder.finish()
+        };
+
+        let expected_variant = Variant::try_new(&expected_m, &expected_v).unwrap();
 
         let json_input =
             ScalarValue::Utf8(Some(r#"{"key": 123, "data": [4, 5, "str"]}"#.to_string()));
@@ -241,13 +255,16 @@ mod tests {
             return_field: return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
+            config_options: Default::default(),
         };
 
         let result = udf.invoke_with_args(args).unwrap();
 
         match result {
-            ColumnarValue::Scalar(ScalarValue::BinaryView(Some(bytes))) => {
-                assert!(!bytes.is_empty(), "Expected non-empty variant bytes");
+            ColumnarValue::Scalar(ScalarValue::Struct(v)) => {
+                let variant_array = VariantArray::try_new(v.as_ref()).unwrap();
+                let variant = variant_array.value(0);
+                assert_eq!(variant, expected_variant);
             }
             _ => panic!("Expected scalar BinaryView result"),
         }
@@ -267,21 +284,16 @@ mod tests {
             return_field: return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
+            config_options: Default::default(),
         };
 
         let result = udf.invoke_with_args(args).unwrap();
 
-        let (_expected_m, expected_v) = {
-            let mut expected_variant = VariantBuilder::new();
-            expected_variant.append_value(123_u8);
-            expected_variant.finish()
-        };
-
         match result {
-            ColumnarValue::Scalar(ScalarValue::BinaryView(Some(bytes))) => {
-                assert!(!bytes.is_empty(), "Expected non-empty variant bytes");
-
-                assert_eq!(bytes, expected_v);
+            ColumnarValue::Scalar(ScalarValue::Struct(v)) => {
+                let variant_array = VariantArray::try_new(v.as_ref()).unwrap();
+                let variant = variant_array.value(0);
+                assert_eq!(variant, Variant::from(123_u8));
             }
             _ => panic!("Expected scalar BinaryView result"),
         }
