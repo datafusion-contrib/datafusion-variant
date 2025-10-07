@@ -1,0 +1,11 @@
+[package]
+name = "datafusion-variant"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = "55.2.0"
+arrow-schema = "55.2.0"
+datafusion = { version = "48.0.1" }
+parquet-variant-json = { git = "https://github.com/apache/arrow-rs" }
+parquet-variant = { git = "https://github.com/apache/arrow-rs" }
