@@ -12,7 +12,7 @@ use datafusion::{
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature},
     scalar::ScalarValue,
 };
-use parquet_variant::{Variant, VariantBuilder};
+use parquet_variant::VariantBuilder;
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
 use crate::extension_type::VariantExtensionType;
@@ -99,7 +99,7 @@ impl ScalarUDFImpl for JsonToVariantUDF {
                 } {
                     let mut variant_builder = VariantBuilder::new();
                     variant_builder
-                        .append_json(&json_str)
+                        .append_json(json_str)
                         .map_err(|e| exec_datafusion_err!("Failed to parse JSON: {}", e))?;
 
                     let (_metadata, value) = variant_builder.finish();
