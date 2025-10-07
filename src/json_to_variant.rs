@@ -12,7 +12,7 @@ use datafusion::{
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature},
     scalar::ScalarValue,
 };
-use parquet_variant::VariantBuilder;
+use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
 use crate::extension_type::VariantExtensionType;
@@ -102,7 +102,6 @@ impl ScalarUDFImpl for JsonToVariantUDF {
                         .append_json(&json_str)
                         .map_err(|e| exec_datafusion_err!("Failed to parse JSON: {}", e))?;
 
-                    // how do we encode metadata?
                     let (_metadata, value) = variant_builder.finish();
 
                     Some(value)
@@ -172,6 +171,62 @@ mod tests {
     use datafusion::logical_expr::ScalarFunctionArgs;
 
     #[test]
+    fn test_json_to_variant_udf_scalar_none() {
+        let udf = JsonToVariantUDF::default();
+
+        let json_input = ScalarValue::Utf8(None);
+
+        let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
+        let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Scalar(json_input)],
+            return_field: return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+        };
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        match result {
+            ColumnarValue::Scalar(ScalarValue::BinaryView(None)) => {}
+            _ => panic!("Expected null BinaryView result"),
+        }
+    }
+
+    #[test]
+    fn test_json_to_variant_udf_scalar_null() {
+        let udf = JsonToVariantUDF::default();
+
+        let json_input = ScalarValue::Utf8(Some("null".into()));
+
+        let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
+        let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Scalar(json_input)],
+            return_field: return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+        };
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let (_expected_m, expected_v) = {
+            let mut expected_variant = VariantBuilder::new();
+            expected_variant.append_value(());
+            expected_variant.finish()
+        };
+
+        match result {
+            ColumnarValue::Scalar(ScalarValue::BinaryView(Some(bytes))) => {
+                assert_eq!(bytes, expected_v);
+            }
+            _ => panic!("Expected non-null BinaryView result"),
+        }
+    }
+
+    #[test]
     fn test_json_to_variant_udf_scalar() {
         let udf = JsonToVariantUDF::default();
 
@@ -199,30 +254,6 @@ mod tests {
     }
 
     #[test]
-    fn test_json_to_variant_udf_scalar_null() {
-        let udf = JsonToVariantUDF::default();
-
-        let json_input = ScalarValue::Utf8(None);
-
-        let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
-        let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
-
-        let args = ScalarFunctionArgs {
-            args: vec![ColumnarValue::Scalar(json_input)],
-            return_field: return_field,
-            arg_fields: vec![arg_field],
-            number_rows: Default::default(),
-        };
-
-        let result = udf.invoke_with_args(args).unwrap();
-
-        match result {
-            ColumnarValue::Scalar(ScalarValue::BinaryView(None)) => {}
-            _ => panic!("Expected null BinaryView result"),
-        }
-    }
-
-    #[test]
     fn test_json_to_variant_udf_scalar_number() {
         let udf = JsonToVariantUDF::default();
 
@@ -240,9 +271,17 @@ mod tests {
 
         let result = udf.invoke_with_args(args).unwrap();
 
+        let (_expected_m, expected_v) = {
+            let mut expected_variant = VariantBuilder::new();
+            expected_variant.append_value(123_u8);
+            expected_variant.finish()
+        };
+
         match result {
             ColumnarValue::Scalar(ScalarValue::BinaryView(Some(bytes))) => {
                 assert!(!bytes.is_empty(), "Expected non-empty variant bytes");
+
+                assert_eq!(bytes, expected_v);
             }
             _ => panic!("Expected scalar BinaryView result"),
         }
