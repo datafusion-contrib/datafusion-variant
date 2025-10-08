@@ -6,13 +6,16 @@ use arrow::array::{Array, ArrayRef, LargeStringArray, StringArray, StringViewArr
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
-    error::Result as DataFusionResult,
-    logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature},
+    error::Result,
+    logical_expr::{
+        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature,
+    },
     scalar::ScalarValue,
 };
 use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
+/// Returns a Variant from a JSON string
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct JsonToVariantUDF {
     signature: Signature,
@@ -45,14 +48,11 @@ impl ScalarUDFImpl for JsonToVariantUDF {
         &self.signature
     }
 
-    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
-        Ok(DataType::BinaryView)
+    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
+        unimplemented!()
     }
 
-    fn return_field_from_args(
-        &self,
-        args: datafusion::logical_expr::ReturnFieldArgs,
-    ) -> datafusion::error::Result<Arc<Field>> {
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
         let [argument] = args.arg_fields else {
             return exec_err!("incorrect number of arguments for json_to_variant, expected 1");
         };
@@ -79,10 +79,7 @@ impl ScalarUDFImpl for JsonToVariantUDF {
         Ok(Arc::new(return_field))
     }
 
-    fn invoke_with_args(
-        &self,
-        args: datafusion::logical_expr::ScalarFunctionArgs,
-    ) -> DataFusionResult<datafusion::logical_expr::ColumnarValue> {
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let arg = args
             .args
             .first()
@@ -123,7 +120,7 @@ impl ScalarUDFImpl for JsonToVariantUDF {
 
 macro_rules! define_from_string_array {
     ($fn_name:ident, $array_type:ty) => {
-        pub(crate) fn $fn_name(arr: &ArrayRef) -> DataFusionResult<ArrayRef> {
+        pub(crate) fn $fn_name(arr: &ArrayRef) -> Result<ArrayRef> {
             let arr = arr
                 .as_any()
                 .downcast_ref::<$array_type>()
