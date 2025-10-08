@@ -160,12 +160,18 @@ mod tests {
         let json_input = ScalarValue::Utf8(None);
 
         let udf = JsonToVariantUDF::default();
-        let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+
+        let return_field = udf
+            .return_field_from_args(ReturnFieldArgs {
+                arg_fields: &[arg_field.clone()],
+                scalar_arguments: &[],
+            })
+            .unwrap();
 
         let args = ScalarFunctionArgs {
             args: vec![ColumnarValue::Scalar(json_input)],
-            return_field: return_field,
+            return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
             config_options: Default::default(),
@@ -186,12 +192,17 @@ mod tests {
         let json_input = ScalarValue::Utf8(Some("null".into()));
 
         let udf = JsonToVariantUDF::default();
-        let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+        let return_field = udf
+            .return_field_from_args(ReturnFieldArgs {
+                arg_fields: &[arg_field.clone()],
+                scalar_arguments: &[],
+            })
+            .unwrap();
 
         let args = ScalarFunctionArgs {
             args: vec![ColumnarValue::Scalar(json_input)],
-            return_field: return_field,
+            return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
             config_options: Default::default(),
@@ -236,12 +247,17 @@ mod tests {
 
         let expected_variant = Variant::try_new(&expected_m, &expected_v).unwrap();
 
-        let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+        let return_field = udf
+            .return_field_from_args(ReturnFieldArgs {
+                arg_fields: &[arg_field.clone()],
+                scalar_arguments: &[],
+            })
+            .unwrap();
 
         let args = ScalarFunctionArgs {
             args: vec![ColumnarValue::Scalar(json_input)],
-            return_field: return_field,
+            return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
             config_options: Default::default(),
@@ -264,12 +280,17 @@ mod tests {
         let json_input = ScalarValue::Utf8(Some("123".to_string()));
 
         let udf = JsonToVariantUDF::default();
-        let return_field = Arc::new(Field::new("result", DataType::BinaryView, true));
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+        let return_field = udf
+            .return_field_from_args(ReturnFieldArgs {
+                arg_fields: &[arg_field.clone()],
+                scalar_arguments: &[],
+            })
+            .unwrap();
 
         let args = ScalarFunctionArgs {
             args: vec![ColumnarValue::Scalar(json_input)],
-            return_field: return_field,
+            return_field,
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
             config_options: Default::default(),

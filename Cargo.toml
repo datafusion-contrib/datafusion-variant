@@ -24,3 +24,6 @@ arrow-select = { git = "https://github.com/apache/arrow-rs", rev = "760b7b607755
 arrow-string = { git = "https://github.com/apache/arrow-rs", rev = "760b7b6077559e0e73a01771a5b423da535fc96a" }
 arrow-ord = { git = "https://github.com/apache/arrow-rs", rev = "760b7b6077559e0e73a01771a5b423da535fc96a" }
 parquet = { git = "https://github.com/apache/arrow-rs", rev = "760b7b6077559e0e73a01771a5b423da535fc96a" }
+
+[dev-dependencies]
+serde_json = "1.0.145"

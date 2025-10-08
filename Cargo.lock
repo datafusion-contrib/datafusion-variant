@@ -1229,6 +1229,7 @@ dependencies = [
  "parquet-variant",
  "parquet-variant-compute",
  "parquet-variant-json",
+ "serde_json",
 ]
 
 [[package]]
