@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use arrow::array::StringArray;
-use arrow_schema::{DataType, Field, FieldRef, extension::ExtensionType};
+use arrow_schema::{DataType, Field, FieldRef};
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
     error::Result,
@@ -13,8 +13,10 @@ use datafusion::{
     },
     scalar::ScalarValue,
 };
-use parquet_variant_compute::{VariantArray, VariantType};
+use parquet_variant_compute::VariantArray;
 use parquet_variant_json::VariantToJson;
+
+use crate::shared::is_variant_array;
 
 /// Returns a JSON string from a Variant
 ///
@@ -59,12 +61,7 @@ impl ScalarUDFImpl for VariantToJsonUdf {
             return exec_err!("expected an argument");
         };
 
-        if !matches!(argument.extension_type(), VariantType) {
-            return exec_err!("expected extension type VariantType");
-        }
-
-        let variant_type = VariantType;
-        variant_type.supports_data_type(argument.as_ref().data_type())?;
+        is_variant_array(argument.as_ref())?;
 
         let nullable = argument.is_nullable();
 
