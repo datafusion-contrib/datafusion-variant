@@ -3,13 +3,12 @@
 use std::sync::Arc;
 
 use arrow::array::StringArray;
-use arrow_schema::{DataType, Field, FieldRef};
+use arrow_schema::DataType;
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
     error::Result,
     logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature,
-        TypeSignature, Volatility,
+        ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
     },
     scalar::ScalarValue,
 };
@@ -18,10 +17,10 @@ use parquet_variant_json::VariantToJson;
 
 use crate::shared::is_variant_array;
 
-/// Returns a JSON string from a Variant
+/// Returns a JSON string from a VariantArray
 ///
 /// ## Arguments
-/// - expr: a DataType::Struct expression that represents a Variant
+/// - expr: a DataType::Struct expression that represents a VariantArray
 /// - options: an optional MAP (note, it seems arrow-rs' parquet-variant is pretty restrictive about the options)
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantToJsonUdf {
@@ -53,26 +52,17 @@ impl ScalarUDFImpl for VariantToJsonUdf {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        unimplemented!()
-    }
-
-    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
-        let [argument] = args.arg_fields else {
-            return exec_err!("expected an argument");
-        };
-
-        is_variant_array(argument.as_ref())?;
-
-        let nullable = argument.is_nullable();
-
-        Ok(FieldRef::new(Field::new(
-            self.name(),
-            DataType::Utf8View,
-            nullable,
-        )))
+        Ok(DataType::Utf8View)
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        let field = args
+            .arg_fields
+            .first()
+            .ok_or_else(|| exec_datafusion_err!("empty argument, expected 1 argument"))?;
+
+        is_variant_array(field.as_ref())?;
+
         let arg = args
             .args
             .first()
@@ -85,8 +75,6 @@ impl ScalarUDFImpl for VariantToJsonUdf {
                 };
 
                 let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-
-                // in a scalar case, is it safe to assume variant_array has only 1 element?
                 let v = variant_array.value(0);
 
                 ColumnarValue::Scalar(ScalarValue::Utf8View(Some(v.to_json_string()?)))
@@ -118,11 +106,43 @@ impl ScalarUDFImpl for VariantToJsonUdf {
 #[cfg(test)]
 mod tests {
     use arrow_schema::{Field, Fields};
-    use parquet_variant_compute::VariantArrayBuilder;
-    use parquet_variant_json::JsonToVariant;
+    use parquet_variant_compute::VariantType;
     use serde_json::Value;
 
+    use crate::shared::build_variant_array_from_json;
+
     use super::*;
+
+    #[test]
+    fn test_scalar_primitive() {
+        let expected_json = serde_json::json!("norm");
+        let input = build_variant_array_from_json(&expected_json);
+
+        let variant_input = ScalarValue::Struct(Arc::new(input.into()));
+
+        let udf = VariantToJsonUdf::default();
+        let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
+        let arg_field = Arc::new(
+            Field::new("input", DataType::Struct(Fields::empty()), true)
+                .with_extension_type(VariantType),
+        );
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Scalar(variant_input)],
+            return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(j))) = result else {
+            panic!("expected valid json string")
+        };
+
+        assert_eq!(j.as_str(), r#""norm""#);
+    }
 
     #[test]
     fn test_variant_to_json_udf_scalar_complex() {
@@ -132,18 +152,17 @@ mod tests {
             "list": [false, true, ()]
         });
 
-        let json_str = expected_json.to_string();
-        let mut builder = VariantArrayBuilder::new(1);
-        builder.append_json(json_str.as_str()).unwrap();
+        let input = build_variant_array_from_json(&expected_json);
 
-        let input = builder.build().into();
-
-        let variant_input = ScalarValue::Struct(Arc::new(input));
+        let variant_input = ScalarValue::Struct(Arc::new(input.into()));
 
         let udf = VariantToJsonUdf::default();
 
         let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
-        let arg_field = Arc::new(Field::new("input", DataType::Struct(Fields::empty()), true));
+        let arg_field = Arc::new(
+            Field::new("input", DataType::Struct(Fields::empty()), true)
+                .with_extension_type(VariantType),
+        );
 
         let args = ScalarFunctionArgs {
             args: vec![ColumnarValue::Scalar(variant_input)],
