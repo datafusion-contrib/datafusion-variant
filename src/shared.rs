@@ -26,11 +26,18 @@ pub fn try_field_as_variant_array(field: &Field) -> Result<()> {
 }
 
 pub fn try_field_as_binary(field: &Field) -> Result<()> {
-    if !matches!(
-        field.data_type(),
-        DataType::Binary | DataType::BinaryView | DataType::LargeBinary
-    ) {
-        return exec_err!("expected binary field");
+    match field.data_type() {
+        DataType::Binary | DataType::BinaryView | DataType::LargeBinary => {}
+        unsupported => return exec_err!("expected binary field, got {unsupported} field"),
+    }
+
+    Ok(())
+}
+
+pub fn try_field_as_string(field: &Field) -> Result<()> {
+    match field.data_type() {
+        DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => {}
+        unsupported => return exec_err!("expected string field, got {unsupported} field"),
     }
 
     Ok(())
@@ -64,6 +71,36 @@ pub fn try_parse_binary_columnar(array: &Arc<dyn Array>) -> Result<Vec<Option<&[
     }
 
     Err(exec_datafusion_err!("expected binary array"))
+}
+
+pub fn try_parse_string_scalar(scalar: &ScalarValue) -> Result<Option<&String>> {
+    let b = match scalar {
+        ScalarValue::Utf8(s) | ScalarValue::Utf8View(s) | ScalarValue::LargeUtf8(s) => s,
+        unsupported => {
+            return exec_err!(
+                "expected binary scalar value, got data type: {}",
+                unsupported.data_type()
+            );
+        }
+    };
+
+    Ok(b.as_ref())
+}
+
+pub fn try_parse_string_columnar(array: &Arc<dyn Array>) -> Result<Vec<Option<&str>>> {
+    if let Some(string_array) = array.as_string_opt::<i32>() {
+        return Ok(string_array.into_iter().collect::<Vec<_>>());
+    }
+
+    if let Some(string_view_array) = array.as_string_view_opt() {
+        return Ok(string_view_array.into_iter().collect::<Vec<_>>());
+    }
+
+    if let Some(large_string_array) = array.as_string_opt::<i64>() {
+        return Ok(large_string_array.into_iter().collect::<Vec<_>>());
+    }
+
+    Err(exec_datafusion_err!("expected string array"))
 }
 
 // test related methods

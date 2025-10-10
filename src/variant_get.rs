@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, StringArray, StructArray},
+    array::{Array, ArrayRef, StructArray},
     compute::concat,
 };
 use arrow_schema::{DataType, Field, Fields};
@@ -14,7 +14,9 @@ use datafusion::{
 use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantArray, VariantArrayBuilder, variant_get};
 
-use crate::shared::try_field_as_variant_array;
+use crate::shared::{
+    try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
@@ -68,17 +70,13 @@ impl ScalarUDFImpl for VariantGetUdf {
 
         let out = match (variant_arg, variant_path) {
             (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {
-                let variant_path = match variant_path.clone() {
-                    ScalarValue::Utf8(path)
-                    | ScalarValue::Utf8View(path)
-                    | ScalarValue::LargeUtf8(path) => path,
-                    unsupported => return exec_err!("unsupported data type: {unsupported}"),
-                }
-                .unwrap_or_default();
+                let variant_path = try_parse_string_scalar(variant_path)?
+                    .map(|s| s.as_str())
+                    .unwrap_or_default();
 
                 let res = variant_get(
                     variant_array,
-                    GetOptions::new_with_path(VariantPath::from(variant_path.as_str())),
+                    GetOptions::new_with_path(VariantPath::from(variant_path)),
                 )?;
 
                 ColumnarValue::Array(res)
@@ -90,17 +88,13 @@ impl ScalarUDFImpl for VariantGetUdf {
 
                 let variant_array = Arc::clone(variant_array) as ArrayRef;
 
-                let variant_path = match variant_path.clone() {
-                    ScalarValue::Utf8(path)
-                    | ScalarValue::Utf8View(path)
-                    | ScalarValue::LargeUtf8(path) => path,
-                    unsupported => return exec_err!("unsupported data type: {unsupported}"),
-                }
-                .unwrap_or_default();
+                let variant_path = try_parse_string_scalar(variant_path)?
+                    .map(|s| s.as_str())
+                    .unwrap_or_default();
 
                 let res = variant_get(
                     &variant_array,
-                    GetOptions::new_with_path(VariantPath::from(variant_path.as_str())),
+                    GetOptions::new_with_path(VariantPath::from(variant_path)),
                 )?
                 .as_any()
                 .downcast_ref::<StructArray>()
@@ -116,18 +110,13 @@ impl ScalarUDFImpl for VariantGetUdf {
                     );
                 }
 
-                let variant_paths = variant_paths
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| exec_datafusion_err!("expected string array"))?;
-
+                let variant_paths = try_parse_string_columnar(variant_paths)?;
                 let variant_array = VariantArray::try_new(variant_array.as_ref())?;
 
                 let mut out = Vec::with_capacity(variant_array.len());
 
-                for i in 0..variant_array.len() {
+                for (i, path) in variant_paths.iter().enumerate() {
                     let v = variant_array.value(i);
-
                     // todo: is there a better way to go from Variant -> VariantArray?
                     let singleton_variant_array: StructArray = {
                         let mut b = VariantArrayBuilder::new(1);
@@ -139,7 +128,7 @@ impl ScalarUDFImpl for VariantGetUdf {
 
                     let res = variant_get(
                         &arr,
-                        GetOptions::new_with_path(VariantPath::from(variant_paths.value(i))),
+                        GetOptions::new_with_path(VariantPath::from(path.unwrap_or_default())),
                     )?;
 
                     out.push(res);
@@ -154,11 +143,7 @@ impl ScalarUDFImpl for VariantGetUdf {
                 };
 
                 let variant_array = Arc::clone(variant_array) as ArrayRef;
-
-                let variant_paths = variant_paths
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| exec_datafusion_err!("expected string array"))?;
+                let variant_paths = try_parse_string_columnar(variant_paths)?;
 
                 let mut out = Vec::with_capacity(variant_paths.len());
 

@@ -7,13 +7,13 @@ use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
     error::Result,
-    logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature,
-    },
+    logical_expr::{ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature},
     scalar::ScalarValue,
 };
-use parquet_variant_compute::{VariantArrayBuilder, VariantType};
+use parquet_variant_compute::VariantArrayBuilder;
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
+
+use crate::shared::{try_field_as_string, try_parse_string_scalar};
 
 /// Returns a Variant from a JSON string
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -49,37 +49,20 @@ impl ScalarUDFImpl for JsonToVariantUDF {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        unimplemented!()
-    }
-
-    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
-        let [argument] = args.arg_fields else {
-            return exec_err!("incorrect number of arguments for json_to_variant, expected 1");
-        };
-
-        let argument = match argument.data_type() {
-            DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => argument.as_ref(),
-            unsupported => {
-                return exec_err!("expected string argument, got data type: {}", unsupported);
-            }
-        };
-
-        let is_nullable = argument.is_nullable();
-
-        // todo: take a closer look and see if this is needed/improved
-        // shredded values will have varying struct array schemas fwiw
-        let data_type = DataType::Struct(Fields::from(vec![
+        Ok(DataType::Struct(Fields::from(vec![
             Field::new("metadata", DataType::BinaryView, false),
-            Field::new("value", DataType::BinaryView, is_nullable),
-        ]));
-
-        let return_field =
-            Field::new(self.name(), data_type, is_nullable).with_extension_type(VariantType);
-
-        Ok(Arc::new(return_field))
+            Field::new("value", DataType::BinaryView, true),
+        ])))
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        let arg_field = args
+            .arg_fields
+            .first()
+            .ok_or_else(|| exec_datafusion_err!("empty argument, expected 1 argument"))?;
+
+        try_field_as_string(arg_field.as_ref())?;
+
         let arg = args
             .args
             .first()
@@ -87,18 +70,11 @@ impl ScalarUDFImpl for JsonToVariantUDF {
 
         let out = match arg {
             ColumnarValue::Scalar(scalar_value) => {
-                let json_term = match scalar_value {
-                    ScalarValue::Utf8(json)
-                    | ScalarValue::Utf8View(json)
-                    | ScalarValue::LargeUtf8(json) => json,
-                    unsupported => {
-                        return exec_err!("Unsupported data type {}", unsupported.data_type());
-                    }
-                };
+                let json_str = try_parse_string_scalar(scalar_value)?;
 
                 let mut builder = VariantArrayBuilder::new(1);
 
-                match json_term {
+                match json_str {
                     Some(json_str) => builder.append_json(json_str.as_str())?,
                     None => builder.append_null(),
                 }
@@ -151,7 +127,7 @@ define_from_string_array!(from_large_utf8_arr, LargeStringArray);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::logical_expr::ScalarFunctionArgs;
+    use datafusion::logical_expr::{ReturnFieldArgs, ScalarFunctionArgs};
     use parquet_variant::{Variant, VariantBuilder};
     use parquet_variant_compute::VariantArray;
 
