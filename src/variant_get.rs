@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, StructArray};
+use arrow::{
+    array::{Array, ArrayRef, StringArray, StructArray},
+    compute::concat,
+};
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
-    common::exec_err,
+    common::{exec_datafusion_err, exec_err},
     error::Result,
     logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
     scalar::ScalarValue,
 };
 use parquet_variant::VariantPath;
-use parquet_variant_compute::{GetOptions, variant_get};
+use parquet_variant_compute::{GetOptions, VariantArray, VariantArrayBuilder, variant_get};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
@@ -100,13 +103,71 @@ impl ScalarUDFImpl for VariantGetUdf {
 
                 ColumnarValue::Scalar(ScalarValue::Struct(Arc::new(res)))
             }
-            (ColumnarValue::Array(_variant_array), ColumnarValue::Array(_variant_paths)) => {
-                // i assume this would be reasonable? we'd essentially have to zip through each pair
-                // but we would have a list of arrayrefs...
-                todo!()
+            (ColumnarValue::Array(variant_array), ColumnarValue::Array(variant_paths)) => {
+                if variant_array.len() != variant_paths.len() {
+                    return exec_err!(
+                        "expected variant_array and variant paths to be of same length"
+                    );
+                }
+
+                let variant_paths = variant_paths
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| exec_datafusion_err!("expected string array"))?;
+
+                let variant_array = VariantArray::try_new(variant_array.as_ref())?;
+
+                let mut out = Vec::with_capacity(variant_array.len());
+
+                for i in 0..variant_array.len() {
+                    let v = variant_array.value(i);
+
+                    // todo: is there a better way to go from Variant -> VariantArray?
+                    let singleton_variant_array: StructArray = {
+                        let mut b = VariantArrayBuilder::new(1);
+                        b.append_variant(v);
+                        b.build().into()
+                    };
+
+                    let arr = Arc::new(singleton_variant_array) as ArrayRef;
+
+                    let res = variant_get(
+                        &arr,
+                        GetOptions::new_with_path(VariantPath::from(variant_paths.value(i))),
+                    )?;
+
+                    out.push(res);
+                }
+
+                let out_refs: Vec<&dyn Array> = out.iter().map(|a| a.as_ref()).collect();
+                ColumnarValue::Array(concat(&out_refs)?)
             }
-            (ColumnarValue::Scalar(_scalar_value), ColumnarValue::Array(_array)) => {
-                todo!("do we even support this case?")
+            (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(variant_paths)) => {
+                let ScalarValue::Struct(variant_array) = scalar_variant else {
+                    return exec_err!("expected struct array");
+                };
+
+                let variant_array = Arc::clone(variant_array) as ArrayRef;
+
+                let variant_paths = variant_paths
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| exec_datafusion_err!("expected string array"))?;
+
+                let mut out = Vec::with_capacity(variant_paths.len());
+
+                for path in variant_paths {
+                    let path = path.unwrap_or_default();
+                    let res = variant_get(
+                        &variant_array,
+                        GetOptions::new_with_path(VariantPath::from(path)),
+                    )?;
+
+                    out.push(res);
+                }
+
+                let out_refs: Vec<&dyn Array> = out.iter().map(|a| a.as_ref()).collect();
+                ColumnarValue::Array(concat(&out_refs)?)
             }
         };
 
