@@ -14,6 +14,8 @@ use datafusion::{
 use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantArray, VariantArrayBuilder, variant_get};
 
+use crate::shared::try_field_as_variant_array;
+
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
@@ -22,10 +24,7 @@ pub struct VariantGetUdf {
 impl Default for VariantGetUdf {
     fn default() -> Self {
         Self {
-            signature: Signature::new(
-                TypeSignature::OneOf(vec![TypeSignature::Any(1), TypeSignature::Any(2)]),
-                Volatility::Immutable,
-            ),
+            signature: Signature::new(TypeSignature::Any(2), Volatility::Immutable),
         }
     }
 }
@@ -59,6 +58,13 @@ impl ScalarUDFImpl for VariantGetUdf {
         let [variant_arg, variant_path] = args.args.as_slice() else {
             return exec_err!("expected 2 arguments");
         };
+
+        let variant_field = args
+            .arg_fields
+            .first()
+            .ok_or_else(|| exec_datafusion_err!("expected argument field"))?;
+
+        try_field_as_variant_array(variant_field.as_ref())?;
 
         let out = match (variant_arg, variant_path) {
             (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {

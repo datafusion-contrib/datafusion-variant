@@ -15,7 +15,7 @@ use datafusion::{
 use parquet_variant_compute::VariantArray;
 use parquet_variant_json::VariantToJson;
 
-use crate::shared::is_variant_array;
+use crate::shared::try_field_as_variant_array;
 
 /// Returns a JSON string from a VariantArray
 ///
@@ -61,7 +61,7 @@ impl ScalarUDFImpl for VariantToJsonUdf {
             .first()
             .ok_or_else(|| exec_datafusion_err!("empty argument, expected 1 argument"))?;
 
-        is_variant_array(field.as_ref())?;
+        try_field_as_variant_array(field.as_ref())?;
 
         let arg = args
             .args
