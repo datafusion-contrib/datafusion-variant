@@ -80,7 +80,9 @@ impl ScalarUDFImpl for CastToVariantUdf {
 
                 for (m, v) in metadata_array.into_iter().zip(value_array) {
                     match (m, v) {
-                        (Some(m), Some(v)) => builder.append_variant(Variant::try_new(m, v)?),
+                        (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
+                            builder.append_variant(Variant::try_new(m, v)?)
+                        }
                         _ => builder.append_null(),
                     }
                 }
@@ -97,7 +99,7 @@ impl ScalarUDFImpl for CastToVariantUdf {
 
                 for v in value_array {
                     match (metadata, v) {
-                        (Some(m), Some(v)) => {
+                        (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
                             builder.append_variant(Variant::try_new(m.as_slice(), v)?);
                         }
                         _ => builder.append_null(),
@@ -113,7 +115,7 @@ impl ScalarUDFImpl for CastToVariantUdf {
                 let value = try_parse_binary_scalar(value_scalar)?;
 
                 match (metadata, value) {
-                    (Some(m), Some(v)) => {
+                    (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
                         let mut b = VariantArrayBuilder::new(1);
                         b.append_variant(Variant::try_new(m.as_slice(), v.as_slice())?);
                         let arr: StructArray = b.build().into();
@@ -131,7 +133,9 @@ impl ScalarUDFImpl for CastToVariantUdf {
 
                 for m in metadata_array {
                     match (m, value) {
-                        (Some(m), Some(v)) => b.append_variant(Variant::try_new(m, v.as_slice())?),
+                        (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
+                            b.append_variant(Variant::try_new(m, v.as_slice())?)
+                        }
                         _ => b.append_null(),
                     }
                 }
@@ -143,5 +147,127 @@ impl ScalarUDFImpl for CastToVariantUdf {
         };
 
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use parquet_variant_compute::VariantArray;
+
+    use crate::shared::{
+        are_variant_arrays_equal, build_variant_array_from_json,
+        build_variant_array_from_json_array,
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_scalar_binary_views() {
+        let expected_variant_array = build_variant_array_from_json(&serde_json::json!({
+            "name": "norm",
+        }));
+
+        let (input_metadata, input_value) = {
+            let metadata = expected_variant_array.metadata_field().value(0);
+            let value = expected_variant_array.value_field().unwrap().value(0);
+
+            (metadata, value)
+        };
+
+        let udf = CastToVariantUdf::default();
+
+        let metadata_field = Arc::new(Field::new("metadata", DataType::BinaryView, true));
+        let variant_field = Arc::new(Field::new("value", DataType::BinaryView, true));
+
+        let return_field = Arc::new(Field::new(
+            "res",
+            udf.return_type(&[DataType::BinaryView, DataType::BinaryView])
+                .unwrap(),
+            true,
+        ));
+
+        let args = ScalarFunctionArgs {
+            args: vec![
+                ColumnarValue::Scalar(ScalarValue::BinaryView(Some(input_metadata.to_vec()))),
+                ColumnarValue::Scalar(ScalarValue::BinaryView(Some(input_value.to_vec()))),
+            ],
+            return_field,
+            arg_fields: vec![metadata_field, variant_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let res = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Struct(variant_array)) = res else {
+            panic!("expected scalar value struct array")
+        };
+
+        let variant_array = VariantArray::try_new(variant_array.as_ref()).unwrap();
+
+        assert!(are_variant_arrays_equal(
+            &variant_array,
+            &expected_variant_array
+        ));
+    }
+
+    #[test]
+    fn test_array_binary_views() {
+        let expected_variant_array = build_variant_array_from_json_array(&[
+            Some(serde_json::json!({
+                "name": "norm",
+            })),
+            None,
+            None,
+            Some(serde_json::json!({
+                "id": 1,
+                "parent_id": 0,
+                "child_ids": [2, 3, 4, 5]
+            })),
+        ]);
+
+        let (input_metadata_array, input_value_array) = {
+            let metadata = expected_variant_array.metadata_field().clone();
+            let value = expected_variant_array.value_field().unwrap().clone();
+
+            (metadata, value)
+        };
+
+        let udf = CastToVariantUdf::default();
+
+        let metadata_field = Arc::new(Field::new("metadata", DataType::BinaryView, true));
+        let variant_field = Arc::new(Field::new("value", DataType::BinaryView, true));
+
+        let return_field = Arc::new(Field::new(
+            "res",
+            udf.return_type(&[DataType::BinaryView, DataType::BinaryView])
+                .unwrap(),
+            true,
+        ));
+
+        let args = ScalarFunctionArgs {
+            args: vec![
+                ColumnarValue::Array(Arc::new(input_metadata_array) as ArrayRef),
+                ColumnarValue::Array(Arc::new(input_value_array) as ArrayRef),
+            ],
+            return_field,
+            arg_fields: vec![metadata_field, variant_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let res = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(variant_array) = res else {
+            panic!("expected scalar value struct array")
+        };
+
+        let variant_array = VariantArray::try_new(variant_array.as_ref()).unwrap();
+
+        assert!(are_variant_arrays_equal(
+            &variant_array,
+            &expected_variant_array
+        ));
     }
 }

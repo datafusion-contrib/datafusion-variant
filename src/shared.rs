@@ -126,3 +126,40 @@ pub fn build_variant_array_from_json_array(jsons: &[Option<serde_json::Value>]) 
 
     builder.build()
 }
+
+#[cfg(test)]
+pub fn are_variant_arrays_equal(this: &VariantArray, other: &VariantArray) -> bool {
+    if this.len() != other.len() {
+        return false;
+    }
+
+    for i in 0..this.len() {
+        let this_metadata = this.metadata_field().value(i);
+        let this_value = this.value_field().unwrap().value(i);
+        let other_metadata = other.metadata_field().value(i);
+        let other_value = other.value_field().unwrap().value(i);
+
+        if this_metadata.is_empty()
+            && this_value.is_empty()
+            && other_metadata.is_empty()
+            && other_value.is_empty()
+        {
+            continue;
+        }
+
+        if (this_metadata.is_empty() && this_value.is_empty())
+            != (other_metadata.is_empty() && other_value.is_empty())
+        {
+            return false;
+        }
+
+        let this_variant = this.value(i);
+        let other_variant = other.value(i);
+
+        if this_variant != other_variant {
+            return false;
+        }
+    }
+
+    true
+}

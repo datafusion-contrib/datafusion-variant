@@ -17,11 +17,11 @@ use crate::shared::{try_field_as_string, try_parse_string_scalar};
 
 /// Returns a Variant from a JSON string
 #[derive(Debug, Hash, PartialEq, Eq)]
-pub struct JsonToVariantUDF {
+pub struct JsonToVariantUdf {
     signature: Signature,
 }
 
-impl Default for JsonToVariantUDF {
+impl Default for JsonToVariantUdf {
     fn default() -> Self {
         Self {
             signature: Signature::new(
@@ -35,7 +35,7 @@ impl Default for JsonToVariantUDF {
     }
 }
 
-impl ScalarUDFImpl for JsonToVariantUDF {
+impl ScalarUDFImpl for JsonToVariantUdf {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -135,7 +135,7 @@ mod tests {
     fn test_json_to_variant_udf_scalar_none() {
         let json_input = ScalarValue::Utf8(None);
 
-        let udf = JsonToVariantUDF::default();
+        let udf = JsonToVariantUdf::default();
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
 
         let return_field = udf
@@ -167,7 +167,7 @@ mod tests {
     fn test_json_to_variant_udf_scalar_null() {
         let json_input = ScalarValue::Utf8(Some("null".into()));
 
-        let udf = JsonToVariantUDF::default();
+        let udf = JsonToVariantUdf::default();
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
         let return_field = udf
             .return_field_from_args(ReturnFieldArgs {
@@ -200,7 +200,7 @@ mod tests {
         let json_input =
             ScalarValue::Utf8(Some(r#"{"key": 123, "data": [4, 5, "str"]}"#.to_string()));
 
-        let udf = JsonToVariantUDF::default();
+        let udf = JsonToVariantUdf::default();
 
         let (expected_m, expected_v) = {
             let mut variant_builder = VariantBuilder::new();
@@ -255,7 +255,7 @@ mod tests {
     fn test_json_to_variant_udf_scalar_primitive() {
         let json_input = ScalarValue::Utf8(Some("123".to_string()));
 
-        let udf = JsonToVariantUDF::default();
+        let udf = JsonToVariantUdf::default();
         let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
         let return_field = udf
             .return_field_from_args(ReturnFieldArgs {
