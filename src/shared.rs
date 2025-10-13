@@ -6,10 +6,10 @@ use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
 use datafusion::error::Result;
 use datafusion::{common::exec_err, scalar::ScalarValue};
-use parquet_variant_compute::VariantType;
+use parquet_variant_compute::{VariantArray, VariantType};
 
 #[cfg(test)]
-use parquet_variant_compute::{VariantArray, VariantArrayBuilder};
+use parquet_variant_compute::VariantArrayBuilder;
 
 #[cfg(test)]
 use parquet_variant_json::JsonToVariant;
@@ -41,6 +41,20 @@ pub fn try_field_as_string(field: &Field) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn try_parse_variant_scalar(scalar: &ScalarValue) -> Result<VariantArray> {
+    let v = match scalar {
+        ScalarValue::Struct(v) => v,
+        unsupported => {
+            return exec_err!(
+                "expected variant scalar value, got data type: {}",
+                unsupported.data_type()
+            );
+        }
+    };
+
+    VariantArray::try_new(v.as_ref()).map_err(Into::into)
 }
 
 pub fn try_parse_binary_scalar(scalar: &ScalarValue) -> Result<Option<&Vec<u8>>> {
