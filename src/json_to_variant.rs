@@ -7,10 +7,10 @@ use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
     error::Result,
-    logical_expr::{ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature},
+    logical_expr::{ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature},
     scalar::ScalarValue,
 };
-use parquet_variant_compute::VariantArrayBuilder;
+use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
 use crate::shared::{try_field_as_string, try_parse_string_scalar};
@@ -51,8 +51,13 @@ impl ScalarUDFImpl for JsonToVariantUdf {
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
         Ok(DataType::Struct(Fields::from(vec![
             Field::new("metadata", DataType::BinaryView, false),
-            Field::new("value", DataType::BinaryView, true),
+            Field::new("value", DataType::BinaryView, false),
         ])))
+    }
+
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
+        let data_type = self.return_type(args.arg_fields.iter().map(|f| f.data_type().clone()).collect::<Vec<_>>().as_slice())?;
+        Ok(Arc::new(Field::new(self.name(), data_type, true).with_extension_type(VariantType)))
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {

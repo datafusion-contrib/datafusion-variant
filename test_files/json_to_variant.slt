@@ -1,0 +1,21 @@
+statement ok
+CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
+  (7, '{"name": "Alice", "age": 30}'),
+  (6, '{"name": "Bob", "age": 25}'),
+  (5, '{"items": [1, 2, 3], "count": 3}'),
+  (4, 'null'),
+  (3, '"simple string"'),
+  (2, '123'),
+  (1, 'true');
+
+# convert json strings to variant and back to json string (round trip)
+query IT
+SELECT id, variant_to_json(json_to_variant(json_str)) FROM json_data ORDER BY id;
+----
+1 true
+2 123
+3 "simple string"
+4 null
+5 {"count":3,"items":[1,2,3]}
+6 {"age":25,"name":"Bob"}
+7 {"age":30,"name":"Alice"}

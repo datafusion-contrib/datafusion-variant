@@ -27,3 +27,8 @@ parquet = { git = "https://github.com/apache/arrow-rs", rev = "760b7b6077559e0e7
 
 [dev-dependencies]
 serde_json = "1.0.145"
+datafusion-sqllogictest = { git = "https://github.com/alamb/datafusion", branch = "alamb/upgrade_arrow_57" }
+sqllogictest = "0.28"
+indicatif = "0.18"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+env_logger = "0.11"

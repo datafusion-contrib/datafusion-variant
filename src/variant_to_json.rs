@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use arrow::array::StringArray;
+use arrow::array::StringViewArray;
 use arrow_schema::DataType;
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
@@ -91,7 +91,7 @@ impl ScalarUDFImpl for VariantToJsonUdf {
                         out.push(Some(v.to_json_string()?));
                     }
 
-                    let out: StringArray = out.into();
+                    let out: StringViewArray = out.into();
 
                     ColumnarValue::Array(Arc::new(out))
                 }
