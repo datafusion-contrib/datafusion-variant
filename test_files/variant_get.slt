@@ -1,0 +1,20 @@
+statement ok
+CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
+  (1, '{"name": "Alice", "age": 30}'),
+  (2, '{"name": "Bob", "age": 25}'),
+  (3, '{"items": [1, 2, 3], "count": 3}'),
+  (4, 'null'),
+  (5, '"simple string"'),
+  (6, '123'),
+  (7, 'true');
+
+query T
+select variant_to_json(variant_get(json_to_variant(json_str), 'name')) from json_data;
+----
+"Alice"
+"Bob"
+null
+null
+null
+null
+null

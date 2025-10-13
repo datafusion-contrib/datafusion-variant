@@ -7,12 +7,16 @@ use arrow::{
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
     common::{exec_datafusion_err, exec_err},
-    error::Result,
-    logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, TypeSignature, Volatility},
+    error::{DataFusionError, Result},
+    logical_expr::{
+        ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
+    },
     scalar::ScalarValue,
 };
 use parquet_variant::VariantPath;
-use parquet_variant_compute::{GetOptions, VariantArray, VariantArrayBuilder, variant_get};
+use parquet_variant_compute::{
+    GetOptions, VariantArray, VariantArrayBuilder, VariantType, variant_get,
+};
 
 use crate::shared::{
     try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
@@ -45,12 +49,20 @@ impl ScalarUDFImpl for VariantGetUdf {
     }
 
     fn return_type(&self, _arg_types: &[arrow_schema::DataType]) -> Result<arrow_schema::DataType> {
-        let fields = vec![
+        Err(DataFusionError::Internal(
+            "implemented return_field_from_args instead".into(),
+        ))
+    }
+
+    fn return_field_from_args(&self, _args: ReturnFieldArgs) -> Result<Arc<Field>> {
+        let data_type = DataType::Struct(Fields::from(vec![
             Field::new("metadata", DataType::BinaryView, false),
             Field::new("value", DataType::BinaryView, true),
-        ];
+        ]));
 
-        Ok(DataType::Struct(Fields::from(fields)))
+        Ok(Arc::new(
+            Field::new(self.name(), data_type, true).with_extension_type(VariantType),
+        ))
     }
 
     fn invoke_with_args(
