@@ -16,6 +16,9 @@ jobs:
         with:
           toolchain: "nightly"
 
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - name: version info
         run: rustc --version; cargo --version;
 
@@ -45,6 +48,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "nightly"
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - run: |
           rustup component add clippy
