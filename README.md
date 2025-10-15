@@ -1,6 +1,8 @@
 # datafusion-variant
 
-This crate aims to provide UDFs for efficient Variant handling in Datafusion.
+This crate provides user-defined functions for efficient Variant type handling in Datafusion. Variant types enable semi-structured data storage and querying, supporting JSON-like nested structs with dynamic schemas.
+
+This crate aims to achieve complete feature parity with Spark and Databricks Variant functions.
 
 Contributers are welcomed! [Now check this out](https://www.youtube.com/watch?v=1dj1kCrUFCY)
 
