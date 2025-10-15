@@ -19,3 +19,15 @@ cargo test
 # run sqllogictests
 cargo test --test sqllogictests
 ```
+
+# Reading
+
+## Specifications
+
+- Iceberg Variant proposal: https://docs.google.com/document/d/1sq70XDiWJ2DemWyA5dVB80gKzwi0CWoM0LOWM7VJVd8/edit?tab=t.0#heading=h.rt0cvesdzsj7<br>
+- Databricks Variant functions: https://docs.databricks.com/gcp/en/sql/language-manual/sql-ref-functions-builtin#variant-functions<br>
+- Spark Variant functions: https://spark.apache.org/docs/latest/api/sql/index.html<br>
+
+## Miscellaneous
+
+- https://datafusion.apache.org/blog/2025/09/21/custom-types-using-metadata
