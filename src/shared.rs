@@ -15,9 +15,10 @@ use parquet_variant_compute::VariantArrayBuilder;
 use parquet_variant_json::JsonToVariant;
 
 pub fn try_field_as_variant_array(field: &Field) -> Result<()> {
-    if !matches!(field.extension_type(), VariantType) {
-        return exec_err!("field does not have extension type VariantType");
-    }
+    ensure(
+        matches!(field.extension_type(), VariantType),
+        "field does not have extension type VariantType",
+    )?;
 
     let variant_type = VariantType;
     variant_type.supports_data_type(field.data_type())?;
@@ -115,6 +116,16 @@ pub fn try_parse_string_columnar(array: &Arc<dyn Array>) -> Result<Vec<Option<&s
     }
 
     Err(exec_datafusion_err!("expected string array"))
+}
+
+/// This is similar to anyhow's ensure! macro
+/// If the `pred` fails, it will return a DataFusionError
+pub fn ensure(pred: bool, err_msg: &str) -> Result<()> {
+    if !pred {
+        return exec_err!("{}", err_msg);
+    }
+
+    Ok(())
 }
 
 // test related methods
