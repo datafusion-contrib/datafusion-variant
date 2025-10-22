@@ -72,13 +72,10 @@ impl ScalarUDFImpl for VariantPretty {
                 DataType::Struct(_) => {
                     let variant_array = VariantArray::try_new(arr.as_ref())?;
 
-                    // is there a reason why variant array doesn't implement Iterator?
-                    let mut out = Vec::with_capacity(variant_array.len());
-
-                    for i in 0..variant_array.len() {
-                        let v = variant_array.value(i);
-                        out.push(Some(format!("{:?}", v)));
-                    }
+                    let out = variant_array
+                        .iter()
+                        .map(|v| v.map(|v| format!("{:?}", v)))
+                        .collect::<Vec<_>>();
 
                     let out: StringViewArray = out.into();
 

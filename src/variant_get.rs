@@ -14,9 +14,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use parquet_variant::VariantPath;
-use parquet_variant_compute::{
-    GetOptions, VariantArray, VariantArrayBuilder, VariantType, variant_get,
-};
+use parquet_variant_compute::{GetOptions, VariantArray, VariantType, variant_get};
 
 use crate::shared::{
     try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
@@ -130,11 +128,7 @@ impl ScalarUDFImpl for VariantGetUdf {
                 for (i, path) in variant_paths.iter().enumerate() {
                     let v = variant_array.value(i);
                     // todo: is there a better way to go from Variant -> VariantArray?
-                    let singleton_variant_array: StructArray = {
-                        let mut b = VariantArrayBuilder::new(1);
-                        b.append_variant(v);
-                        b.build().into()
-                    };
+                    let singleton_variant_array: StructArray = VariantArray::from_iter([v]).into();
 
                     let arr = Arc::new(singleton_variant_array) as ArrayRef;
 

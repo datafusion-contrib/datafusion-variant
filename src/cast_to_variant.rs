@@ -11,7 +11,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use parquet_variant::Variant;
-use parquet_variant_compute::VariantArrayBuilder;
+use parquet_variant_compute::{VariantArray, VariantArrayBuilder};
 
 use crate::shared::{try_field_as_binary, try_parse_binary_columnar, try_parse_binary_scalar};
 
@@ -76,18 +76,18 @@ impl ScalarUDFImpl for CastToVariantUdf {
                 let metadata_array = try_parse_binary_columnar(metadata_array)?;
                 let value_array = try_parse_binary_columnar(value_array)?;
 
-                let mut builder = VariantArrayBuilder::new(metadata_array.len());
-
-                for (m, v) in metadata_array.into_iter().zip(value_array) {
-                    match (m, v) {
+                let vs = metadata_array
+                    .into_iter()
+                    .zip(value_array)
+                    .map(|(m, v)| match (m, v) {
                         (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
-                            builder.append_variant(Variant::try_new(m, v)?)
+                            Some(Variant::try_new(m, v)).transpose()
                         }
-                        _ => builder.append_null(),
-                    }
-                }
+                        _ => Ok(None),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                let out: StructArray = builder.build().into();
+                let out: StructArray = VariantArray::from_iter(vs).into();
 
                 ColumnarValue::Array(Arc::new(out) as ArrayRef)
             }
@@ -95,18 +95,21 @@ impl ScalarUDFImpl for CastToVariantUdf {
                 let metadata = try_parse_binary_scalar(metadata_value)?;
                 let value_array = try_parse_binary_columnar(value_array)?;
 
-                let mut builder = VariantArrayBuilder::new(value_array.len());
+                let vs = value_array
+                    .iter()
+                    .map(|v| {
+                        let m = metadata;
 
-                for v in value_array {
-                    match (metadata, v) {
-                        (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
-                            builder.append_variant(Variant::try_new(m.as_slice(), v)?);
+                        match (m, v) {
+                            (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
+                                Some(Variant::try_new(m.as_slice(), v)).transpose()
+                            }
+                            _ => Ok(None),
                         }
-                        _ => builder.append_null(),
-                    }
-                }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                let arr: StructArray = builder.build().into();
+                let arr: StructArray = VariantArray::from_iter(vs).into();
 
                 ColumnarValue::Array(Arc::new(arr) as ArrayRef)
             }
@@ -129,18 +132,21 @@ impl ScalarUDFImpl for CastToVariantUdf {
                 let metadata_array = try_parse_binary_columnar(metadata_array)?;
                 let value = try_parse_binary_scalar(value_scalar)?;
 
-                let mut b = VariantArrayBuilder::new(metadata_array.len());
+                let arr = metadata_array
+                    .iter()
+                    .map(|m| {
+                        let v = value;
 
-                for m in metadata_array {
-                    match (m, value) {
-                        (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
-                            b.append_variant(Variant::try_new(m, v.as_slice())?)
+                        match (m, v) {
+                            (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
+                                Some(Variant::try_new(m, v)).transpose()
+                            }
+                            _ => Ok(None),
                         }
-                        _ => b.append_null(),
-                    }
-                }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                let arr: StructArray = b.build().into();
+                let arr: StructArray = VariantArray::from_iter(arr).into();
 
                 ColumnarValue::Array(Arc::new(arr))
             }
@@ -155,10 +161,7 @@ mod tests {
 
     use parquet_variant_compute::VariantArray;
 
-    use crate::shared::{
-        are_variant_arrays_equal, build_variant_array_from_json,
-        build_variant_array_from_json_array,
-    };
+    use crate::shared::{build_variant_array_from_json, build_variant_array_from_json_array};
 
     use super::*;
 
@@ -206,10 +209,7 @@ mod tests {
 
         let variant_array = VariantArray::try_new(variant_array.as_ref()).unwrap();
 
-        assert!(are_variant_arrays_equal(
-            &variant_array,
-            &expected_variant_array
-        ));
+        assert_eq!(&variant_array, &expected_variant_array);
     }
 
     #[test]
@@ -265,9 +265,6 @@ mod tests {
 
         let variant_array = VariantArray::try_new(variant_array.as_ref()).unwrap();
 
-        assert!(are_variant_arrays_equal(
-            &variant_array,
-            &expected_variant_array
-        ));
+        assert_eq!(&variant_array, &expected_variant_array);
     }
 }

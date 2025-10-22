@@ -9,12 +9,12 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
   (7, 'true');
 
 query T
-select variant_to_json(variant_get(json_to_variant(json_str), 'name')) from json_data;
+select variant_pretty(variant_get(json_to_variant(json_str), 'name')) from json_data;
 ----
-"Alice"
-"Bob"
-null
-null
-null
-null
-null
+ShortString(ShortString("Alice"))
+ShortString(ShortString("Bob"))
+NULL
+NULL
+NULL
+NULL
+NULL

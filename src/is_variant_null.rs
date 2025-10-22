@@ -66,14 +66,11 @@ impl ScalarUDFImpl for IsVariantNullUdf {
             ColumnarValue::Array(variant_array) => {
                 let variant_array = VariantArray::try_new(variant_array.as_ref())?;
 
-                let mut out = Vec::with_capacity(variant_array.len());
-
-                for i in 0..variant_array.len() {
-                    let v = variant_array.value(i);
-                    out.push(v == Variant::Null);
-                }
-
-                let out: BooleanArray = out.into();
+                let out: BooleanArray = variant_array
+                    .iter()
+                    .map(|v| v.map(|v| v == Variant::Null))
+                    .collect::<Vec<_>>()
+                    .into();
 
                 ColumnarValue::Array(Arc::new(out) as ArrayRef)
             }

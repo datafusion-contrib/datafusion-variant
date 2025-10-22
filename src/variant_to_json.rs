@@ -83,15 +83,11 @@ impl ScalarUDFImpl for VariantToJsonUdf {
                 DataType::Struct(_) => {
                     let variant_array = VariantArray::try_new(arr.as_ref())?;
 
-                    // is there a reason why variant array doesn't implement Iterator?
-                    let mut out = Vec::with_capacity(variant_array.len());
-
-                    for i in 0..variant_array.len() {
-                        let v = variant_array.value(i);
-                        out.push(Some(v.to_json_string()?));
-                    }
-
-                    let out: StringViewArray = out.into();
+                    let out: StringViewArray = variant_array
+                        .iter()
+                        .map(|v| v.map(|v| v.to_json_string()).transpose())
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into();
 
                     ColumnarValue::Array(Arc::new(out))
                 }
