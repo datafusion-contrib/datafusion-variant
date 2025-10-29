@@ -12,7 +12,7 @@ use std::path::PathBuf;
 async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let test_files_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_files");
+    let test_files_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("./tests/test_files");
 
     let mut test_files: Vec<_> = std::fs::read_dir(&test_files_dir)?
         .filter_map(|entry| {
