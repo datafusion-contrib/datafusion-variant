@@ -3,7 +3,6 @@ use std::sync::Arc;
 use arrow::array::StructArray;
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
-    common::exec_datafusion_err,
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -13,7 +12,7 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{ensure, try_parse_string_scalar, try_parse_variant_scalar};
+use crate::shared::{ensure, try_parse_variant_scalar};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListConstruct {
@@ -66,22 +65,56 @@ impl ScalarUDFImpl for VariantListConstruct {
         let argument_fields = args.arg_fields;
         let argument_values = args.args;
 
+        // note: arguments must be nonempty
+        // this is required by the ListBuilder
+        ensure(
+            !argument_values.is_empty(),
+            "expected nonempty list of arguments",
+        )?;
+
         ensure(
             argument_fields.len() == argument_values.len(),
             "argument fields and values must be of same length",
         )?;
 
-        // note, should we have the ability to configure behavior for duplicate keys?
+        let all_variant_fields = argument_fields
+            .iter()
+            .all(|f| matches!(f.extension_type(), VariantType));
+
+        ensure(
+            all_variant_fields,
+            "argument fields must all have the VariantType extension",
+        )?;
+
+        let all_arguments_scalar = argument_values
+            .iter()
+            .all(|v| matches!(v, ColumnarValue::Scalar(_)));
+
+        ensure(
+            all_arguments_scalar,
+            "todo: how do you construct lists of lists?",
+        )?;
 
         let mut v = VariantBuilder::new();
-        let mut o = v.new_object();
+        let mut l = v.new_list();
 
-        for (k, v) in object_keys.iter().zip(object_values) {
-            let v = v.value(0);
-            o.try_insert(k, v)?;
+        // note: it would be nice to reserve capacity
+        // somethign like: v.new_list_with_capacity(usize)
+        // or ListBuilder().with_capacity(usize)
+        // or l.reserve(usize)
+
+        for v in argument_values {
+            let ColumnarValue::Scalar(sv) = v else {
+                unreachable!()
+            };
+
+            let variant = try_parse_variant_scalar(&sv)?;
+            let v = variant.value(0);
+
+            l.append_value(v);
         }
 
-        o.finish();
+        l.finish();
 
         let (m, v) = v.finish();
 
