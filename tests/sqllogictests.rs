@@ -2,7 +2,7 @@ use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
     CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantGetUdf, VariantListConstruct,
-    VariantObjectConstruct, VariantPretty, VariantToJsonUdf,
+    VariantListInsert, VariantObjectConstruct, VariantPretty, VariantToJsonUdf,
 };
 use indicatif::ProgressBar;
 use sqllogictest::strict_column_validator;
@@ -51,8 +51,9 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantListInsert::default()));
 
-        let pb = ProgressBar::hidden();
+        let pb = ProgressBar::new(24);
 
         let mut runner = sqllogictest::Runner::new(|| async {
             Ok(DataFusion::new(
