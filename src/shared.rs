@@ -26,7 +26,7 @@ pub fn try_field_as_variant_array(field: &Field) -> Result<()> {
     Ok(())
 }
 
-pub fn try_field_as_binary(field: &Field) -> Result<()> {
+pub fn _try_field_as_binary(field: &Field) -> Result<()> {
     match field.data_type() {
         DataType::Binary | DataType::BinaryView | DataType::LargeBinary => {}
         unsupported => return exec_err!("expected binary field, got {unsupported} field"),
