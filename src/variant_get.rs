@@ -20,7 +20,7 @@ use crate::shared::{
     try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
 };
 
-fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
+fn try_parse_type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
     let type_name = match scalar {
         ScalarValue::Utf8(Some(value))
         | ScalarValue::Utf8View(Some(value))
@@ -42,9 +42,9 @@ fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<Field
     Ok(Arc::new(Field::new(field_name, casted_type, true)))
 }
 
-fn type_hint_from_value(field_name: &str, arg: &ColumnarValue) -> Result<FieldRef> {
+fn try_parse_type_hint(field_name: &str, arg: &ColumnarValue) -> Result<FieldRef> {
     match arg {
-        ColumnarValue::Scalar(value) => type_hint_from_scalar(field_name, value),
+        ColumnarValue::Scalar(value) => try_parse_type_hint_from_scalar(field_name, value),
         ColumnarValue::Array(_) => {
             exec_err!("type hint argument must be a scalar UTF8 literal")
         }
@@ -98,7 +98,7 @@ impl ScalarUDFImpl for VariantGetUdf {
             let scalar = maybe_scalar.ok_or_else(|| {
                 exec_datafusion_err!("type hint argument to variant_get must be a literal")
             })?;
-            return type_hint_from_scalar(self.name(), scalar);
+            return try_parse_type_hint_from_scalar(self.name(), scalar);
         }
 
         let data_type = DataType::Struct(Fields::from(vec![
@@ -129,7 +129,7 @@ impl ScalarUDFImpl for VariantGetUdf {
         try_field_as_variant_array(variant_field.as_ref())?;
 
         let type_field = type_arg
-            .map(|arg| type_hint_from_value(self.name(), arg))
+            .map(|arg| try_parse_type_hint(self.name(), arg))
             .transpose()?;
 
         let out = match (variant_arg, variant_path) {
