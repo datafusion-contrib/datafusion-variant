@@ -4,9 +4,9 @@ use arrow::{
     array::{Array, ArrayRef, StructArray},
     compute::concat,
 };
-use arrow_schema::{DataType, Field, Fields};
+use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
 use datafusion::{
-    common::{exec_datafusion_err, exec_err},
+    common::{arrow_datafusion_err, exec_datafusion_err, exec_err},
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -20,6 +20,44 @@ use crate::shared::{
     try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
 };
 
+fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
+    let type_name = match scalar {
+        ScalarValue::Utf8(Some(value))
+        | ScalarValue::Utf8View(Some(value))
+        | ScalarValue::LargeUtf8(Some(value)) => value.as_str(),
+        other => {
+            return exec_err!(
+                "type hint must be a non-null UTF8 literal, got {}",
+                other.data_type()
+            );
+        }
+    };
+
+    let casted_type = match type_name.parse::<DataType>() {
+        Ok(data_type) => Ok(data_type),
+        Err(ArrowError::ParseError(e)) => Err(exec_datafusion_err!("{e}")),
+        Err(e) => Err(arrow_datafusion_err!(e)),
+    }?;
+
+    Ok(Arc::new(Field::new(field_name, casted_type, true)))
+}
+
+fn type_hint_from_value(field_name: &str, arg: &ColumnarValue) -> Result<FieldRef> {
+    match arg {
+        ColumnarValue::Scalar(value) => type_hint_from_scalar(field_name, value),
+        ColumnarValue::Array(_) => {
+            exec_err!("type hint argument must be a scalar UTF8 literal")
+        }
+    }
+}
+
+fn build_get_options<'a>(path: VariantPath<'a>, as_type: &Option<FieldRef>) -> GetOptions<'a> {
+    match as_type {
+        Some(field) => GetOptions::new_with_path(path).with_as_type(Some(field.clone())),
+        None => GetOptions::new_with_path(path),
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
@@ -28,7 +66,10 @@ pub struct VariantGetUdf {
 impl Default for VariantGetUdf {
     fn default() -> Self {
         Self {
-            signature: Signature::new(TypeSignature::Any(2), Volatility::Immutable),
+            signature: Signature::new(
+                TypeSignature::OneOf(vec![TypeSignature::Any(2), TypeSignature::Any(3)]),
+                Volatility::Immutable,
+            ),
         }
     }
 }
@@ -52,7 +93,14 @@ impl ScalarUDFImpl for VariantGetUdf {
         ))
     }
 
-    fn return_field_from_args(&self, _args: ReturnFieldArgs) -> Result<Arc<Field>> {
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
+        if let Some(maybe_scalar) = args.scalar_arguments.get(2) {
+            let scalar = maybe_scalar.ok_or_else(|| {
+                exec_datafusion_err!("type hint argument to variant_get must be a literal")
+            })?;
+            return type_hint_from_scalar(self.name(), scalar);
+        }
+
         let data_type = DataType::Struct(Fields::from(vec![
             Field::new("metadata", DataType::BinaryView, false),
             Field::new("value", DataType::BinaryView, true),
@@ -67,8 +115,10 @@ impl ScalarUDFImpl for VariantGetUdf {
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        let [variant_arg, variant_path] = args.args.as_slice() else {
-            return exec_err!("expected 2 arguments");
+        let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
+            [variant_arg, variant_path] => (variant_arg, variant_path, None),
+            [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
+            _ => return exec_err!("expected 2 or 3 arguments"),
         };
 
         let variant_field = args
@@ -78,6 +128,10 @@ impl ScalarUDFImpl for VariantGetUdf {
 
         try_field_as_variant_array(variant_field.as_ref())?;
 
+        let type_field = type_arg
+            .map(|arg| type_hint_from_value(self.name(), arg))
+            .transpose()?;
+
         let out = match (variant_arg, variant_path) {
             (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {
                 let variant_path = try_parse_string_scalar(variant_path)?
@@ -86,7 +140,7 @@ impl ScalarUDFImpl for VariantGetUdf {
 
                 let res = variant_get(
                     variant_array,
-                    GetOptions::new_with_path(VariantPath::from(variant_path)),
+                    build_get_options(VariantPath::from(variant_path), &type_field),
                 )?;
 
                 ColumnarValue::Array(res)
@@ -104,14 +158,11 @@ impl ScalarUDFImpl for VariantGetUdf {
 
                 let res = variant_get(
                     &variant_array,
-                    GetOptions::new_with_path(VariantPath::from(variant_path)),
-                )?
-                .as_any()
-                .downcast_ref::<StructArray>()
-                .unwrap()
-                .clone();
+                    build_get_options(VariantPath::from(variant_path), &type_field),
+                )?;
 
-                ColumnarValue::Scalar(ScalarValue::Struct(Arc::new(res)))
+                let scalar = ScalarValue::try_from_array(res.as_ref(), 0)?;
+                ColumnarValue::Scalar(scalar)
             }
             (ColumnarValue::Array(variant_array), ColumnarValue::Array(variant_paths)) => {
                 if variant_array.len() != variant_paths.len() {
@@ -134,7 +185,7 @@ impl ScalarUDFImpl for VariantGetUdf {
 
                     let res = variant_get(
                         &arr,
-                        GetOptions::new_with_path(VariantPath::from(path.unwrap_or_default())),
+                        build_get_options(VariantPath::from(path.unwrap_or_default()), &type_field),
                     )?;
 
                     out.push(res);
@@ -157,7 +208,7 @@ impl ScalarUDFImpl for VariantGetUdf {
                     let path = path.unwrap_or_default();
                     let res = variant_get(
                         &variant_array,
-                        GetOptions::new_with_path(VariantPath::from(path)),
+                        build_get_options(VariantPath::from(path), &type_field),
                     )?;
 
                     out.push(res);
@@ -174,7 +225,7 @@ impl ScalarUDFImpl for VariantGetUdf {
 
 #[cfg(test)]
 mod tests {
-    use arrow::array::{Array, BinaryViewArray};
+    use arrow::array::{Array, BinaryViewArray, Int64Array};
     use arrow_schema::{Field, Fields};
     use datafusion::logical_expr::{ReturnFieldArgs, ScalarFunctionArgs};
     use parquet_variant::Variant;
@@ -183,48 +234,96 @@ mod tests {
 
     use super::*;
 
+    fn variant_scalar_from_json(json: serde_json::Value) -> ScalarValue {
+        let mut builder = VariantArrayBuilder::new(1);
+        builder.append_json(json.to_string().as_str()).unwrap();
+        ScalarValue::Struct(Arc::new(builder.build().into()))
+    }
+
+    fn variant_array_from_json_rows(json_rows: &[serde_json::Value]) -> ArrayRef {
+        let mut builder = VariantArrayBuilder::new(json_rows.len());
+        for value in json_rows {
+            builder.append_json(value.to_string().as_str()).unwrap();
+        }
+        let variant_array: StructArray = builder.build().into();
+        Arc::new(variant_array) as ArrayRef
+    }
+
+    fn standard_arg_fields(with_type_hint: bool) -> Vec<FieldRef> {
+        let mut fields = vec![
+            Arc::new(
+                Field::new("input", DataType::Struct(Fields::empty()), true)
+                    .with_extension_type(VariantType),
+            ),
+            Arc::new(Field::new("path", DataType::Utf8, true)),
+        ];
+        if with_type_hint {
+            fields.push(Arc::new(Field::new("type", DataType::Utf8, true)));
+        }
+        fields
+    }
+
+    fn get_return_field(
+        udf: &VariantGetUdf,
+        arg_fields: &[FieldRef],
+        type_hint_value: Option<&ScalarValue>,
+    ) -> FieldRef {
+        let scalar_arguments: Vec<Option<&ScalarValue>> = if let Some(hint) = type_hint_value {
+            vec![None, None, Some(hint)]
+        } else {
+            vec![]
+        };
+
+        udf.return_field_from_args(ReturnFieldArgs {
+            arg_fields,
+            scalar_arguments: &scalar_arguments,
+        })
+        .unwrap()
+    }
+
+    fn build_scalar_function_args(
+        variant_input: ColumnarValue,
+        path: &str,
+        arg_fields: Vec<FieldRef>,
+        return_field: FieldRef,
+        type_hint: Option<ScalarValue>,
+    ) -> ScalarFunctionArgs {
+        let mut args = vec![
+            variant_input,
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some(path.to_string()))),
+        ];
+        if let Some(hint) = type_hint {
+            args.push(ColumnarValue::Scalar(hint));
+        }
+
+        ScalarFunctionArgs {
+            args,
+            return_field,
+            arg_fields,
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        }
+    }
+
     #[test]
     fn test_get_variant_scalar() {
-        let expected_json = serde_json::json!({
+        let variant_input = variant_scalar_from_json(serde_json::json!({
             "name": "norm",
             "age": 50,
             "list": [false, true, ()]
-        });
-
-        let json_str = expected_json.to_string();
-        let mut builder = VariantArrayBuilder::new(1);
-        builder.append_json(json_str.as_str()).unwrap();
-
-        let input = builder.build().into();
-
-        let variant_input = ScalarValue::Struct(Arc::new(input));
-        let path = "name";
+        }));
 
         let udf = VariantGetUdf::default();
+        let arg_fields = standard_arg_fields(false);
+        let return_field = get_return_field(&udf, &arg_fields, None);
 
-        let arg_field = Arc::new(
-            Field::new("input", DataType::Struct(Fields::empty()), true)
-                .with_extension_type(VariantType),
-        );
-        let arg_field2 = Arc::new(Field::new("path", DataType::Utf8, true));
-
-        let return_field = udf
-            .return_field_from_args(ReturnFieldArgs {
-                arg_fields: &[arg_field.clone(), arg_field2.clone()],
-                scalar_arguments: &[],
-            })
-            .unwrap();
-
-        let args = ScalarFunctionArgs {
-            args: vec![
-                ColumnarValue::Scalar(variant_input),
-                ColumnarValue::Scalar(ScalarValue::Utf8(Some(path.to_string()))),
-            ],
+        let args = build_scalar_function_args(
+            ColumnarValue::Scalar(variant_input),
+            "name",
+            arg_fields,
             return_field,
-            arg_fields: vec![arg_field],
-            number_rows: Default::default(),
-            config_options: Default::default(),
-        };
+            None,
+        );
 
         let result = udf.invoke_with_args(args).unwrap();
 
@@ -247,9 +346,81 @@ mod tests {
 
         let metadata = metadata_arr.value(0);
         let value = value_arr.value(0);
-
         let v = Variant::try_new(metadata, value).unwrap();
 
         assert_eq!(v, Variant::from("norm"))
+    }
+
+    #[test]
+    fn test_return_field_with_type_hint() {
+        let udf = VariantGetUdf::default();
+        let arg_fields = standard_arg_fields(true);
+        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
+
+        assert_eq!(return_field.data_type(), &DataType::Int64);
+    }
+
+    #[test]
+    fn test_get_variant_scalar_with_type_hint() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50,
+        }));
+
+        let udf = VariantGetUdf::default();
+        let arg_fields = standard_arg_fields(true);
+        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
+
+        let args = build_scalar_function_args(
+            ColumnarValue::Scalar(variant_input),
+            "age",
+            arg_fields,
+            return_field,
+            Some(type_hint),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(Some(value))) = result else {
+            panic!("expected ScalarValue Int64");
+        };
+
+        assert_eq!(value, 50);
+    }
+
+    #[test]
+    fn test_get_variant_array_with_type_hint() {
+        let json_rows = vec![
+            serde_json::json!({ "age": 50 }),
+            serde_json::json!({ "age": 60 }),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+
+        let udf = VariantGetUdf::default();
+        let arg_fields = standard_arg_fields(true);
+        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
+
+        let args = build_scalar_function_args(
+            ColumnarValue::Array(variant_array),
+            "age",
+            arg_fields,
+            return_field,
+            Some(type_hint),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(array) = result else {
+            panic!("expected array output");
+        };
+
+        let values = array.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values.value(0), 50);
+        assert_eq!(values.value(1), 60);
     }
 }
