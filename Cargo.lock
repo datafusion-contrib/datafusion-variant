@@ -1614,11 +1614,14 @@ dependencies = [
 name = "datafusion-variant"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow",
+ "arrow-cast",
  "arrow-schema",
  "datafusion",
  "datafusion-sqllogictest",
  "env_logger",
+ "flate2",
  "indicatif",
  "insta",
  "parquet-variant",

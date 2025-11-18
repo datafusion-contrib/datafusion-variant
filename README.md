@@ -13,6 +13,9 @@ Contributers are welcomed! [Now check this out](https://www.youtube.com/watch?v=
 # Usage
 
 ```sh
+# run the example
+cargo run --example cli
+
 # run all tests
 cargo test
 
