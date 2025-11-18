@@ -7,7 +7,6 @@ edition = "2024"
 datafusion = { git = "https://github.com/alamb/datafusion", branch = "alamb/upgrade_arrow_57" }
 arrow = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
 arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-
 parquet-variant-compute = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
 parquet-variant-json = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
 parquet-variant = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
@@ -27,10 +26,13 @@ arrow-flight = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b8900
 parquet = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
 
 [dev-dependencies]
+anyhow = "1.0.100"
+arrow-cast = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
 serde_json = "1.0.145"
+flate2 = "1.0"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 datafusion-sqllogictest = { git = "https://github.com/alamb/datafusion", branch = "alamb/upgrade_arrow_57" }
 sqllogictest = "0.28"
 indicatif = "0.18"
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 env_logger = "0.11"
 insta = "1.43.2"
