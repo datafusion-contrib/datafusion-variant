@@ -5,29 +5,29 @@ edition = "2024"
 
 [dependencies]
 datafusion = { git = "https://github.com/alamb/datafusion", branch = "alamb/upgrade_arrow_57" }
-arrow = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-parquet-variant-compute = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-parquet-variant-json = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-parquet-variant = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
+arrow = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+parquet-variant-compute = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+parquet-variant-json = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+parquet-variant = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
 
 [patch.crates-io]
-arrow = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-array = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-buffer = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-cast = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-data = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-ipc = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-select = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-string = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-ord = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-arrow-flight = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
-parquet = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
+arrow = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-array = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-buffer = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-cast = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-data = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-ipc = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-select = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-string = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-ord = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-flight = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+parquet = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
 
 [dev-dependencies]
 anyhow = "1.0.100"
-arrow-cast = { git = "https://github.com/apache/arrow-rs", rev = "0c33129b890027b6d421fdfe153e192196b65ad9" }
+arrow-cast = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
 serde_json = "1.0.145"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
