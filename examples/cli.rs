@@ -9,12 +9,44 @@ use datafusion_variant::{
     VariantToJsonUdf,
 };
 use flate2::read::GzDecoder;
-use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
+use rustyline::{Completer, Config, Editor, Helper, Highlighter, Hinter};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Helper for rustyline that provides multi-line SQL query support
+#[derive(Helper, Completer, Highlighter, Hinter, Default)]
+struct SqlHelper;
+
+impl Validator for SqlHelper {
+    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
+        let input = ctx.input();
+
+        // Check if query is complete (ends with semicolon)
+        if is_complete_query(input) {
+            Ok(ValidationResult::Valid(None))
+        } else {
+            Ok(ValidationResult::Incomplete)
+        }
+    }
+}
+
+fn is_complete_query(input: &str) -> bool {
+    let trimmed = input.trim();
+
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    if trimmed == "quit" || trimmed == "q" {
+        return true;
+    }
+
+    trimmed.ends_with(';')
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -97,9 +129,14 @@ async fn main() -> Result<()> {
     };
 
     println!("interactive query mode. type 'q' or 'quit' or ctrl+c to exit");
-    println!("Available table: bsky (json_data: Utf8)\n");
+    println!("Available table: bsky (json_data: Utf8)");
+    println!("Tip: Press Enter without ';' to continue query on next line\n");
 
-    let mut rl = DefaultEditor::new()?;
+    let config = Config::builder().auto_add_history(true).build();
+    let helper = SqlHelper::default();
+
+    let mut rl = Editor::with_config(config)?;
+    rl.set_helper(Some(helper));
 
     loop {
         let readline = rl.readline("> ");
@@ -116,8 +153,6 @@ async fn main() -> Result<()> {
                     println!("bye");
                     break;
                 }
-
-                rl.add_history_entry(&line)?;
 
                 if let Err(e) = run_query(&ctx, query).await {
                     eprintln!("\x1b[31;1merror:\x1b[0m {}", e);
