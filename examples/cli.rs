@@ -9,6 +9,8 @@ use datafusion_variant::{
     VariantToJsonUdf,
 };
 use flate2::read::GzDecoder;
+use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::sync::Arc;
@@ -97,27 +99,44 @@ async fn main() -> Result<()> {
     println!("interactive query mode. type 'q' or 'quit' or ctrl+c to exit");
     println!("Available table: bsky (json_data: Utf8)\n");
 
+    let mut rl = DefaultEditor::new()?;
+
     loop {
-        print!("> ");
-        io::stdout().flush()?;
+        let readline = rl.readline("> ");
 
-        let mut query = String::new();
-        io::stdin().read_line(&mut query)?;
-        let query = query.trim();
+        match readline {
+            Ok(line) => {
+                let query = line.trim();
 
-        if query.is_empty() {
-            continue;
+                if query.is_empty() {
+                    continue;
+                }
+
+                if query == "quit" || query == "q" {
+                    println!("bye");
+                    break;
+                }
+
+                rl.add_history_entry(&line)?;
+
+                if let Err(e) = run_query(&ctx, query).await {
+                    eprintln!("\x1b[31;1merror:\x1b[0m {}", e);
+                }
+                println!();
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("bye");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("bye");
+                break;
+            }
+            Err(err) => {
+                eprintln!("\x1b[31;1merror:\x1b[0m {}", err);
+                break;
+            }
         }
-
-        if query == "quit" || query == "q" {
-            println!("bye");
-            break;
-        }
-
-        if let Err(e) = run_query(&ctx, query).await {
-            eprintln!("\x1b[31;1merror:\x1b[0m {}", e);
-        }
-        println!();
     }
 
     Ok(())
