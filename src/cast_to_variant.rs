@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, StructArray};
+use arrow::array::{Array, ArrayRef, AsArray, StructArray};
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
     common::exec_err,
     error::Result,
     logical_expr::{
-        ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
+        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature,
+        TypeSignature, Volatility,
     },
     scalar::ScalarValue,
 };
 use parquet_variant::Variant;
-use parquet_variant_compute::{VariantArray, VariantArrayBuilder};
+use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType, cast_to_variant};
 
 use crate::shared::{try_parse_binary_columnar, try_parse_binary_scalar};
 
@@ -26,16 +27,6 @@ impl Default for CastToVariantUdf {
             signature: Signature::new(TypeSignature::VariadicAny, Volatility::Immutable),
         }
     }
-}
-
-fn build_variant_array<'m, 'v, T: Into<Variant<'m, 'v>>>(
-    value_opt: Option<T>,
-) -> Result<ColumnarValue> {
-    let variant_array = VariantArray::from_iter([value_opt.map(|v| v.into())]).into();
-
-    Ok(ColumnarValue::Scalar(ScalarValue::Struct(Arc::new(
-        variant_array,
-    ))))
 }
 
 impl CastToVariantUdf {
@@ -133,39 +124,36 @@ impl CastToVariantUdf {
         Ok(out)
     }
 
-    fn from_array(_array: &ArrayRef) -> Result<ColumnarValue> {
-        todo!()
+    fn from_array(array: &ArrayRef) -> Result<ColumnarValue> {
+        // If the array is already a Variant array, pass it through unchanged
+        if let Some(struct_array) = array.as_struct_opt()
+            && VariantArray::try_new(struct_array).is_ok()
+        {
+            return Ok(ColumnarValue::Array(Arc::clone(array)));
+        }
+
+        let variant_array = cast_to_variant(array.as_ref())?;
+        let struct_array: StructArray = variant_array.into();
+
+        Ok(ColumnarValue::Array(Arc::new(struct_array)))
     }
 
     fn from_scalar_value(scalar_value: &ScalarValue) -> Result<ColumnarValue> {
-        match scalar_value {
-            ScalarValue::Null => build_variant_array(Some(Variant::Null)),
-            // String values
-            ScalarValue::Utf8(string_opt)
-            | ScalarValue::Utf8View(string_opt)
-            | ScalarValue::LargeUtf8(string_opt) => {
-                build_variant_array(string_opt.as_ref().map(|s| s.as_str()))
-            }
-            // Binary values
-            ScalarValue::Binary(binary_opt)
-            | ScalarValue::BinaryView(binary_opt)
-            | ScalarValue::LargeBinary(binary_opt) => {
-                build_variant_array(binary_opt.as_ref().map(|b| b.as_slice()))
-            }
-            // Boolean
-            ScalarValue::Boolean(b) => build_variant_array(b.as_ref().map(|b| *b)),
-            // Numbers
-            ScalarValue::Int8(i) => build_variant_array(i.as_ref().map(|i| *i)),
-            ScalarValue::Int16(i) => build_variant_array(i.as_ref().map(|i| *i)),
-            ScalarValue::Int32(i) => build_variant_array(i.as_ref().map(|i| *i)),
-            ScalarValue::Int64(i) => build_variant_array(i.as_ref().map(|i| *i)),
-            ScalarValue::UInt8(i) => build_variant_array(i.as_ref().map(|i| *i)),
-            ScalarValue::UInt16(i) => build_variant_array(i.as_ref().map(|i| *i)),
-            ScalarValue::UInt32(i) => build_variant_array(i.as_ref().map(|i| *i)),
-            ScalarValue::UInt64(i) => build_variant_array(i.as_ref().map(|i| *i)),
-
-            _ => todo!(),
+        if let ScalarValue::Struct(struct_array) = scalar_value
+            && VariantArray::try_new(struct_array.as_ref()).is_ok()
+        {
+            return Ok(ColumnarValue::Scalar(ScalarValue::Struct(
+                struct_array.clone(),
+            )));
         }
+
+        let array = scalar_value.to_array_of_size(1)?;
+        let variant_array = cast_to_variant(array.as_ref())?;
+        let struct_array: StructArray = variant_array.into();
+
+        Ok(ColumnarValue::Scalar(ScalarValue::Struct(Arc::new(
+            struct_array,
+        ))))
     }
 }
 
@@ -189,6 +177,20 @@ impl ScalarUDFImpl for CastToVariantUdf {
         ])))
     }
 
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
+        let data_type = self.return_type(
+            args.arg_fields
+                .iter()
+                .map(|f| f.data_type().clone())
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )?;
+
+        Ok(Arc::new(
+            Field::new(self.name(), data_type, true).with_extension_type(VariantType),
+        ))
+    }
+
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         match args.args.as_slice() {
             [metadata_value, variant_value] => {
@@ -204,11 +206,102 @@ impl ScalarUDFImpl for CastToVariantUdf {
 #[cfg(test)]
 mod tests {
 
+    use arrow::array::{FixedSizeBinaryBuilder, Int32Array, StringArray, StringViewArray};
+    use parquet_variant::Variant;
     use parquet_variant_compute::VariantArray;
 
     use crate::shared::{build_variant_array_from_json, build_variant_array_from_json_array};
 
     use super::*;
+
+    #[test]
+    fn test_scalar_float64() {
+        let udf = CastToVariantUdf::default();
+
+        let arg_field = Arc::new(Field::new("input", DataType::Float64, true));
+        let return_field = Arc::new(Field::new(
+            "res",
+            udf.return_type(&[DataType::Float64]).unwrap(),
+            true,
+        ));
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Scalar(ScalarValue::Float64(Some(3.25)))],
+            return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let res = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Struct(variant_array)) = res else {
+            panic!("expected struct scalar")
+        };
+
+        let variant_array = VariantArray::try_new(variant_array.as_ref()).unwrap();
+
+        assert_eq!(variant_array.value(0), Variant::Double(3.25));
+    }
+
+    #[test]
+    fn test_array_int32() {
+        let udf = CastToVariantUdf::default();
+
+        let arg_field = Arc::new(Field::new("input", DataType::Int32, true));
+        let return_field = Arc::new(Field::new(
+            "res",
+            udf.return_type(&[DataType::Int32]).unwrap(),
+            true,
+        ));
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Array(Arc::new(Int32Array::from(vec![
+                Some(1),
+                None,
+                Some(-5),
+            ])) as ArrayRef)],
+            return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let res = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = res else {
+            panic!("expected array output")
+        };
+
+        let variant_array = VariantArray::try_new(arr.as_ref()).unwrap();
+
+        assert_eq!(variant_array.value(0), Variant::Int32(1));
+        assert!(variant_array.is_null(1));
+        assert_eq!(variant_array.value(2), Variant::Int32(-5));
+    }
+
+    #[test]
+    fn test_return_field_extension_type() {
+        let udf = CastToVariantUdf::default();
+
+        let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+
+        let return_field = udf
+            .return_field_from_args(ReturnFieldArgs {
+                arg_fields: &[arg_field.clone()],
+                scalar_arguments: &[None],
+            })
+            .unwrap();
+
+        assert!(matches!(return_field.extension_type(), VariantType));
+        assert_eq!(
+            return_field.data_type(),
+            &DataType::Struct(Fields::from(vec![
+                Field::new("metadata", DataType::BinaryView, false),
+                Field::new("value", DataType::BinaryView, true),
+            ]))
+        );
+    }
 
     #[test]
     fn test_scalar_binary_views() {
@@ -255,6 +348,80 @@ mod tests {
         let variant_array = VariantArray::try_new(variant_array.as_ref()).unwrap();
 
         assert_eq!(&variant_array, &expected_variant_array);
+    }
+
+    #[test]
+    fn test_array_string() {
+        let udf = CastToVariantUdf::default();
+
+        let arg_field = Arc::new(Field::new("input", DataType::Utf8, true));
+        let return_field = Arc::new(Field::new(
+            "res",
+            udf.return_type(&[DataType::Utf8]).unwrap(),
+            true,
+        ));
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Array(Arc::new(StringArray::from(vec![
+                Some("abcdefghijklmnop"),
+                None,
+                Some("hello world"),
+            ])) as ArrayRef)],
+            return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let res = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = res else {
+            panic!("expected array output")
+        };
+
+        let variant_array = VariantArray::try_new(arr.as_ref()).unwrap();
+
+        assert_eq!(variant_array.value(0), Variant::from("abcdefghijklmnop"));
+        assert!(variant_array.is_null(1));
+        assert_eq!(variant_array.value(2), Variant::from("hello world"));
+    }
+
+    #[test]
+    fn test_fixed_size_binary_uuid_like() {
+        let udf = CastToVariantUdf::default();
+
+        let arg_field = Arc::new(Field::new("input", DataType::FixedSizeBinary(16), true));
+        let return_field = Arc::new(Field::new(
+            "res",
+            udf.return_type(&[DataType::FixedSizeBinary(16)]).unwrap(),
+            true,
+        ));
+
+        let mut builder = FixedSizeBinaryBuilder::with_capacity(3, 16);
+        builder.append_value(&[1u8; 16]).unwrap();
+        builder.append_null();
+        builder.append_value(&[2u8; 16]).unwrap();
+        let array = builder.finish();
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Array(Arc::new(array) as ArrayRef)],
+            return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let res = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = res else {
+            panic!("expected array output")
+        };
+
+        let variant_array = VariantArray::try_new(arr.as_ref()).unwrap();
+
+        assert_eq!(variant_array.value(0), Variant::Binary(&[1u8; 16]));
+        assert!(variant_array.is_null(1));
+        assert_eq!(variant_array.value(2), Variant::Binary(&[2u8; 16]));
     }
 
     #[test]
@@ -311,5 +478,41 @@ mod tests {
         let variant_array = VariantArray::try_new(variant_array.as_ref()).unwrap();
 
         assert_eq!(&variant_array, &expected_variant_array);
+    }
+
+    #[test]
+    fn test_array_string_view() {
+        let udf = CastToVariantUdf::default();
+
+        let arg_field = Arc::new(Field::new("input", DataType::Utf8View, true));
+        let return_field = Arc::new(Field::new(
+            "res",
+            udf.return_type(&[DataType::Utf8View]).unwrap(),
+            true,
+        ));
+
+        let args = ScalarFunctionArgs {
+            args: vec![ColumnarValue::Array(Arc::new(StringViewArray::from(vec![
+                Some("short"),
+                None,
+                Some("another"),
+            ])) as ArrayRef)],
+            return_field,
+            arg_fields: vec![arg_field],
+            number_rows: Default::default(),
+            config_options: Default::default(),
+        };
+
+        let res = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = res else {
+            panic!("expected array output")
+        };
+
+        let variant_array = VariantArray::try_new(arr.as_ref()).unwrap();
+
+        assert_eq!(variant_array.value(0), Variant::from("short"));
+        assert!(variant_array.is_null(1));
+        assert_eq!(variant_array.value(2), Variant::from("another"));
     }
 }
