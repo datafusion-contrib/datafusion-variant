@@ -2,6 +2,8 @@
 name = "datafusion-variant"
 version = "0.1.0"
 edition = "2024"
+# Define Minimum Supported Rust Version (MSRV)
+rust-version = "1.88.0"
 
 [dependencies]
 datafusion = { git = "https://github.com/alamb/datafusion", branch = "alamb/upgrade_arrow_57" }
