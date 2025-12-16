@@ -12,6 +12,7 @@ arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e412
 parquet-variant-compute = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
 parquet-variant-json = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
 parquet-variant = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+chrono = "0.4.42"
 
 [patch.crates-io]
 arrow = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
