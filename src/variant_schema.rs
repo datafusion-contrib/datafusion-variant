@@ -1,8 +1,5 @@
-use std::{ops::Deref, sync::Arc};
-
-use std::{collections::BTreeMap};
-use arrow::array::AsArray;
-use arrow_schema::{DataType, Field, Fields, TimeUnit};
+use arrow::{array::AsArray};
+use arrow_schema::{DataType, TimeUnit};
 use datafusion::{
     common::exec_err,
     error::{DataFusionError, Result},
@@ -10,7 +7,8 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use parquet_variant::Variant;
-use parquet_variant_compute::{VariantArray, VariantType};
+use parquet_variant_compute::VariantArray;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantSchemaUDF {
@@ -25,32 +23,35 @@ impl Default for VariantSchemaUDF {
     }
 }
 
-/// For schema_from_variant Schema representation
-/// there are 4 possible types available depending on the Variant
-/// For ColumnarValue::Scalar:
-/// Primitive -> Just the corresponding SQL data type based on Variant type
-/// Array -> Should be an <ARRAY<Type>> given that type is the same, if not <ARRAY<Variant>>
-/// Object -> Each object field should keep track of its type <OBJECT<foo: STRING, bar: INT(8, SIGNED)>>
-/// Variant
+/// Schema inference rules for VARIANT values.
 ///
-/// For ColumnarValue::Array we get the type for each individual Variant value and compare it with the rest.
-/// - If one of the values is <VARIANT> type => we can early terminate and call everything <VARIANT>
+/// The inferred schema can be one of four logical forms:
+/// - Primitive: a concrete SQL / Arrow data type
+/// - Array: ARRAY<inner>, where `inner` is the merged element schema
+/// - Object: OBJECT<field: schema, ...>, merged field-wise by name
+/// - Variant: fallback when no common schema can be determined
 ///
-/// For different Variant types we will use different ways of keeping track of types between the rows:
-/// - If the outer/inner type differs, we call it <VARIANT> and early terminate this level.
-/// - Primitive -> create a set to store Primitive types and if the set.len() > 1, we call everything <VARIANT>
-/// - Array -> array type is flat, so the same implementation as Primitive should work for this Array type
-/// - Object -> is the difficult one in this case. Different rows can include or exlude certain fields, and we
-///   need to keep track of each field between different rows separately. To keep it the fields sorted we will use
-///   a BTree with fields as keys and set of types as values. We will add values to each field's set and if set.len()
-///   \> 1, we call this field <VARIANT> and we no longer need to keep track of it.
-///    
+/// ## Scalar input
+/// When the input is a single VARIANT value:
+/// - Primitive values map directly to their corresponding data type
+/// - Arrays infer a common element schema across all elements
+/// - Objects infer schemas per field recursively
+/// - Mixed or incompatible types resolve to VARIANT
 ///
-/// Later we should also implement Databricks' coersion into a similiar type:
-/// > "The schema of each VARIANT value is merged together by field name. When two fields with the same name have
-/// > a different type across records, Databricks uses the least common type. When no such type exists, the type
-/// > is derived as a VARIANT. For example, INT and DOUBLE become DOUBLE, while TIMESTAMP and STRING become VARIANT." \
-/// > https://docs.databricks.com/gcp/en/sql/language-manual/functions/schema_of_variant_agg
+/// ## Array input
+/// When the input is an array of VARIANT values:
+/// - Each element is inferred independently
+/// - Schemas are merged across rows
+/// - If any merge step resolves to VARIANT, inference short-circuits
+///
+/// ## Merge rules
+/// - If outer (or inner) kinds differ, the result is VARIANT
+/// - Primitive types are merged using widening / least-common-type rules
+/// - Arrays merge by merging their element schemas
+/// - Objects merge field-by-field:
+///   - Missing fields are allowed
+///   - Field schemas are merged independently
+///   - A field becomes VARIANT if its values are incompatible
 ///
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum VariantSchema {
@@ -61,70 +62,49 @@ enum VariantSchema {
 }
 
 /// This function extracts the schema from a single Variant scalar
-fn schema_from_variant(v: &Variant) -> DataType {
+fn schema_from_variant(v: &Variant) -> VariantSchema {
     match v {
         Variant::Object(obj) => {
             let fields = obj
                 .iter()
-                .map(|(k, v)| Field::new(k.to_string(), schema_from_variant(&v), true))
+                .map(|(k, v)| (k.to_string(), schema_from_variant(&v)))
                 .collect();
 
-            DataType::Struct(fields)
+            VariantSchema::Object(fields)
         }
-
         Variant::List(list) => {
             let inner = list
                 .iter()
-                .map(|v| Field::new("", schema_from_variant(&v), true))
-                .reduce(merge_fields)
-                .unwrap_or(
-                    Field::new("item", DataType::Binary, true).with_extension_type(VariantType),
-                );
+                .map(|v| schema_from_variant(&v))
+                .reduce(merge_variant_schema)
+                .unwrap_or(VariantSchema::Variant);
 
-            DataType::List(Arc::new(inner))
+            VariantSchema::Array(Box::new(inner))
         }
-        // primitives
-        _ => primitive_from_variant(v),
+        _ => VariantSchema::Primitive(primitive_from_variant(v)),
     }
 }
 
+/// This helper function is used to calculate decimal precision
+/// for [primitive_from_variant] decimal Variants conversion
 fn decimal_precision<T: Into<i128>>(val: T) -> u8 {
     let mut n = val.into();
     if n == 0 {
         return 1;
     }
-        if n < 0 {
-            n = -n
-        }
-    
-        let mut digits = 0;
-        while n != 0 {
-            digits += 1;
-            n /= 10;
-        }
-        digits
+    if n < 0 {
+        n = -n
     }
 
-fn schema_to_string(schema: &VariantSchema) -> String {
-    match schema {
-        VariantSchema::Primitive(s) => format!("{s}"),
-
-        VariantSchema::Variant => "VARIANT".to_string(),
-
-        VariantSchema::Array(inner) => {
-            format!("ARRAY<{}>", schema_to_string(inner))
-        }
-
-        VariantSchema::Object(fields) => {
-            let parts: Vec<String> = fields
-                .iter()
-                .map(|(k, v)| format!("{k}: {}", schema_to_string(v)))
-                .collect();
-            format!("OBJECT<{}>", parts.join(", "))
-        }
+    let mut digits = 0;
+    while n != 0 {
+        digits += 1;
+        n /= 10;
     }
+    digits
 }
 
+/// This function is used to extract datatype from a primitive Variant
 fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
     match v {
         Variant::Null => DataType::Null,
@@ -154,11 +134,16 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
         Variant::TimestampNtzMicros(_) => DataType::Timestamp(TimeUnit::Microsecond, None),
         Variant::TimestampNanos(_) => DataType::Timestamp(TimeUnit::Nanosecond, Some("utc".into())),
         Variant::TimestampNtzNanos(_) => DataType::Timestamp(TimeUnit::Nanosecond, None),
-        _ => unreachable!("Should be only applied to Primitive Variant"),
+        _ => unreachable!("Should be only applied to Primitive Variant, not Object or List"),
     }
 }
 
-// Todo: needs more work on type coercing
+/// This function is used to merge types between schemas 
+/// and coerce them into a common type when possible if types
+/// are different
+/// 
+/// Todo: needs more work on type coercing
+/// - add decimal coercion rules
 fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
     use DataType::*;
 
@@ -174,29 +159,17 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
         | (Float64, Int8 | Int16 | Int32 | Int64 | Float32) => Some(Float64),
         (Int8 | Int16 | Int32, Int64) | (Int64, Int8 | Int16 | Int32) => Some(Int64),
         (Int8 | Int16, Int32) | (Int32, Int8 | Int16) => Some(Int32),
-
         (Date32, Timestamp(tu, tz)) | (Timestamp(tu, tz), Date32) => Some(Timestamp(tu, tz)),
 
-        // // decimal rules (simplified)
-        // (
-        //     Decimal {
-        //         precision: p1,
-        //         scale: s1,
-        //     },
-        //     Decimal {
-        //         precision: p2,
-        //         scale: s2,
-        //     },
-        // ) => Some(Decimal {
-        //     precision: p1.max(p2),
-        //     scale: s1.max(s2),
-        // }),
-        _ => unreachable!("Not primitive types {}, {}", a,b),
+        _ => None,
     }
 }
 
+/// Merges two inferred Variant schemas into a common schema.
+/// Returns VARIANT if no common schema can be determined.
 fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
     use VariantSchema::*;
+
     match (a, b) {
         (Variant, _) | (_, Variant) => Variant,
 
@@ -217,11 +190,30 @@ fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
 
         _ => Variant,
     }
-    let merged_type = merge_datatypes(a.data_type().clone(), b.data_type().clone());
-
-    Field::new(a.name(), merged_type, a.is_nullable() || b.is_nullable())
 }
 
+/// Prints schema in a presentable manner
+fn print_schema(schema: &VariantSchema) -> String {
+    match schema {
+        VariantSchema::Primitive(s) => format!("{s}"),
+
+        VariantSchema::Variant => "VARIANT".to_string(),
+
+        VariantSchema::Array(inner) => {
+            format!("ARRAY<{}>", print_schema(inner))
+        }
+
+        VariantSchema::Object(fields) => {
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", print_schema(v)))
+                .collect();
+            format!("OBJECT<{}>", parts.join(", "))
+        }
+    }
+}
+
+/// Final function used to retrieve schema from a single Variant or VariantArray
 fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
     match variant {
         ColumnarValue::Scalar(scalar) => {
@@ -231,11 +223,11 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
             let variant_array = VariantArray::try_new(struct_array.as_ref())?;
             let v = variant_array.value(0);
 
-            let data_type = schema_from_variant(&v);
+            let schema = schema_from_variant(&v);
 
-            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(format!(
-                "{data_type}"
-            )))))
+            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
+                print_schema(&schema),
+            ))))
         }
         ColumnarValue::Array(arr) => {
             let variant_array =
@@ -245,11 +237,12 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
                 .iter()
                 .flatten()
                 .map(|v| schema_from_variant(&v))
-                .reduce(merge_datatypes);
+                .reduce(merge_variant_schema)
+                .unwrap_or(VariantSchema::Variant);
 
-            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(format!(
-                "{final_schema:?}"
-            )))))
+            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
+                print_schema(&final_schema),
+            ))))
         }
     }
 }
