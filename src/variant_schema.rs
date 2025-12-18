@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap};
 use arrow::array::AsArray;
 use arrow_schema::{DataType, TimeUnit};
 use datafusion::{
@@ -51,26 +51,10 @@ impl Default for VariantSchemaUDF {
 ///
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum VariantSchema {
-    Primitive(PrimitiveType),
+    Primitive(DataType),
     Array(Box<VariantSchema>),
     Object(BTreeMap<String, VariantSchema>),
     Variant,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-enum PrimitiveType {
-    Int { bits: u8, signed: bool },
-    Float,
-    Double,
-    Decimal { precision: u8, scale: u8 },
-    Boolean,
-    String,
-    Binary,
-    Date,
-    Time,
-    Timestamp { utc: bool, unit: TimeUnit },
-    Uuid,
-    Null,
 }
 
 /// This function extracts the schema from a single Variant scalar
@@ -101,7 +85,7 @@ fn schema_from_variant(v: &Variant) -> VariantSchema {
 
 fn schema_to_string(schema: &VariantSchema) -> String {
     match schema {
-        VariantSchema::Primitive(s) => primitive_to_string(s),
+        VariantSchema::Primitive(s) => format!("{s}"),
 
         VariantSchema::Variant => "VARIANT".to_string(),
 
@@ -119,115 +103,72 @@ fn schema_to_string(schema: &VariantSchema) -> String {
     }
 }
 
-fn primitive_to_string(p: &PrimitiveType) -> String {
-    match p {
-        PrimitiveType::Int { bits, signed } => format!(
-            "INT({bits}, {})",
-            if *signed { "SIGNED" } else { "UNSIGNED" }
-        ),
-        PrimitiveType::Float => "FLOAT".to_string(),
-        PrimitiveType::Double => "DOUBLE".to_string(),
-        PrimitiveType::Decimal { precision, scale } => format!("DECIMAL({precision}, {scale})"),
-        PrimitiveType::Boolean => "BOOLEAN".to_string(),
-        PrimitiveType::String => "STRING".to_string(),
-        PrimitiveType::Binary => "BINARY".to_string(),
-        PrimitiveType::Date => "DATE".to_string(),
-        PrimitiveType::Time => "TIME".to_string(),
-        PrimitiveType::Timestamp { utc, unit } => {
-            format!("TIMESTAMP(isAdjustedToUTC={utc}, {unit:?})")
-        }
-        PrimitiveType::Uuid => "UUID".to_string(),
-        PrimitiveType::Null => "NULL".to_string(),
+fn decimal_precision<T: Into<i128>>(val: T) -> u8 {
+    let mut n = val.into();
+    if n == 0 { return 1; }
+    if n < 0 { n = -n }
+
+    let mut digits = 0;
+    while n != 0 {
+        digits += 1;
+        n /= 10;
     }
+    digits
 }
 
-fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> PrimitiveType {
+fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
     match v {
-        Variant::Null => PrimitiveType::Null,
-        Variant::Int8(_) => PrimitiveType::Int {
-            bits: 8,
-            signed: true,
-        },
-        Variant::Int16(_) => PrimitiveType::Int {
-            bits: 16,
-            signed: true,
-        },
-        Variant::Int32(_) => PrimitiveType::Int {
-            bits: 32,
-            signed: true,
-        },
-        Variant::Int64(_) => PrimitiveType::Int {
-            bits: 64,
-            signed: true,
-        },
-        Variant::Float(_) => PrimitiveType::Float,
-        Variant::Double(_) => PrimitiveType::Double,
-        Variant::Decimal4(d) => PrimitiveType::Decimal {
-            precision: d.integer().to_string().len() as u8,
-            scale: d.scale(),
-        },
-        Variant::Decimal8(d) => PrimitiveType::Decimal {
-            precision: d.integer().to_string().len() as u8,
-            scale: d.scale(),
-        },
-        Variant::Decimal16(d) => PrimitiveType::Decimal {
-            precision: d.integer().to_string().len() as u8,
-            scale: d.scale(),
-        },
-        Variant::BooleanTrue | Variant::BooleanFalse => PrimitiveType::Boolean,
-        Variant::String(_) | Variant::ShortString(_) => PrimitiveType::String,
-        Variant::Binary(_) => PrimitiveType::Binary,
-        Variant::Date(_) => PrimitiveType::Date,
-        Variant::Time(_) => PrimitiveType::Time,
-        Variant::TimestampMicros(_) => PrimitiveType::Timestamp {
-            utc: true,
-            unit: TimeUnit::Microsecond,
-        },
-        Variant::TimestampNtzMicros(_) => PrimitiveType::Timestamp {
-            utc: false,
-            unit: TimeUnit::Microsecond,
-        },
-        Variant::TimestampNanos(_) => PrimitiveType::Timestamp {
-            utc: true,
-            unit: TimeUnit::Nanosecond,
-        },
-        Variant::TimestampNtzNanos(_) => PrimitiveType::Timestamp {
-            utc: false,
-            unit: TimeUnit::Nanosecond,
-        },
-        Variant::Uuid(_) => PrimitiveType::Uuid,
+        Variant::Null => DataType::Null,
+        Variant::Int8(_) => DataType::Int8,
+        Variant::Int16(_) => DataType::Int16,
+        Variant::Int32(_) => DataType::Int32,
+        Variant::Int64(_) => DataType::Int64,
+        Variant::Float(_) => DataType::Float32,
+        Variant::Double(_) => DataType::Float64,
+        Variant::Decimal4(d) => DataType::Decimal32(decimal_precision(d.integer()), d.scale() as i8),
+        Variant::Decimal8(d) => DataType::Decimal64(decimal_precision(d.integer()), d.scale()as i8),
+        Variant::Decimal16(d) => DataType::Decimal128(decimal_precision(d.integer()), d.scale() as i8),
+        Variant::BooleanTrue | Variant::BooleanFalse => DataType::Boolean,
+        Variant::String(_) | Variant::ShortString(_) | Variant::Uuid(_) => DataType::Utf8,
+        Variant::Binary(_) => DataType::Binary,
+        Variant::Date(_) => DataType::Date32,
+        Variant::Time(_) => DataType::Time64(TimeUnit::Microsecond),
+        Variant::TimestampMicros(_) => DataType::Timestamp(TimeUnit::Microsecond, Some("utc".into())),
+        Variant::TimestampNtzMicros(_) => DataType::Timestamp(TimeUnit::Microsecond, None),
+        Variant::TimestampNanos(_) => DataType::Timestamp(TimeUnit::Nanosecond, Some("utc".into())),
+        Variant::TimestampNtzNanos(_) => DataType::Timestamp(TimeUnit::Nanosecond, None),
         _ => unreachable!("Should be only applied to Primitive Variant"),
     }
 }
 
 // Todo: needs more work on type coercing
-fn merge_primitives(a: PrimitiveType, b: PrimitiveType) -> Option<PrimitiveType> {
-    use PrimitiveType::*;
+fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
+    use DataType::*;
 
     match (a, b) {
         // null handling
         (Null, x) | (x, Null) => Some(x),
         // normal case
         (x, y) if x == y => Some(x),
-        // numeric widening
-        (Int { .. }, Double) | (Double, Int { .. }) => Some(Double),
-        (Int { .. }, Float) | (Float, Int { .. }) => Some(Float),
-        (Float, Double) | (Double, Float) => Some(Double),
+        // // numeric widening
+        // (Int { .. }, Double) | (Double, Int { .. }) => Some(Double),
+        // (Int { .. }, Float) | (Float, Int { .. }) => Some(Float),
+        // (Float, Double) | (Double, Float) => Some(Double),
 
-        // decimal rules (simplified)
-        (
-            Decimal {
-                precision: p1,
-                scale: s1,
-            },
-            Decimal {
-                precision: p2,
-                scale: s2,
-            },
-        ) => Some(Decimal {
-            precision: p1.max(p2),
-            scale: s1.max(s2),
-        }),
+        // // decimal rules (simplified)
+        // (
+        //     Decimal {
+        //         precision: p1,
+        //         scale: s1,
+        //     },
+        //     Decimal {
+        //         precision: p2,
+        //         scale: s2,
+        //     },
+        // ) => Some(Decimal {
+        //     precision: p1.max(p2),
+        //     scale: s1.max(s2),
+        // }),
 
         _ => None,
     }
@@ -382,7 +323,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "NULL")
+        assert_eq!(schema, "Null")
     }
 
     #[test]
@@ -396,7 +337,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "INT(32, SIGNED)")
+        assert_eq!(schema, "Int32")
     }
 
     #[test]
@@ -410,7 +351,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "DATE")
+        assert_eq!(schema, "Date32")
     }
 
     #[test]
@@ -425,7 +366,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "TIMESTAMP(isAdjustedToUTC=true, Microsecond)")
+        assert_eq!(schema, "Timestamp(µs, \"utc\")")
     }
 
     #[test]
@@ -439,7 +380,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "DECIMAL(4, 1)")
+        assert_eq!(schema, "Decimal32(4, 1)")
     }
 
     #[test]
@@ -453,7 +394,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "FLOAT")
+        assert_eq!(schema, "Float32")
     }
 
     #[test]
@@ -467,7 +408,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "DOUBLE")
+        assert_eq!(schema, "Float64")
     }
 
     #[test]
@@ -481,7 +422,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "BOOLEAN")
+        assert_eq!(schema, "Boolean")
     }
 
     #[test]
@@ -495,7 +436,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "BINARY")
+        assert_eq!(schema, "Binary")
     }
 
     #[test]
@@ -509,7 +450,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "STRING")
+        assert_eq!(schema, "Utf8")
     }
 
     #[test]
@@ -523,7 +464,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "TIME")
+        assert_eq!(schema, "Time64(µs)")
     }
 
     #[test]
@@ -540,7 +481,7 @@ mod tests {
         };
         assert_eq!(
             schema,
-            "OBJECT<data: ARRAY<INT(8, SIGNED)>, key: INT(8, SIGNED)>"
+            "OBJECT<data: ARRAY<Int8>, key: Int8>"
         )
     }
 
@@ -573,7 +514,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "OBJECT<foo: STRING, wing: OBJECT<ding: STRING>>")
+        assert_eq!(schema, "OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>")
     }
 
     #[test]
@@ -590,6 +531,6 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "OBJECT<foo: STRING, wing: VARIANT>")
+        assert_eq!(schema, "OBJECT<foo: Utf8, wing: VARIANT>")
     }
 }
