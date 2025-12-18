@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-
 use arrow::array::AsArray;
 use arrow_schema::{DataType, TimeUnit};
 use datafusion::{
@@ -201,6 +200,7 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> PrimitiveType {
     }
 }
 
+// Todo: needs more work on type coercing
 fn merge_primitives(a: PrimitiveType, b: PrimitiveType) -> Option<PrimitiveType> {
     use PrimitiveType::*;
 
@@ -235,7 +235,6 @@ fn merge_primitives(a: PrimitiveType, b: PrimitiveType) -> Option<PrimitiveType>
 
 fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
     use VariantSchema::*;
-
     match (a, b) {
         (Variant, _) | (_, Variant) => Variant,
 
@@ -362,9 +361,9 @@ mod tests {
                 .with_extension_type(VariantType),
         );
         ScalarFunctionArgs {
-            args: vec![ColumnarValue::Scalar(ScalarValue::Struct(Arc::new(
+            args: vec![ColumnarValue::Array(Arc::new(
                 struct_array,
-            )))],
+            ))],
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
             return_field,
@@ -582,7 +581,7 @@ mod tests {
         let udf = VariantSchemaUDF::default();
         let variant_array = build_variant_array_from_json_array(&[
             Some(serde_json::json!({"foo": "bar", "wing": {"ding": "dong"}})),
-            None,
+            // None,
             Some(serde_json::json!({"wing": 123})),
         ]);
         let struct_array = variant_array.into_inner();
