@@ -195,9 +195,27 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
     }
 }
 
-fn merge_fields(a: Field, b: Field) -> Field {
-    if a.extension_type_name() == Some("VARIANT") && b.extension_type_name() == Some("VARIANT") {
-        return Field::new("merged_field", DataType::Binary, true).with_extension_type(VariantType);
+fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
+    use VariantSchema::*;
+    match (a, b) {
+        (Variant, _) | (_, Variant) => Variant,
+
+        (Primitive(p1), Primitive(p2)) => {
+            merge_primitives(p1, p2).map(Primitive).unwrap_or(Variant)
+        }
+
+        (Array(a), Array(b)) => Array(Box::new(merge_variant_schema(*a, *b))),
+
+        (Object(mut a), Object(b)) => {
+            for (k, v_b) in b {
+                a.entry(k)
+                    .and_modify(|v_a| *v_a = merge_variant_schema(v_a.clone(), v_b.clone()))
+                    .or_insert(v_b);
+            }
+            Object(a)
+        }
+
+        _ => Variant,
     }
     let merged_type = merge_datatypes(a.data_type().clone(), b.data_type().clone());
 
