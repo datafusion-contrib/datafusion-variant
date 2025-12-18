@@ -1,5 +1,6 @@
 use std::{ops::Deref, sync::Arc};
 
+use std::{collections::BTreeMap};
 use arrow::array::AsArray;
 use arrow_schema::{DataType, Field, Fields, TimeUnit};
 use datafusion::{
@@ -51,6 +52,14 @@ impl Default for VariantSchemaUDF {
 /// > is derived as a VARIANT. For example, INT and DOUBLE become DOUBLE, while TIMESTAMP and STRING become VARIANT." \
 /// > https://docs.databricks.com/gcp/en/sql/language-manual/functions/schema_of_variant_agg
 ///
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum VariantSchema {
+    Primitive(DataType),
+    Array(Box<VariantSchema>),
+    Object(BTreeMap<String, VariantSchema>),
+    Variant,
+}
+
 /// This function extracts the schema from a single Variant scalar
 fn schema_from_variant(v: &Variant) -> DataType {
     match v {
@@ -84,16 +93,36 @@ fn decimal_precision<T: Into<i128>>(val: T) -> u8 {
     if n == 0 {
         return 1;
     }
-    if n < 0 {
-        n = -n
+        if n < 0 {
+            n = -n
+        }
+    
+        let mut digits = 0;
+        while n != 0 {
+            digits += 1;
+            n /= 10;
+        }
+        digits
     }
 
-    let mut digits = 0;
-    while n != 0 {
-        digits += 1;
-        n /= 10;
+fn schema_to_string(schema: &VariantSchema) -> String {
+    match schema {
+        VariantSchema::Primitive(s) => format!("{s}"),
+
+        VariantSchema::Variant => "VARIANT".to_string(),
+
+        VariantSchema::Array(inner) => {
+            format!("ARRAY<{}>", schema_to_string(inner))
+        }
+
+        VariantSchema::Object(fields) => {
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", schema_to_string(v)))
+                .collect();
+            format!("OBJECT<{}>", parts.join(", "))
+        }
     }
-    digits
 }
 
 fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
@@ -130,23 +159,23 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
 }
 
 // Todo: needs more work on type coercing
-fn merge_datatypes(a: DataType, b: DataType) -> DataType {
+fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
     use DataType::*;
 
     match (a, b) {
         // null handling
-        (Null, x) | (x, Null) => x.clone(),
+        (Null, x) | (x, Null) => Some(x),
         // normal case
-        (x, y) if x == y => x.clone(),
+        (x, y) if x == y => Some(x),
         // numeric widening
         // docs.databricks.com/aws/en/sql/language-manual/sql-ref-datatype-rules#type-precedence-list
         // For least common type resolution FLOAT is skipped to avoid loss of precision.
         (Int8 | Int16 | Int32 | Int64 | Float32, Float64)
-        | (Float64, Int8 | Int16 | Int32 | Int64 | Float32) => Float64,
-        (Int8 | Int16 | Int32, Int64) | (Int64, Int8 | Int16 | Int32) => Int64,
-        (Int8 | Int16, Int32) | (Int32, Int8 | Int16) => Int32,
+        | (Float64, Int8 | Int16 | Int32 | Int64 | Float32) => Some(Float64),
+        (Int8 | Int16 | Int32, Int64) | (Int64, Int8 | Int16 | Int32) => Some(Int64),
+        (Int8 | Int16, Int32) | (Int32, Int8 | Int16) => Some(Int32),
 
-        (Date32, Timestamp(tu, tz)) | (Timestamp(tu, tz), Date32) => Timestamp(tu, tz),
+        (Date32, Timestamp(tu, tz)) | (Timestamp(tu, tz), Date32) => Some(Timestamp(tu, tz)),
 
         // // decimal rules (simplified)
         // (
@@ -162,33 +191,7 @@ fn merge_datatypes(a: DataType, b: DataType) -> DataType {
         //     precision: p1.max(p2),
         //     scale: s1.max(s2),
         // }),
-        (List(a), List(b)) => {
-            DataType::List(Arc::new(merge_fields(a.deref().clone(), b.deref().clone())))
-        }
-
-        (Struct(a), Struct(b)) => {
-            // Step 1: extract Fields into Vec<Field>
-            let mut merged_fields: Vec<Field> = a
-                .iter() // iterates over &Arc<Field>
-                .map(|f| f.as_ref().clone()) // clone Field out of Arc
-                .collect();
-
-            // Step 2: merge b_fields
-            for b_field in b.iter() {
-                if let Some(existing) = merged_fields
-                    .iter_mut()
-                    .find(|f| f.name() == b_field.name())
-                {
-                    *existing = merge_fields(existing.clone(), b_field.deref().clone());
-                } else {
-                    merged_fields.push((**b_field).clone()); // clone b_field Field
-                }
-            }
-
-            // Step 3: build new Struct
-            DataType::Struct(Fields::from(merged_fields))
-        }
-        _ => unreachable!("the cases above should cover everything"),
+        _ => unreachable!("Not primitive types {}, {}", a,b),
     }
 }
 
@@ -510,8 +513,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        // assert_eq!(schema, "OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>")
-        assert_eq!(schema, "Some(Struct([Field { name: \"foo\", data_type: Utf8, nullable: true }, Field { name: \"wing\", data_type: Struct([Field { name: \"ding\", data_type: Utf8, nullable: true }]), nullable: true }]))")
+        assert_eq!(schema, "OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>")
     }
 
     #[test]
