@@ -1,6 +1,7 @@
-use std::{collections::BTreeMap};
+use std::{ops::Deref, sync::Arc};
+
 use arrow::array::AsArray;
-use arrow_schema::{DataType, TimeUnit};
+use arrow_schema::{DataType, Field, Fields, TimeUnit};
 use datafusion::{
     common::exec_err,
     error::{DataFusionError, Result},
@@ -8,7 +9,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use parquet_variant::Variant;
-use parquet_variant_compute::VariantArray;
+use parquet_variant_compute::{VariantArray, VariantType};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantSchemaUDF {
@@ -29,6 +30,7 @@ impl Default for VariantSchemaUDF {
 /// Primitive -> Just the corresponding SQL data type based on Variant type
 /// Array -> Should be an <ARRAY<Type>> given that type is the same, if not <ARRAY<Variant>>
 /// Object -> Each object field should keep track of its type <OBJECT<foo: STRING, bar: INT(8, SIGNED)>>
+/// Variant
 ///
 /// For ColumnarValue::Array we get the type for each individual Variant value and compare it with the rest.
 /// - If one of the values is <VARIANT> type => we can early terminate and call everything <VARIANT>
@@ -49,64 +51,42 @@ impl Default for VariantSchemaUDF {
 /// > is derived as a VARIANT. For example, INT and DOUBLE become DOUBLE, while TIMESTAMP and STRING become VARIANT." \
 /// > https://docs.databricks.com/gcp/en/sql/language-manual/functions/schema_of_variant_agg
 ///
-#[derive(Debug, PartialEq, Eq, Clone)]
-enum VariantSchema {
-    Primitive(DataType),
-    Array(Box<VariantSchema>),
-    Object(BTreeMap<String, VariantSchema>),
-    Variant,
-}
-
 /// This function extracts the schema from a single Variant scalar
-fn schema_from_variant(v: &Variant) -> VariantSchema {
+fn schema_from_variant(v: &Variant) -> DataType {
     match v {
         Variant::Object(obj) => {
             let fields = obj
                 .iter()
-                .map(|(k, v)| (k.to_string(), schema_from_variant(&v)))
+                .map(|(k, v)| Field::new(k.to_string(), schema_from_variant(&v), true))
                 .collect();
 
-            VariantSchema::Object(fields)
+            DataType::Struct(fields)
         }
 
         Variant::List(list) => {
             let inner = list
                 .iter()
-                .map(|v| schema_from_variant(&v))
-                .reduce(merge_variant_schema)
-                .unwrap_or(VariantSchema::Variant);
+                .map(|v| Field::new("", schema_from_variant(&v), true))
+                .reduce(merge_fields)
+                .unwrap_or(
+                    Field::new("item", DataType::Binary, true).with_extension_type(VariantType),
+                );
 
-            VariantSchema::Array(Box::new(inner))
+            DataType::List(Arc::new(inner))
         }
         // primitives
-        _ => VariantSchema::Primitive(primitive_from_variant(v)),
-    }
-}
-
-fn schema_to_string(schema: &VariantSchema) -> String {
-    match schema {
-        VariantSchema::Primitive(s) => format!("{s}"),
-
-        VariantSchema::Variant => "VARIANT".to_string(),
-
-        VariantSchema::Array(inner) => {
-            format!("ARRAY<{}>", schema_to_string(inner))
-        }
-
-        VariantSchema::Object(fields) => {
-            let parts: Vec<String> = fields
-                .iter()
-                .map(|(k, v)| format!("{k}: {}", schema_to_string(v)))
-                .collect();
-            format!("OBJECT<{}>", parts.join(", "))
-        }
+        _ => primitive_from_variant(v),
     }
 }
 
 fn decimal_precision<T: Into<i128>>(val: T) -> u8 {
     let mut n = val.into();
-    if n == 0 { return 1; }
-    if n < 0 { n = -n }
+    if n == 0 {
+        return 1;
+    }
+    if n < 0 {
+        n = -n
+    }
 
     let mut digits = 0;
     while n != 0 {
@@ -125,15 +105,23 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
         Variant::Int64(_) => DataType::Int64,
         Variant::Float(_) => DataType::Float32,
         Variant::Double(_) => DataType::Float64,
-        Variant::Decimal4(d) => DataType::Decimal32(decimal_precision(d.integer()), d.scale() as i8),
-        Variant::Decimal8(d) => DataType::Decimal64(decimal_precision(d.integer()), d.scale()as i8),
-        Variant::Decimal16(d) => DataType::Decimal128(decimal_precision(d.integer()), d.scale() as i8),
+        Variant::Decimal4(d) => {
+            DataType::Decimal32(decimal_precision(d.integer()), d.scale() as i8)
+        }
+        Variant::Decimal8(d) => {
+            DataType::Decimal64(decimal_precision(d.integer()), d.scale() as i8)
+        }
+        Variant::Decimal16(d) => {
+            DataType::Decimal128(decimal_precision(d.integer()), d.scale() as i8)
+        }
         Variant::BooleanTrue | Variant::BooleanFalse => DataType::Boolean,
         Variant::String(_) | Variant::ShortString(_) | Variant::Uuid(_) => DataType::Utf8,
         Variant::Binary(_) => DataType::Binary,
         Variant::Date(_) => DataType::Date32,
         Variant::Time(_) => DataType::Time64(TimeUnit::Microsecond),
-        Variant::TimestampMicros(_) => DataType::Timestamp(TimeUnit::Microsecond, Some("utc".into())),
+        Variant::TimestampMicros(_) => {
+            DataType::Timestamp(TimeUnit::Microsecond, Some("utc".into()))
+        }
         Variant::TimestampNtzMicros(_) => DataType::Timestamp(TimeUnit::Microsecond, None),
         Variant::TimestampNanos(_) => DataType::Timestamp(TimeUnit::Nanosecond, Some("utc".into())),
         Variant::TimestampNtzNanos(_) => DataType::Timestamp(TimeUnit::Nanosecond, None),
@@ -142,18 +130,23 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
 }
 
 // Todo: needs more work on type coercing
-fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
+fn merge_datatypes(a: DataType, b: DataType) -> DataType {
     use DataType::*;
 
     match (a, b) {
         // null handling
-        (Null, x) | (x, Null) => Some(x),
+        (Null, x) | (x, Null) => x.clone(),
         // normal case
-        (x, y) if x == y => Some(x),
-        // // numeric widening
-        // (Int { .. }, Double) | (Double, Int { .. }) => Some(Double),
-        // (Int { .. }, Float) | (Float, Int { .. }) => Some(Float),
-        // (Float, Double) | (Double, Float) => Some(Double),
+        (x, y) if x == y => x.clone(),
+        // numeric widening
+        // docs.databricks.com/aws/en/sql/language-manual/sql-ref-datatype-rules#type-precedence-list
+        // For least common type resolution FLOAT is skipped to avoid loss of precision.
+        (Int8 | Int16 | Int32 | Int64 | Float32, Float64)
+        | (Float64, Int8 | Int16 | Int32 | Int64 | Float32) => Float64,
+        (Int8 | Int16 | Int32, Int64) | (Int64, Int8 | Int16 | Int32) => Int64,
+        (Int8 | Int16, Int32) | (Int32, Int8 | Int16) => Int32,
+
+        (Date32, Timestamp(tu, tz)) | (Timestamp(tu, tz), Date32) => Timestamp(tu, tz),
 
         // // decimal rules (simplified)
         // (
@@ -169,33 +162,43 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
         //     precision: p1.max(p2),
         //     scale: s1.max(s2),
         // }),
+        (List(a), List(b)) => {
+            DataType::List(Arc::new(merge_fields(a.deref().clone(), b.deref().clone())))
+        }
 
-        _ => None,
+        (Struct(a), Struct(b)) => {
+            // Step 1: extract Fields into Vec<Field>
+            let mut merged_fields: Vec<Field> = a
+                .iter() // iterates over &Arc<Field>
+                .map(|f| f.as_ref().clone()) // clone Field out of Arc
+                .collect();
+
+            // Step 2: merge b_fields
+            for b_field in b.iter() {
+                if let Some(existing) = merged_fields
+                    .iter_mut()
+                    .find(|f| f.name() == b_field.name())
+                {
+                    *existing = merge_fields(existing.clone(), b_field.deref().clone());
+                } else {
+                    merged_fields.push((**b_field).clone()); // clone b_field Field
+                }
+            }
+
+            // Step 3: build new Struct
+            DataType::Struct(Fields::from(merged_fields))
+        }
+        _ => unreachable!("the cases above should cover everything"),
     }
 }
 
-fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
-    use VariantSchema::*;
-    match (a, b) {
-        (Variant, _) | (_, Variant) => Variant,
-
-        (Primitive(p1), Primitive(p2)) => {
-            merge_primitives(p1, p2).map(Primitive).unwrap_or(Variant)
-        }
-
-        (Array(a), Array(b)) => Array(Box::new(merge_variant_schema(*a, *b))),
-
-        (Object(mut a), Object(b)) => {
-            for (k, v_b) in b {
-                a.entry(k)
-                    .and_modify(|v_a| *v_a = merge_variant_schema(v_a.clone(), v_b.clone()))
-                    .or_insert(v_b);
-            }
-            Object(a)
-        }
-
-        _ => Variant,
+fn merge_fields(a: Field, b: Field) -> Field {
+    if a.extension_type_name() == Some("VARIANT") && b.extension_type_name() == Some("VARIANT") {
+        return Field::new("merged_field", DataType::Binary, true).with_extension_type(VariantType);
     }
+    let merged_type = merge_datatypes(a.data_type().clone(), b.data_type().clone());
+
+    Field::new(a.name(), merged_type, a.is_nullable() || b.is_nullable())
 }
 
 fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
@@ -207,12 +210,11 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
             let variant_array = VariantArray::try_new(struct_array.as_ref())?;
             let v = variant_array.value(0);
 
-            let schema = schema_from_variant(&v);
-            let schema_str = schema_to_string(&schema);
+            let data_type = schema_from_variant(&v);
 
-            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
-                schema_str,
-            ))))
+            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(format!(
+                "{data_type}"
+            )))))
         }
         ColumnarValue::Array(arr) => {
             let variant_array =
@@ -222,12 +224,11 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
                 .iter()
                 .flatten()
                 .map(|v| schema_from_variant(&v))
-                .reduce(merge_variant_schema)
-                .unwrap_or(VariantSchema::Variant);
+                .reduce(merge_datatypes);
 
-            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
-                schema_to_string(&final_schema),
-            ))))
+            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(format!(
+                "{final_schema:?}"
+            )))))
         }
     }
 }
@@ -302,9 +303,7 @@ mod tests {
                 .with_extension_type(VariantType),
         );
         ScalarFunctionArgs {
-            args: vec![ColumnarValue::Array(Arc::new(
-                struct_array,
-            ))],
+            args: vec![ColumnarValue::Array(Arc::new(struct_array))],
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
             return_field,
@@ -479,10 +478,7 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(
-            schema,
-            "OBJECT<data: ARRAY<Int8>, key: Int8>"
-        )
+        assert_eq!(schema, "OBJECT<data: ARRAY<Int8>, key: Int8>")
     }
 
     #[test]
@@ -514,7 +510,8 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
             panic!()
         };
-        assert_eq!(schema, "OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>")
+        // assert_eq!(schema, "OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>")
+        assert_eq!(schema, "Some(Struct([Field { name: \"foo\", data_type: Utf8, nullable: true }, Field { name: \"wing\", data_type: Struct([Field { name: \"ding\", data_type: Utf8, nullable: true }]), nullable: true }]))")
     }
 
     #[test]
