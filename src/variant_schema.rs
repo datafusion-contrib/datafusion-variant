@@ -1,4 +1,4 @@
-use arrow::{array::AsArray};
+use arrow::array::AsArray;
 use arrow_schema::{DataType, TimeUnit};
 use datafusion::{
     common::exec_err,
@@ -138,10 +138,10 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
     }
 }
 
-/// This function is used to merge types between schemas 
+/// This function is used to merge types between schemas
 /// and coerce them into a common type when possible if types
 /// are different
-/// 
+///
 /// Todo: needs more work on type coercing
 /// - add decimal coercion rules
 fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
