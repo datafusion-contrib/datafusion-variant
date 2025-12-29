@@ -25,4 +25,5 @@ pub use variant_object_construct::*;
 pub use variant_object_insert::*;
 pub use variant_pretty::*;
 pub use variant_schema::*;
+pub use variant_schema_agg::*;
 pub use variant_to_json::*;

@@ -2,7 +2,10 @@ use arrow::array::AsArray;
 use arrow_schema::DataType;
 use datafusion::{
     error::Result,
-    logical_expr::{Accumulator, AggregateUDFImpl, Signature, TypeSignature, Volatility, function::AccumulatorArgs},
+    logical_expr::{
+        Accumulator, AggregateUDFImpl, Signature, TypeSignature, Volatility,
+        function::AccumulatorArgs,
+    },
     scalar::ScalarValue,
 };
 use parquet_variant_compute::VariantArray;
@@ -10,7 +13,7 @@ use parquet_variant_compute::VariantArray;
 use crate::{VariantSchema, merge_variant_schema, print_schema, schema_from_variant};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
-struct VariantSchemaAggUDAF {
+pub struct VariantSchemaAggUDAF {
     signature: Signature,
 }
 
@@ -48,7 +51,7 @@ impl AggregateUDFImpl for VariantSchemaAggUDAF {
 }
 
 #[derive(Debug)]
-/// An accumulator to compute and store merged VariantSchame
+/// An accumulator to compute and store merged VariantSchema
 pub struct VariantSchemaAccumulator {
     schema: VariantSchema, // This will store the current inferred schema
 }
@@ -111,13 +114,12 @@ impl Accumulator for VariantSchemaAccumulator {
 mod test {
     use std::sync::Arc;
 
-    use arrow::array::{ArrayRef};
-    use arrow_schema::{DataType, Field, Schema};
+    use arrow::array::ArrayRef;
+    use arrow_schema::{DataType, Field, Fields, Schema};
     use datafusion::{
-        logical_expr::{
-            Accumulator,
-            function::AccumulatorArgs,
-        },
+        logical_expr::{Accumulator, function::AccumulatorArgs},
+        physical_expr::PhysicalSortExpr,
+        physical_plan::expressions::col,
         scalar::ScalarValue,
     };
     use parquet_variant_compute::VariantType;
@@ -130,27 +132,36 @@ mod test {
     fn test_get_agg_variant_schema() {
         let b = build_variant_array_from_json_array(&[
             Some(serde_json::json!({"foo": "bar", "wing": {"ding": "dong"}})),
-            None,
             Some(serde_json::json!({"wing": {"ding": "man"}})),
         ]);
         let b: ArrayRef = Arc::new(b.into_inner());
 
-        let schema = Schema::new(vec![Field::new("b", DataType::Struct(_), true).with_extension_type(VariantType)]);
+        let schema = Schema::new(vec![
+            Field::new(
+                "b",
+                DataType::Struct(Fields::from(vec![
+                    Field::new("metadata", DataType::Binary, true),
+                    Field::new("value", DataType::Binary, true),
+                ])),
+                true,
+            )
+            .with_extension_type(VariantType),
+        ]);
 
         let acc_args = AccumulatorArgs {
             return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
-            schema: &Schema::empty(),
+            schema: &schema,
             ignore_nulls: false,
-            order_bys:,
+            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
             is_reversed: false,
             name: "variant_schema_agg",
             is_distinct: false,
-            exprs:,
+            exprs: &[col("b", &schema).unwrap()],
         };
 
-        let mut schema = VariantSchemaAccumulator::new(acc_args);
-        schema.update_batch(&[Arc::clone(&b)]).unwrap();
-        let final_schema = schema.evaluate().unwrap();
+        let mut variant_schema = VariantSchemaAccumulator::new(acc_args);
+        variant_schema.update_batch(&[Arc::clone(&b)]).unwrap();
+        let final_schema = variant_schema.evaluate().unwrap();
         assert_eq!(
             final_schema,
             ScalarValue::Utf8View(Some(
@@ -159,37 +170,45 @@ mod test {
         )
     }
 
-    // #[test]
-    // fn test_get_array_variant_schema() {
-    //     let udaf = VariantSchemaAggUDAF::default();
-    //     let variant_array = build_variant_array_from_json_array(&[
-    //         Some(serde_json::json!({"foo": "bar", "wing": {"ding": "dong"}})),
-    //         None,
-    //         Some(serde_json::json!({"wing": {"ding": "man"}})),
-    //     ]);
-    //     let struct_array = variant_array.into_inner();
-    //     let args = build_array_udf_args(struct_array);
-    //     let result = udaf.accumulator(acc_args)
-    //     let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-    //         panic!()
-    //     };
-    //     assert_eq!(schema, "OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>")
-    // }
+    #[test]
+    fn test_get_array_variant_conflicting_schema() {
+        let b = build_variant_array_from_json_array(&[
+            Some(serde_json::json!({"foo": "bar", "wing": {"ding": "dong"}})),
+            Some(serde_json::json!({"wing": 123})),
+        ]);
+        let b: ArrayRef = Arc::new(b.into_inner());
 
-    // #[test]
-    // fn test_get_array_variant_conflicting_schema() {
-    //     let udf = VariantSchemaAggUDAF::default();
-    //     let variant_array = build_variant_array_from_json_array(&[
-    //         Some(serde_json::json!({"foo": "bar", "wing": {"ding": "dong"}})),
-    //         // None,
-    //         Some(serde_json::json!({"wing": 123})),
-    //     ]);
-    //     let struct_array = variant_array.into_inner();
-    //     let args = build_array_udf_args(struct_array);
-    //     let result = udf.invoke_with_args(args).unwrap();
-    //     let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-    //         panic!()
-    //     };
-    //     assert_eq!(schema, "OBJECT<foo: Utf8, wing: VARIANT>")
-    // }
+        let schema = Schema::new(vec![
+            Field::new(
+                "b",
+                DataType::Struct(Fields::from(vec![
+                    Field::new("metadata", DataType::Binary, true),
+                    Field::new("value", DataType::Binary, true),
+                ])),
+                true,
+            )
+            .with_extension_type(VariantType),
+        ]);
+
+        let acc_args = AccumulatorArgs {
+            return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
+            schema: &schema,
+            ignore_nulls: false,
+            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
+            is_reversed: false,
+            name: "variant_schema_agg",
+            is_distinct: false,
+            exprs: &[col("b", &schema).unwrap()],
+        };
+
+        let mut variant_schema = VariantSchemaAccumulator::new(acc_args);
+        variant_schema.update_batch(&[Arc::clone(&b)]).unwrap();
+        let final_schema = variant_schema.evaluate().unwrap();
+        assert_eq!(
+            final_schema,
+            ScalarValue::Utf8View(Some(
+                "OBJECT<foo: Utf8, wing: VARIANT>".to_string()
+            ))
+        )
+    }
 }

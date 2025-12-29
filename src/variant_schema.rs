@@ -76,7 +76,7 @@ pub fn schema_from_variant(v: &Variant) -> VariantSchema {
                 .iter()
                 .map(|v| schema_from_variant(&v))
                 .reduce(merge_variant_schema)
-                .unwrap_or(VariantSchema::Variant);
+                .unwrap_or(VariantSchema::Primitive(DataType::Null));
 
             VariantSchema::Array(Box::new(inner))
         }
@@ -147,9 +147,6 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
     use DataType::*;
 
     match (a, b) {
-        // null handling
-        (Null, x) | (x, Null) => Some(x),
-        // normal case
         (x, y) if x == y => Some(x),
         // numeric widening
         // docs.databricks.com/aws/en/sql/language-manual/sql-ref-datatype-rules#type-precedence-list
@@ -171,6 +168,8 @@ pub fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema
 
     match (a, b) {
         (Variant, _) | (_, Variant) => Variant,
+
+        (Primitive(DataType::Null), x) | (x, Primitive(DataType::Null)) => x,
 
         (Primitive(p1), Primitive(p2)) => {
             merge_primitives(p1, p2).map(Primitive).unwrap_or(Variant)
