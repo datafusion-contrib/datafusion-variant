@@ -1,4 +1,3 @@
-use arrow::array::AsArray;
 use arrow_schema::{DataType, TimeUnit};
 use datafusion::{
     common::exec_err,
@@ -54,7 +53,7 @@ impl Default for VariantSchemaUDF {
 ///   - A field becomes VARIANT if its values are incompatible
 ///
 #[derive(Debug, PartialEq, Eq, Clone)]
-enum VariantSchema {
+pub enum VariantSchema {
     Primitive(DataType),
     Array(Box<VariantSchema>),
     Object(BTreeMap<String, VariantSchema>),
@@ -62,7 +61,7 @@ enum VariantSchema {
 }
 
 /// This function extracts the schema from a single Variant scalar
-fn schema_from_variant(v: &Variant) -> VariantSchema {
+pub fn schema_from_variant(v: &Variant) -> VariantSchema {
     match v {
         Variant::Object(obj) => {
             let fields = obj
@@ -167,7 +166,7 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
 
 /// Merges two inferred Variant schemas into a common schema.
 /// Returns VARIANT if no common schema can be determined.
-fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
+pub fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
     use VariantSchema::*;
 
     match (a, b) {
@@ -193,7 +192,7 @@ fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
 }
 
 /// Prints schema in a presentable manner
-fn print_schema(schema: &VariantSchema) -> String {
+pub fn print_schema(schema: &VariantSchema) -> String {
     match schema {
         VariantSchema::Primitive(s) => format!("{s}"),
 
@@ -213,37 +212,22 @@ fn print_schema(schema: &VariantSchema) -> String {
     }
 }
 
-/// Final function used to retrieve schema from a single Variant or VariantArray
+/// Final function used to retrieve the schema from a single Variant
 fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
-    match variant {
-        ColumnarValue::Scalar(scalar) => {
-            let ScalarValue::Struct(struct_array) = scalar else {
-                return exec_err!("Unsupported data type: {}", scalar.data_type());
-            };
-            let variant_array = VariantArray::try_new(struct_array.as_ref())?;
-            let v = variant_array.value(0);
+    if let ColumnarValue::Scalar(scalar) = variant {
+        let ScalarValue::Struct(struct_array) = scalar else {
+            return exec_err!("Unsupported data type: {}", scalar.data_type());
+        };
+        let variant_array = VariantArray::try_new(struct_array.as_ref())?;
+        let v = variant_array.value(0);
 
-            let schema = schema_from_variant(&v);
+        let schema = schema_from_variant(&v);
 
-            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
-                print_schema(&schema),
-            ))))
-        }
-        ColumnarValue::Array(arr) => {
-            let variant_array =
-                VariantArray::try_new(arr.as_struct()).expect("Expect VariantArray");
-
-            let final_schema = variant_array
-                .iter()
-                .flatten()
-                .map(|v| schema_from_variant(&v))
-                .reduce(merge_variant_schema)
-                .unwrap_or(VariantSchema::Variant);
-
-            Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
-                print_schema(&final_schema),
-            ))))
-        }
+        Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
+            print_schema(&schema),
+        ))))
+    } else {
+        exec_err!("Expected a ScalarValue, got: {:?}", variant)
     }
 }
 
@@ -261,7 +245,7 @@ impl ScalarUDFImpl for VariantSchemaUDF {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        Ok(DataType::Utf8)
+        Ok(DataType::Utf8View)
     }
 
     fn invoke_with_args(
@@ -288,10 +272,7 @@ mod tests {
     use parquet_variant_compute::{VariantArray, VariantType};
     use std::sync::Arc;
 
-    use crate::{
-        VariantSchemaUDF,
-        shared::{build_variant_array_from_json, build_variant_array_from_json_array},
-    };
+    use crate::{VariantSchemaUDF, shared::build_variant_array_from_json};
 
     fn build_scalar_udf_args(struct_array: StructArray) -> ScalarFunctionArgs {
         let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
@@ -303,21 +284,6 @@ mod tests {
             args: vec![ColumnarValue::Scalar(ScalarValue::Struct(Arc::new(
                 struct_array,
             )))],
-            arg_fields: vec![arg_field],
-            number_rows: Default::default(),
-            return_field,
-            config_options: Default::default(),
-        }
-    }
-
-    fn build_array_udf_args(struct_array: StructArray) -> ScalarFunctionArgs {
-        let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
-        let arg_field = Arc::new(
-            Field::new("input", DataType::Struct(Fields::empty()), true)
-                .with_extension_type(VariantType),
-        );
-        ScalarFunctionArgs {
-            args: vec![ColumnarValue::Array(Arc::new(struct_array))],
             arg_fields: vec![arg_field],
             number_rows: Default::default(),
             return_field,
@@ -508,39 +474,5 @@ mod tests {
             panic!()
         };
         assert_eq!(schema, "OBJECT<data: ARRAY<VARIANT>>")
-    }
-
-    #[test]
-    fn test_get_array_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant_array = build_variant_array_from_json_array(&[
-            Some(serde_json::json!({"foo": "bar", "wing": {"ding": "dong"}})),
-            None,
-            Some(serde_json::json!({"wing": {"ding": "man"}})),
-        ]);
-        let struct_array = variant_array.into_inner();
-        let args = build_array_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>")
-    }
-
-    #[test]
-    fn test_get_array_variant_conflicting_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant_array = build_variant_array_from_json_array(&[
-            Some(serde_json::json!({"foo": "bar", "wing": {"ding": "dong"}})),
-            // None,
-            Some(serde_json::json!({"wing": 123})),
-        ]);
-        let struct_array = variant_array.into_inner();
-        let args = build_array_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "OBJECT<foo: Utf8, wing: VARIANT>")
     }
 }

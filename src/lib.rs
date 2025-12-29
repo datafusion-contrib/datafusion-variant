@@ -12,6 +12,7 @@ mod variant_object_construct;
 mod variant_object_insert;
 mod variant_pretty;
 mod variant_schema;
+mod variant_schema_agg;
 mod variant_to_json;
 
 pub use cast_to_variant::*;
