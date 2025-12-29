@@ -206,9 +206,7 @@ mod test {
         let final_schema = variant_schema.evaluate().unwrap();
         assert_eq!(
             final_schema,
-            ScalarValue::Utf8View(Some(
-                "OBJECT<foo: Utf8, wing: VARIANT>".to_string()
-            ))
+            ScalarValue::Utf8View(Some("OBJECT<foo: Utf8, wing: VARIANT>".to_string()))
         )
     }
 }
