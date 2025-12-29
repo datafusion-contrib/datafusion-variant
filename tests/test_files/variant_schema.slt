@@ -1,0 +1,34 @@
+# tests the variant_schema udf 
+# this function takes a Scalar Variant 
+# or a Variant Array and extracts it's SQL schema 
+
+# Simple example with a Scalar value
+query T
+SELECT variant_schema(json_to_variant('{"key": 123, "data": [4, 5]}'))
+----
+OBJECT<data: ARRAY<Int8>, key: Int8>
+
+
+# Conflicting element types in array
+query T
+SELECT variant_schema(json_to_variant('{"data": [{"a":"a"}, 5]}'))
+----
+OBJECT<data: ARRAY<VARIANT>>
+
+# A typed literal
+query T 
+SELECT variant_schema(json_to_variant(123.4))
+----
+Float64
+
+# Variant Arrays
+statement ok
+CREATE TABLE data as VALUES
+(json_to_variant('{"foo": "bar", "wing": {"ding": "dong"}}')),
+(json_to_variant('{"wing": 123}')),
+(json_to_variant('{"wing": 123}'));
+
+query T 
+SELECT variant_schema_agg(column1) from data;
+----
+OBJECT<foo: Utf8, wing: VARIANT>
