@@ -44,10 +44,12 @@ impl ScalarUDFImpl for IsVariantNullUdf {
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let variant_field = args
-            .arg_fields
-            .first()
-            .ok_or_else(|| exec_datafusion_err!("expected 1 argument field type, got {}", args.arg_fields.len()))?;
+        let variant_field = args.arg_fields.first().ok_or_else(|| {
+            exec_datafusion_err!(
+                "expected 1 argument field type, got {}",
+                args.arg_fields.len()
+            )
+        })?;
 
         try_field_as_variant_array(variant_field.as_ref())?;
 
