@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow::array::StringViewArray;
 use arrow_schema::DataType;
 use datafusion::{
-    common::{exec_datafusion_err, exec_err},
+    common::exec_err,
     error::Result,
     logical_expr::{
         ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -12,7 +12,7 @@ use datafusion::{
 };
 use parquet_variant_compute::VariantArray;
 
-use crate::shared::try_field_as_variant_array;
+use crate::shared::{args_count_err, try_field_as_variant_array};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantPretty {
@@ -48,14 +48,11 @@ impl ScalarUDFImpl for VariantPretty {
         let field = args
             .arg_fields
             .first()
-            .ok_or_else(|| exec_datafusion_err!("empty argument, expected 1 argument"))?;
+            .ok_or_else(|| args_count_err(1, 0))?;
 
         try_field_as_variant_array(field.as_ref())?;
 
-        let arg = args
-            .args
-            .first()
-            .ok_or_else(|| exec_datafusion_err!("empty argument, expected 1 argument"))?;
+        let arg = args.args.first().ok_or_else(|| args_count_err(1, 0))?;
 
         let out = match arg {
             ColumnarValue::Scalar(scalar) => {
@@ -66,7 +63,7 @@ impl ScalarUDFImpl for VariantPretty {
                 let variant_array = VariantArray::try_new(variant_array.as_ref())?;
                 let v = variant_array.value(0);
 
-                ColumnarValue::Scalar(ScalarValue::Utf8View(Some(format!("{:?}", v))))
+                ColumnarValue::Scalar(ScalarValue::Utf8View(Some(format!("{v:?}"))))
             }
             ColumnarValue::Array(arr) => match arr.data_type() {
                 DataType::Struct(_) => {
@@ -74,7 +71,7 @@ impl ScalarUDFImpl for VariantPretty {
 
                     let out = variant_array
                         .iter()
-                        .map(|v| v.map(|v| format!("{:?}", v)))
+                        .map(|v| v.map(|v| format!("{v:?}")))
                         .collect::<Vec<_>>();
 
                     let out: StringViewArray = out.into();

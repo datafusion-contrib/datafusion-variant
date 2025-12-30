@@ -15,7 +15,7 @@ use datafusion::{
 use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
-use crate::shared::{try_field_as_string, try_parse_string_scalar};
+use crate::shared::{args_count_err, try_field_as_string, try_parse_string_scalar};
 
 /// Returns a Variant from a JSON string
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -74,14 +74,11 @@ impl ScalarUDFImpl for JsonToVariantUdf {
         let arg_field = args
             .arg_fields
             .first()
-            .ok_or_else(|| exec_datafusion_err!("empty argument, expected 1 argument"))?;
+            .ok_or_else(|| args_count_err(1, 0))?;
 
         try_field_as_string(arg_field.as_ref())?;
 
-        let arg = args
-            .args
-            .first()
-            .ok_or_else(|| exec_datafusion_err!("empty argument, expected 1 argument"))?;
+        let arg = args.args.first().ok_or_else(|| args_count_err(1, 0))?;
 
         let out = match arg {
             ColumnarValue::Scalar(scalar_value) => {

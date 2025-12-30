@@ -17,7 +17,7 @@ use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantArray, VariantType, variant_get};
 
 use crate::shared::{
-    try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
+    args_count_err, try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
 };
 
 fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
@@ -118,7 +118,7 @@ impl ScalarUDFImpl for VariantGetUdf {
         let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
             [variant_arg, variant_path] => (variant_arg, variant_path, None),
             [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
-            _ => return exec_err!("expected 2 or 3 arguments"),
+            _ => return Err(args_count_err(1, args.args.len())),
         };
 
         let variant_field = args

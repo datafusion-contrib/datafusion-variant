@@ -13,7 +13,7 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{ensure, try_parse_variant_scalar};
+use crate::shared::{args_count_err, ensure, try_parse_variant_scalar};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListInsert {
@@ -71,7 +71,7 @@ impl ScalarUDFImpl for VariantListInsert {
         )?;
 
         let [variant_list_to_update, element_to_append] = argument_values.as_slice() else {
-            return exec_err!("expected 2 arguments");
+            return Err(args_count_err(2, argument_values.len()));
         };
 
         let all_arguments_variant_field = argument_fields

@@ -4,7 +4,7 @@ use arrow::array::{Array, cast::AsArray};
 use arrow_schema::extension::ExtensionType;
 use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
-use datafusion::error::Result;
+use datafusion::error::{DataFusionError, Result};
 use datafusion::{common::exec_err, scalar::ScalarValue};
 use parquet_variant_compute::{VariantArray, VariantType};
 
@@ -128,6 +128,13 @@ pub fn ensure(pred: bool, err_msg: &str) -> Result<()> {
     Ok(())
 }
 
+// cleaner error handling
+
+/// helper for argument count errors
+pub fn args_count_err(expected: usize, actual: usize) -> DataFusionError {
+    DataFusionError::Execution(format!("expected {expected} arguments, got {actual}"))
+}
+
 // test related methods
 
 #[cfg(test)]
@@ -144,7 +151,7 @@ pub fn build_variant_array_from_json(value: &serde_json::Value) -> VariantArray 
 pub fn build_variant_array_from_json_array(jsons: &[Option<serde_json::Value>]) -> VariantArray {
     let mut builder = VariantArrayBuilder::new(jsons.len());
 
-    jsons.into_iter().for_each(|v| match v.as_ref() {
+    jsons.iter().for_each(|v| match v.as_ref() {
         Some(json) => builder.append_json(json.to_string().as_str()).unwrap(),
         None => builder.append_null(),
     });
