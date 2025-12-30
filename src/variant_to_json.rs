@@ -5,7 +5,6 @@ use std::sync::Arc;
 use arrow::array::StringViewArray;
 use arrow_schema::DataType;
 use datafusion::{
-    common::exec_err,
     error::Result,
     logical_expr::{
         ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -15,7 +14,7 @@ use datafusion::{
 use parquet_variant_compute::VariantArray;
 use parquet_variant_json::VariantToJson;
 
-use crate::shared::{args_count_err, try_field_as_variant_array};
+use crate::shared::{args_count_err, try_field_as_variant_array, type_err};
 
 /// Returns a JSON string from a VariantArray
 ///
@@ -68,7 +67,7 @@ impl ScalarUDFImpl for VariantToJsonUdf {
         let out = match arg {
             ColumnarValue::Scalar(scalar) => {
                 let ScalarValue::Struct(variant_array) = scalar else {
-                    return exec_err!("Unsupported data type: {}", scalar.data_type());
+                    return type_err("Struct", &scalar.data_type());
                 };
 
                 let variant_array = VariantArray::try_new(variant_array.as_ref())?;
@@ -88,7 +87,7 @@ impl ScalarUDFImpl for VariantToJsonUdf {
 
                     ColumnarValue::Array(Arc::new(out))
                 }
-                unsupported => return exec_err!("Invalid data type: {unsupported}"),
+                unsupported => return type_err("Struct", unsupported),
             },
         };
 

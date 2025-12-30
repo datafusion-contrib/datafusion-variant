@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arrow::array::{Array, ArrayRef, LargeStringArray, StringArray, StringViewArray, StructArray};
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
-    common::{exec_datafusion_err, exec_err},
+    common::exec_datafusion_err,
     error::Result,
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature,
@@ -15,7 +15,7 @@ use datafusion::{
 use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
-use crate::shared::{args_count_err, try_field_as_string, try_parse_string_scalar};
+use crate::shared::{args_count_err, try_field_as_string, try_parse_string_scalar, type_err};
 
 /// Returns a Variant from a JSON string
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -98,7 +98,7 @@ impl ScalarUDFImpl for JsonToVariantUdf {
                 DataType::Utf8 => ColumnarValue::Array(from_utf8_arr(arr)?),
                 DataType::LargeUtf8 => ColumnarValue::Array(from_large_utf8_arr(arr)?),
                 DataType::Utf8View => ColumnarValue::Array(from_utf8view_arr(arr)?),
-                _ => return exec_err!("Invalid data type {}", arr.data_type()),
+                _ => return type_err("Utf8, LargeUtf8, or Utf8View", arr.data_type()),
             },
         };
 

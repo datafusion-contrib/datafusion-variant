@@ -137,6 +137,13 @@ pub fn args_count_err(expected: &'static str, actual: usize) -> DataFusionError 
     ))
 }
 
+// helper for argument type errors
+pub fn type_err<T>(expected: &str, actual: &DataType) -> Result<T, DataFusionError> {
+    Err(DataFusionError::Execution(format!(
+        "expected {expected}, got {actual:?}"
+    )))
+}
+
 
 // test related methods
 

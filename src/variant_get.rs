@@ -17,7 +17,7 @@ use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantArray, VariantType, variant_get};
 
 use crate::shared::{
-    args_count_err, try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
+    args_count_err, try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar, type_err,
 };
 
 fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
@@ -196,7 +196,7 @@ impl ScalarUDFImpl for VariantGetUdf {
             }
             (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(variant_paths)) => {
                 let ScalarValue::Struct(variant_array) = scalar_variant else {
-                    return exec_err!("expected struct array");
+                    return type_err("Struct", &scalar_variant.data_type());
                 };
 
                 let variant_array = Arc::clone(variant_array) as ArrayRef;
