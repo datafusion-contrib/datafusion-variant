@@ -59,11 +59,11 @@ impl ScalarUDFImpl for VariantToJsonUdf {
         let field = args
             .arg_fields
             .first()
-            .ok_or_else(|| args_count_err(1, 0))?;
+            .ok_or_else(|| args_count_err("1", 0))?;
 
         try_field_as_variant_array(field.as_ref())?;
 
-        let arg = args.args.first().ok_or_else(|| args_count_err(1, 0))?;
+        let arg = args.args.first().ok_or_else(|| args_count_err("1", 0))?;
 
         let out = match arg {
             ColumnarValue::Scalar(scalar) => {

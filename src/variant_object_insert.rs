@@ -71,7 +71,7 @@ impl ScalarUDFImpl for VariantObjectInsert {
         )?;
 
         let [variant_object_to_update, key, value] = argument_values.as_slice() else {
-            return Err(args_count_err(3, argument_values.len()));
+            return Err(args_count_err("3", argument_values.len()));
         };
 
         {

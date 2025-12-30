@@ -131,9 +131,12 @@ pub fn ensure(pred: bool, err_msg: &str) -> Result<()> {
 // cleaner error handling
 
 /// helper for argument count errors
-pub fn args_count_err(expected: usize, actual: usize) -> DataFusionError {
-    DataFusionError::Execution(format!("expected {expected} arguments, got {actual}"))
+pub fn args_count_err(expected: &'static str, actual: usize) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "expected {expected} argument(s), got {actual}"
+    ))
 }
+
 
 // test related methods
 

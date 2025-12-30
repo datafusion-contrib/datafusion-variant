@@ -71,7 +71,7 @@ impl ScalarUDFImpl for VariantListInsert {
         )?;
 
         let [variant_list_to_update, element_to_append] = argument_values.as_slice() else {
-            return Err(args_count_err(2, argument_values.len()));
+            return Err(args_count_err("2", argument_values.len()));
         };
 
         let all_arguments_variant_field = argument_fields

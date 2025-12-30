@@ -118,7 +118,7 @@ impl ScalarUDFImpl for VariantGetUdf {
         let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
             [variant_arg, variant_path] => (variant_arg, variant_path, None),
             [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
-            _ => return Err(args_count_err(1, args.args.len())),
+            _ => return Err(args_count_err("2 or 3", args.args.len())),
         };
 
         let variant_field = args

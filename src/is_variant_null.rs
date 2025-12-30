@@ -52,7 +52,7 @@ impl ScalarUDFImpl for IsVariantNullUdf {
         try_field_as_variant_array(variant_field.as_ref())?;
 
         let [variant_arg] = args.args.as_slice() else {
-            return Err(args_count_err(1, args.args.len()));
+            return Err(args_count_err("1", args.args.len()));
         };
 
         let out = match variant_arg {
