@@ -2,38 +2,22 @@
 name = "datafusion-variant"
 version = "0.1.0"
 edition = "2024"
-# Define Minimum Supported Rust Version (MSRV)
-rust-version = "1.88.0"
 
 [dependencies]
-datafusion = { git = "https://github.com/alamb/datafusion", branch = "alamb/upgrade_arrow_57" }
-arrow = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-parquet-variant-compute = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-parquet-variant-json = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-parquet-variant = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-
-[patch.crates-io]
-arrow = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-array = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-buffer = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-cast = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-data = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-ipc = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-schema = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-select = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-string = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-ord = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-arrow-flight = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
-parquet = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+datafusion = "52.1.0"
+arrow = "57.1.0"
+arrow-schema = "57.1.0"
+parquet-variant-compute = "57.2.0"
+parquet-variant-json = "57.2.0"
+parquet-variant = "57.2.0"
 
 [dev-dependencies]
 anyhow = "1.0.100"
-arrow-cast = { git = "https://github.com/apache/arrow-rs", rev = "ca4a0ae5e4122e905686f3b7538b5308503cb770" }
+arrow-cast = "57.1.0"
 serde_json = "1.0.145"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
-datafusion-sqllogictest = { git = "https://github.com/alamb/datafusion", branch = "alamb/upgrade_arrow_57" }
+datafusion-sqllogictest = "52.1.0"
 sqllogictest = "0.28"
 indicatif = "0.18"
 env_logger = "0.11"
