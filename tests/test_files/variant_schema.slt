@@ -1,12 +1,24 @@
 # tests the variant_schema udf 
-# this function takes a Scalar Variant 
-# and extracts it's SQL schema 
+# this function takes a VARIANT expression
+# and extracts each row's SQL schema
 
 # simple example with a scalar value
 query T
 SELECT variant_schema(json_to_variant('{"key": 123, "data": [4, 5]}'))
 ----
 OBJECT<data: ARRAY<Int8>, key: Int8>
+
+# column input (row-wise, non-aggregate)
+statement ok
+CREATE TABLE t_col AS VALUES
+(json_to_variant('{"a": 1}')),
+(json_to_variant('[1, 2, 3]'));
+
+query T
+SELECT variant_schema(column1) FROM t_col ORDER BY 1;
+----
+ARRAY<Int8>
+OBJECT<a: Int8>
 
 
 # conflicting element types in array
