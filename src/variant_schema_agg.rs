@@ -1,17 +1,33 @@
 use arrow::array::AsArray;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, Field, FieldRef};
 use datafusion::{
     error::Result,
     logical_expr::{
         Accumulator, AggregateUDFImpl, Signature, TypeSignature, Volatility,
-        function::AccumulatorArgs,
+        function::{AccumulatorArgs, StateFieldsArgs},
+        utils::format_state_name,
     },
     scalar::ScalarValue,
 };
 use parquet_variant_compute::VariantArray;
+use std::sync::Arc;
 
-use crate::{VariantSchema, merge_variant_schema, print_schema, schema_from_variant};
+use crate::{
+    VariantSchema, merge_variant_schema, print_schema, schema_from_variant,
+    shared::try_parse_binary_columnar,
+};
 
+/// Aggregate schema inference for VARIANT values across rows.
+///
+/// This function infers per-row schemas using `schema_from_variant` and merges
+/// them into a single schema per group.
+///
+/// Semantics:
+/// - Input: one VARIANT expression
+/// - Output: one schema string per aggregate group
+/// - Row filtering should be done via SQL `FILTER (WHERE ...)`
+///
+/// Use `variant_schema` for row-wise (non-aggregate) inference.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantSchemaAggUDAF {
     signature: Signature,
@@ -20,7 +36,7 @@ pub struct VariantSchemaAggUDAF {
 impl Default for VariantSchemaAggUDAF {
     fn default() -> Self {
         Self {
-            signature: Signature::new(TypeSignature::VariadicAny, Volatility::Immutable),
+            signature: Signature::new(TypeSignature::Any(1), Volatility::Immutable),
         }
     }
 }
@@ -42,6 +58,16 @@ impl AggregateUDFImpl for VariantSchemaAggUDAF {
         Ok(DataType::Utf8View)
     }
 
+    fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
+        let fields = vec![Arc::new(Field::new(
+            format_state_name(args.name, "variant_schema"),
+            DataType::Binary,
+            true,
+        ))];
+
+        Ok(fields.into_iter().chain(args.ordering_fields.to_vec()).collect())
+    }
+
     fn accumulator(
         &self,
         acc_args: datafusion::logical_expr::function::AccumulatorArgs,
@@ -50,15 +76,14 @@ impl AggregateUDFImpl for VariantSchemaAggUDAF {
     }
 }
 
+/// Accumulator state for `variant_schema_agg`.
 #[derive(Debug)]
-/// An accumulator to compute and store merged VariantSchema
 pub struct VariantSchemaAccumulator {
-    schema: VariantSchema, // This will store the current inferred schema
+    schema: VariantSchema,
 }
 
 impl VariantSchemaAccumulator {
     fn new(_acc_args: AccumulatorArgs) -> Self {
-        // Initialize with Variant as the starting schema
         Self {
             schema: VariantSchema::Primitive(DataType::Null),
         }
@@ -67,10 +92,7 @@ impl VariantSchemaAccumulator {
 
 impl Accumulator for VariantSchemaAccumulator {
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        // Return the current state (the inferred schema)
-        Ok(vec![ScalarValue::Utf8View(Some(print_schema(
-            &self.schema,
-        )))])
+        Ok(vec![ScalarValue::Binary(Some(self.schema.to_state_bytes()))])
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
@@ -93,11 +115,9 @@ impl Accumulator for VariantSchemaAccumulator {
     }
 
     fn merge_batch(&mut self, states: &[arrow::array::ArrayRef]) -> Result<()> {
-        // Merge schemas from other states (batches)
         for state in states {
-            let variant_array = VariantArray::try_new(state.as_struct())?;
-            for variant in variant_array.iter().flatten() {
-                let new_schema = schema_from_variant(&variant);
+            for encoded_state in try_parse_binary_columnar(state)?.into_iter().flatten() {
+                let new_schema = VariantSchema::from_state_bytes(encoded_state)?;
                 self.schema = merge_variant_schema(self.schema.clone(), new_schema);
             }
         }
@@ -208,5 +228,84 @@ mod test {
             final_schema,
             ScalarValue::Utf8View(Some("OBJECT<foo: Utf8, wing: VARIANT>".to_string()))
         )
+    }
+
+    #[test]
+    fn test_merge_batch_from_state_roundtrip() {
+        let schema = Schema::new(vec![
+            Field::new(
+                "b",
+                DataType::Struct(Fields::from(vec![
+                    Field::new("metadata", DataType::Binary, true),
+                    Field::new("value", DataType::Binary, true),
+                ])),
+                true,
+            )
+            .with_extension_type(VariantType),
+        ]);
+
+        let b1 = build_variant_array_from_json_array(&[Some(serde_json::json!({"a": 1}))]);
+        let b1: ArrayRef = Arc::new(b1.into_inner());
+
+        let b2 = build_variant_array_from_json_array(&[Some(serde_json::json!({"a": 2.5}))]);
+        let b2: ArrayRef = Arc::new(b2.into_inner());
+
+        let acc1_args = AccumulatorArgs {
+            return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
+            schema: &schema,
+            ignore_nulls: false,
+            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
+            is_reversed: false,
+            name: "variant_schema_agg",
+            is_distinct: false,
+            exprs: &[col("b", &schema).unwrap()],
+        };
+        let acc2_args = AccumulatorArgs {
+            return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
+            schema: &schema,
+            ignore_nulls: false,
+            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
+            is_reversed: false,
+            name: "variant_schema_agg",
+            is_distinct: false,
+            exprs: &[col("b", &schema).unwrap()],
+        };
+        let merged_args = AccumulatorArgs {
+            return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
+            schema: &schema,
+            ignore_nulls: false,
+            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
+            is_reversed: false,
+            name: "variant_schema_agg",
+            is_distinct: false,
+            exprs: &[col("b", &schema).unwrap()],
+        };
+
+        let mut acc1 = VariantSchemaAccumulator::new(acc1_args);
+        acc1.update_batch(&[Arc::clone(&b1)]).unwrap();
+        let state_1 = acc1
+            .state()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.to_array().unwrap())
+            .collect::<Vec<_>>();
+
+        let mut acc2 = VariantSchemaAccumulator::new(acc2_args);
+        acc2.update_batch(&[Arc::clone(&b2)]).unwrap();
+        let state_2 = acc2
+            .state()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.to_array().unwrap())
+            .collect::<Vec<_>>();
+
+        let mut merged = VariantSchemaAccumulator::new(merged_args);
+        merged.merge_batch(&state_1).unwrap();
+        merged.merge_batch(&state_2).unwrap();
+
+        assert_eq!(
+            merged.evaluate().unwrap(),
+            ScalarValue::Utf8View(Some("OBJECT<a: Float64>".to_string()))
+        );
     }
 }

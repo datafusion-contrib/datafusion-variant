@@ -51,6 +51,111 @@ pub enum VariantSchema {
     Variant,
 }
 
+impl VariantSchema {
+    pub fn to_state_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        encode_variant_schema(self, &mut out);
+        out
+    }
+
+    pub fn from_state_bytes(bytes: &[u8]) -> Result<Self> {
+        let mut offset = 0usize;
+        let decoded = decode_variant_schema(bytes, &mut offset)?;
+        if offset != bytes.len() {
+            return exec_err!("invalid variant_schema_agg state: trailing bytes");
+        }
+        Ok(decoded)
+    }
+}
+
+fn encode_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    out.extend_from_slice(bytes);
+}
+
+fn read_u8(input: &[u8], offset: &mut usize) -> Result<u8> {
+    let Some(v) = input.get(*offset) else {
+        return exec_err!("invalid variant_schema_agg state: missing tag");
+    };
+    *offset += 1;
+    Ok(*v)
+}
+
+fn read_u32(input: &[u8], offset: &mut usize) -> Result<u32> {
+    let Some(raw) = input.get(*offset..(*offset + 4)) else {
+        return exec_err!("invalid variant_schema_agg state: missing u32");
+    };
+    *offset += 4;
+    Ok(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
+}
+
+fn read_len_prefixed_bytes<'a>(input: &'a [u8], offset: &mut usize) -> Result<&'a [u8]> {
+    let len = read_u32(input, offset)? as usize;
+    let Some(raw) = input.get(*offset..(*offset + len)) else {
+        return exec_err!("invalid variant_schema_agg state: truncated payload");
+    };
+    *offset += len;
+    Ok(raw)
+}
+
+fn encode_variant_schema(schema: &VariantSchema, out: &mut Vec<u8>) {
+    match schema {
+        VariantSchema::Primitive(dtype) => {
+            out.push(0);
+            encode_len_prefixed_bytes(out, dtype.to_string().as_bytes());
+        }
+        VariantSchema::Array(inner) => {
+            out.push(1);
+            encode_variant_schema(inner, out);
+        }
+        VariantSchema::Object(fields) => {
+            out.push(2);
+            out.extend_from_slice(&(fields.len() as u32).to_le_bytes());
+            for (key, value) in fields {
+                encode_len_prefixed_bytes(out, key.as_bytes());
+                encode_variant_schema(value, out);
+            }
+        }
+        VariantSchema::Variant => out.push(3),
+    }
+}
+
+fn decode_variant_schema(input: &[u8], offset: &mut usize) -> Result<VariantSchema> {
+    match read_u8(input, offset)? {
+        0 => {
+            let raw = read_len_prefixed_bytes(input, offset)?;
+            let dtype_str = match std::str::from_utf8(raw) {
+                Ok(v) => v,
+                Err(e) => return exec_err!("invalid variant_schema_agg state: {e}"),
+            };
+            let dtype = match dtype_str.parse::<DataType>() {
+                Ok(v) => v,
+                Err(e) => return exec_err!("invalid variant_schema_agg datatype state: {e}"),
+            };
+            Ok(VariantSchema::Primitive(dtype))
+        }
+        1 => Ok(VariantSchema::Array(Box::new(decode_variant_schema(
+            input, offset,
+        )?))),
+        2 => {
+            let count = read_u32(input, offset)? as usize;
+            let mut fields = BTreeMap::new();
+            for _ in 0..count {
+                let key_raw = read_len_prefixed_bytes(input, offset)?;
+                let key = match std::str::from_utf8(key_raw) {
+                    Ok(v) => v.to_string(),
+                    Err(e) => return exec_err!("invalid variant_schema_agg field key: {e}"),
+                };
+                let value = decode_variant_schema(input, offset)?;
+                fields.insert(key, value);
+            }
+            Ok(VariantSchema::Object(fields))
+        }
+        3 => Ok(VariantSchema::Variant),
+        tag => exec_err!("invalid variant_schema_agg state tag: {tag}"),
+    }
+}
+
 /// This function extracts the schema from a single Variant scalar
 pub fn schema_from_variant(v: &Variant) -> VariantSchema {
     match v {
