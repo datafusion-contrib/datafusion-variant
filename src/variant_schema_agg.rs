@@ -65,7 +65,10 @@ impl AggregateUDFImpl for VariantSchemaAggUDAF {
             true,
         ))];
 
-        Ok(fields.into_iter().chain(args.ordering_fields.to_vec()).collect())
+        Ok(fields
+            .into_iter()
+            .chain(args.ordering_fields.to_vec())
+            .collect())
     }
 
     fn accumulator(
@@ -92,7 +95,9 @@ impl VariantSchemaAccumulator {
 
 impl Accumulator for VariantSchemaAccumulator {
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        Ok(vec![ScalarValue::Binary(Some(self.schema.to_state_bytes()))])
+        Ok(vec![ScalarValue::Binary(Some(
+            self.schema.to_state_bytes(),
+        ))])
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
