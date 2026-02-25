@@ -101,6 +101,10 @@ impl Accumulator for VariantSchemaAccumulator {
     }
 
     fn update_batch(&mut self, values: &[arrow::array::ArrayRef]) -> Result<()> {
+        if self.schema == VariantSchema::Variant {
+            return Ok(());
+        }
+
         // We're assuming the input is an array of variants
         for value in values {
             // Ensure we are dealing with VariantArray and extract the variant values
@@ -109,16 +113,26 @@ impl Accumulator for VariantSchemaAccumulator {
                 let new_schema = schema_from_variant(&variant);
                 // Merge the new schema with the current schema
                 self.schema = merge_variant_schema(self.schema.clone(), new_schema);
+                if self.schema == VariantSchema::Variant {
+                    return Ok(());
+                }
             }
         }
         Ok(())
     }
 
     fn merge_batch(&mut self, states: &[arrow::array::ArrayRef]) -> Result<()> {
+        if self.schema == VariantSchema::Variant {
+            return Ok(());
+        }
+
         for state in states {
             for encoded_state in try_parse_binary_columnar(state)?.into_iter().flatten() {
                 let new_schema = VariantSchema::from_state_bytes(encoded_state)?;
                 self.schema = merge_variant_schema(self.schema.clone(), new_schema);
+                if self.schema == VariantSchema::Variant {
+                    return Ok(());
+                }
             }
         }
         Ok(())
