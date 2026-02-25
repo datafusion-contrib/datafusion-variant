@@ -171,8 +171,15 @@ pub fn schema_from_variant(v: &Variant) -> VariantSchema {
             let inner = list
                 .iter()
                 .map(|v| schema_from_variant(&v))
-                .reduce(merge_variant_schema)
-                .unwrap_or(VariantSchema::Primitive(DataType::Null));
+                .try_fold(VariantSchema::Primitive(DataType::Null), |acc, next| {
+                    let merged = merge_variant_schema(acc, next);
+                    if merged == VariantSchema::Variant {
+                        Err(merged)
+                    } else {
+                        Ok(merged)
+                    }
+                })
+                .unwrap_or_else(|schema| schema);
 
             VariantSchema::Array(Box::new(inner))
         }
@@ -622,9 +629,6 @@ mod tests {
             .iter()
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            strings,
-            vec![Some("OBJECT<a: Int8>"), Some("ARRAY<Int8>")]
-        );
+        assert_eq!(strings, vec![Some("OBJECT<a: Int8>"), Some("ARRAY<Int8>")]);
     }
 }
