@@ -33,6 +33,21 @@ SELECT variant_schema(json_to_variant(123.4))
 ----
 Float64
 
+# explicit string primitive
+query T
+SELECT variant_schema(json_to_variant('"foo"'))
+----
+Utf8
+
+# explicit boolean primitive
+query T
+SELECT variant_schema(json_to_variant('true'))
+----
+Boolean
+
+# TODO: add DATE/TIME/TIMESTAMP/DECIMAL slt coverage once cast_to_variant
+# scalar/columnar return-field nullability mismatch is resolved for typed casts.
+
 # explicit null
 query T
 SELECT variant_schema(json_to_variant('null'))

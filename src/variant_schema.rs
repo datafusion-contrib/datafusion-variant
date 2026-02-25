@@ -373,7 +373,6 @@ impl ScalarUDFImpl for VariantSchemaUDF {
 
 #[cfg(test)]
 mod tests {
-    use arrow::array::StringViewArray;
     use arrow::array::StructArray;
     use arrow_schema::{DataType, Field, Fields};
     use chrono::{DateTime, NaiveDate, NaiveTime};
@@ -385,10 +384,7 @@ mod tests {
     use parquet_variant_compute::{VariantArray, VariantType};
     use std::sync::Arc;
 
-    use crate::{
-        VariantSchemaUDF,
-        shared::{build_variant_array_from_json, build_variant_array_from_json_array},
-    };
+    use crate::VariantSchemaUDF;
 
     fn build_scalar_udf_args(struct_array: StructArray) -> ScalarFunctionArgs {
         let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
@@ -405,49 +401,6 @@ mod tests {
             return_field,
             config_options: Default::default(),
         }
-    }
-
-    fn build_array_udf_args(struct_array: StructArray) -> ScalarFunctionArgs {
-        let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
-        let arg_field = Arc::new(
-            Field::new("input", DataType::Struct(Fields::empty()), true)
-                .with_extension_type(VariantType),
-        );
-        ScalarFunctionArgs {
-            args: vec![ColumnarValue::Array(Arc::new(struct_array))],
-            arg_fields: vec![arg_field],
-            number_rows: Default::default(),
-            return_field,
-            config_options: Default::default(),
-        }
-    }
-
-    #[test]
-    fn test_get_single_typed_null_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant = Variant::Null;
-        let variant_array = VariantArray::from_iter(vec![variant]);
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "Null")
-    }
-
-    #[test]
-    fn test_get_single_typed_int32_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant = Variant::from(1234i32);
-        let variant_array = VariantArray::from_iter(vec![variant]);
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "Int32")
     }
 
     #[test]
@@ -494,48 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_single_typed_float_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant = Variant::from(123.4f32);
-        let variant_array = VariantArray::from_iter(vec![variant]);
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "Float32")
-    }
-
-    #[test]
-    fn test_get_single_typed_double_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant = Variant::from(123.4f64);
-        let variant_array = VariantArray::from_iter(vec![variant]);
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "Float64")
-    }
-
-    #[test]
-    fn test_get_single_typed_bool_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant = Variant::BooleanTrue;
-        let variant_array = VariantArray::from_iter(vec![variant]);
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "Boolean")
-    }
-
-    #[test]
     fn test_get_single_typed_binary_variant_schema() {
         let udf = VariantSchemaUDF::default();
         let variant = Variant::Binary(&[1u8, 2, 3]);
@@ -547,20 +458,6 @@ mod tests {
             panic!()
         };
         assert_eq!(schema, "Binary")
-    }
-
-    #[test]
-    fn test_get_single_typed_string_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant = Variant::from("foo");
-        let variant_array = VariantArray::from_iter(vec![variant]);
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "Utf8")
     }
 
     #[test]
@@ -577,58 +474,4 @@ mod tests {
         assert_eq!(schema, "Time64(µs)")
     }
 
-    #[test]
-    fn test_get_single_struct_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant_array = build_variant_array_from_json(&serde_json::json!({
-            "key": 123, "data": [4, 5]
-        }));
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "OBJECT<data: ARRAY<Int8>, key: Int8>")
-    }
-
-    #[test]
-    fn test_get_single_struct_variant_conflicting_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant_array = build_variant_array_from_json(&serde_json::json!({
-            "data": [{"a":"a"}, 5]
-        }));
-        let struct_array = variant_array.into_inner();
-        let args = build_scalar_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(schema))) = result else {
-            panic!()
-        };
-        assert_eq!(schema, "OBJECT<data: ARRAY<VARIANT>>")
-    }
-
-    #[test]
-    fn test_get_columnar_variant_schema() {
-        let udf = VariantSchemaUDF::default();
-        let variant_array = build_variant_array_from_json_array(&[
-            Some(serde_json::json!({"a": 1})),
-            Some(serde_json::json!([1, 2, 3])),
-        ]);
-        let struct_array = variant_array.into_inner();
-        let args = build_array_udf_args(struct_array);
-        let result = udf.invoke_with_args(args).unwrap();
-
-        let ColumnarValue::Array(array) = result else {
-            panic!("expected array output")
-        };
-
-        let strings = array
-            .as_any()
-            .downcast_ref::<StringViewArray>()
-            .expect("expected Utf8View array")
-            .iter()
-            .collect::<Vec<_>>();
-
-        assert_eq!(strings, vec![Some("OBJECT<a: Int8>"), Some("ARRAY<Int8>")]);
-    }
 }
