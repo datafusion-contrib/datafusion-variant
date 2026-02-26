@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, AsArray, StructArray};
-use arrow_schema::{DataType, Field, Fields};
+use arrow_schema::{DataType, Field};
 use datafusion::{
     common::exec_err,
     error::Result,
@@ -12,7 +12,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use parquet_variant::Variant;
-use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType, cast_to_variant};
+use parquet_variant_compute::{VariantArray, VariantArrayBuilder, cast_to_variant};
 
 use crate::shared::{try_parse_binary_columnar, try_parse_binary_scalar};
 
@@ -30,6 +30,32 @@ impl Default for CastToVariantUdf {
 }
 
 impl CastToVariantUdf {
+    fn canonical_variant_data_type() -> DataType {
+        VariantArrayBuilder::new(0).build().data_type().clone()
+    }
+
+    fn canonical_return_field(name: &str) -> Field {
+        VariantArrayBuilder::new(0)
+            .build()
+            .field(name.to_string())
+            .with_nullable(true)
+    }
+
+    fn append_variant_or_null(
+        builder: &mut VariantArrayBuilder,
+        metadata: Option<&[u8]>,
+        value: Option<&[u8]>,
+    ) -> Result<()> {
+        match (metadata, value) {
+            (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
+                builder.append_variant(Variant::try_new(m, v)?);
+            }
+            _ => builder.append_null(),
+        }
+
+        Ok(())
+    }
+
     fn from_metadata_value(
         metadata_argument: &ColumnarValue,
         variant_argument: &ColumnarValue,
@@ -45,18 +71,11 @@ impl CastToVariantUdf {
                 let metadata_array = try_parse_binary_columnar(metadata_array)?;
                 let value_array = try_parse_binary_columnar(value_array)?;
 
-                let vs = metadata_array
-                    .into_iter()
-                    .zip(value_array)
-                    .map(|(m, v)| match (m, v) {
-                        (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
-                            Some(Variant::try_new(m, v)).transpose()
-                        }
-                        _ => Ok(None),
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let out: StructArray = VariantArray::from_iter(vs).into();
+                let mut builder = VariantArrayBuilder::new(metadata_array.len());
+                for (m, v) in metadata_array.into_iter().zip(value_array.into_iter()) {
+                    Self::append_variant_or_null(&mut builder, m, v)?;
+                }
+                let out: StructArray = builder.build().into();
 
                 ColumnarValue::Array(Arc::new(out) as ArrayRef)
             }
@@ -64,21 +83,11 @@ impl CastToVariantUdf {
                 let metadata = try_parse_binary_scalar(metadata_value)?;
                 let value_array = try_parse_binary_columnar(value_array)?;
 
-                let vs = value_array
-                    .iter()
-                    .map(|v| {
-                        let m = metadata;
-
-                        match (m, v) {
-                            (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
-                                Some(Variant::try_new(m.as_slice(), v)).transpose()
-                            }
-                            _ => Ok(None),
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let arr: StructArray = VariantArray::from_iter(vs).into();
+                let mut builder = VariantArrayBuilder::new(value_array.len());
+                for v in value_array {
+                    Self::append_variant_or_null(&mut builder, metadata.map(|m| m.as_slice()), v)?;
+                }
+                let arr: StructArray = builder.build().into();
 
                 ColumnarValue::Array(Arc::new(arr) as ArrayRef)
             }
@@ -101,21 +110,11 @@ impl CastToVariantUdf {
                 let metadata_array = try_parse_binary_columnar(metadata_array)?;
                 let value = try_parse_binary_scalar(value_scalar)?;
 
-                let arr = metadata_array
-                    .iter()
-                    .map(|m| {
-                        let v = value;
-
-                        match (m, v) {
-                            (Some(m), Some(v)) if !m.is_empty() && !v.is_empty() => {
-                                Some(Variant::try_new(m, v)).transpose()
-                            }
-                            _ => Ok(None),
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                let arr: StructArray = VariantArray::from_iter(arr).into();
+                let mut builder = VariantArrayBuilder::new(metadata_array.len());
+                for m in metadata_array {
+                    Self::append_variant_or_null(&mut builder, m, value.map(|v| v.as_slice()))?;
+                }
+                let arr: StructArray = builder.build().into();
 
                 ColumnarValue::Array(Arc::new(arr))
             }
@@ -171,24 +170,11 @@ impl ScalarUDFImpl for CastToVariantUdf {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        Ok(DataType::Struct(Fields::from(vec![
-            Field::new("metadata", DataType::BinaryView, false),
-            Field::new("value", DataType::BinaryView, true),
-        ])))
+        Ok(Self::canonical_variant_data_type())
     }
 
-    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
-        let data_type = self.return_type(
-            args.arg_fields
-                .iter()
-                .map(|f| f.data_type().clone())
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )?;
-
-        Ok(Arc::new(
-            Field::new(self.name(), data_type, true).with_extension_type(VariantType),
-        ))
+    fn return_field_from_args(&self, _args: ReturnFieldArgs) -> Result<Arc<Field>> {
+        Ok(Arc::new(Self::canonical_return_field(self.name())))
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
@@ -207,8 +193,9 @@ impl ScalarUDFImpl for CastToVariantUdf {
 mod tests {
 
     use arrow::array::{FixedSizeBinaryBuilder, Int32Array, StringArray, StringViewArray};
+    use arrow_schema::Fields;
     use parquet_variant::Variant;
-    use parquet_variant_compute::VariantArray;
+    use parquet_variant_compute::{VariantArray, VariantType};
 
     use crate::shared::{build_variant_array_from_json, build_variant_array_from_json_array};
 
@@ -298,7 +285,7 @@ mod tests {
             return_field.data_type(),
             &DataType::Struct(Fields::from(vec![
                 Field::new("metadata", DataType::BinaryView, false),
-                Field::new("value", DataType::BinaryView, true),
+                Field::new("value", DataType::BinaryView, false),
             ]))
         );
     }
@@ -398,9 +385,9 @@ mod tests {
         ));
 
         let mut builder = FixedSizeBinaryBuilder::with_capacity(3, 16);
-        builder.append_value(&[1u8; 16]).unwrap();
+        builder.append_value([1u8; 16]).unwrap();
         builder.append_null();
-        builder.append_value(&[2u8; 16]).unwrap();
+        builder.append_value([2u8; 16]).unwrap();
         let array = builder.finish();
 
         let args = ScalarFunctionArgs {
