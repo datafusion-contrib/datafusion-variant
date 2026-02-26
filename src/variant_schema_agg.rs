@@ -187,35 +187,53 @@ mod test {
         let b2 = build_variant_array_from_json_array(&[Some(serde_json::json!({"a": 2.5}))]);
         let b2: ArrayRef = Arc::new(b2.into_inner());
 
+        let expr = col("b", &schema).unwrap();
+        let order_bys = vec![PhysicalSortExpr::new_default(Arc::clone(&expr))];
+        let exprs = vec![expr];
+        let expr_fields = vec![Arc::new(
+            Field::new(
+                "b",
+                DataType::Struct(Fields::from(vec![
+                    Field::new("metadata", DataType::Binary, true),
+                    Field::new("value", DataType::Binary, true),
+                ])),
+                true,
+            )
+            .with_extension_type(VariantType),
+        )];
+
         let acc1_args = AccumulatorArgs {
             return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
             schema: &schema,
             ignore_nulls: false,
-            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
+            order_bys: &order_bys,
             is_reversed: false,
             name: "variant_schema_agg",
             is_distinct: false,
-            exprs: &[col("b", &schema).unwrap()],
+            exprs: &exprs,
+            expr_fields: &expr_fields,
         };
         let acc2_args = AccumulatorArgs {
             return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
             schema: &schema,
             ignore_nulls: false,
-            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
+            order_bys: &order_bys,
             is_reversed: false,
             name: "variant_schema_agg",
             is_distinct: false,
-            exprs: &[col("b", &schema).unwrap()],
+            exprs: &exprs,
+            expr_fields: &expr_fields,
         };
         let merged_args = AccumulatorArgs {
             return_field: Arc::new(Field::new("result", DataType::Utf8View, true)),
             schema: &schema,
             ignore_nulls: false,
-            order_bys: &[PhysicalSortExpr::new_default(col("b", &schema).unwrap())],
+            order_bys: &order_bys,
             is_reversed: false,
             name: "variant_schema_agg",
             is_distinct: false,
-            exprs: &[col("b", &schema).unwrap()],
+            exprs: &exprs,
+            expr_fields: &expr_fields,
         };
 
         let mut acc1 = VariantSchemaAccumulator::new(acc1_args);
