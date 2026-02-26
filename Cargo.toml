@@ -5,15 +5,15 @@ edition = "2024"
 
 [dependencies]
 datafusion = "52.1.0"
-arrow = "57.1.0"
-arrow-schema = "57.1.0"
-parquet-variant-compute = "57.2.0"
-parquet-variant-json = "57.2.0"
-parquet-variant = "57.2.0"
+arrow = "=57.2.0"
+arrow-schema = "=57.2.0"
+parquet-variant-compute = "=57.2.0"
+parquet-variant-json = "=57.2.0"
+parquet-variant = "=57.2.0"
 
 [dev-dependencies]
 anyhow = "1.0.100"
-arrow-cast = "57.1.0"
+arrow-cast = "=57.2.0"
 serde_json = "1.0.145"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
@@ -23,3 +23,5 @@ indicatif = "0.18"
 env_logger = "0.11"
 insta = "1.43.2"
 rustyline = { version = "14.0", features = ["derive"] }
+
+
