@@ -1620,7 +1620,6 @@ dependencies = [
  "arrow",
  "arrow-cast",
  "arrow-schema",
- "chrono",
  "datafusion",
  "datafusion-sqllogictest",
  "env_logger",
