@@ -72,7 +72,7 @@ impl CastToVariantUdf {
                 let value_array = try_parse_binary_columnar(value_array)?;
 
                 let mut builder = VariantArrayBuilder::new(metadata_array.len());
-                for (m, v) in metadata_array.into_iter().zip(value_array.into_iter()) {
+                for (m, v) in metadata_array.into_iter().zip(value_array) {
                     Self::append_variant_or_null(&mut builder, m, v)?;
                 }
                 let out: StructArray = builder.build().into();
@@ -275,7 +275,7 @@ mod tests {
 
         let return_field = udf
             .return_field_from_args(ReturnFieldArgs {
-                arg_fields: &[arg_field.clone()],
+                arg_fields: std::slice::from_ref(&arg_field),
                 scalar_arguments: &[None],
             })
             .unwrap();
