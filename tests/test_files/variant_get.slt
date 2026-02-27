@@ -18,3 +18,128 @@ NULL
 NULL
 NULL
 NULL
+
+# test variant_get with type hint (third argument)
+# test 1: get string field with utf8 type hint
+query T
+SELECT variant_get(json_to_variant('{"name": "Alice", "age": 30}'), 'name', 'Utf8');
+----
+Alice
+
+# test 2: get numeric field with int64 type hint
+query I
+SELECT variant_get(json_to_variant('{"name": "Bob", "age": 25}'), 'age', 'Int64');
+----
+25
+
+# test 3: get numeric field with int32 type hint
+query I
+SELECT variant_get(json_to_variant('{"score": 100}'), 'score', 'Int32');
+----
+100
+
+# test 4: get numeric field with float64 type hint
+query R
+SELECT variant_get(json_to_variant('{"price": 19.99}'), 'price', 'Float64');
+----
+19.99
+
+# test 5: get boolean field with boolean type hint
+query B
+SELECT variant_get(json_to_variant('{"active": true}'), 'active', 'Boolean');
+----
+true
+
+# test 6: get null field with type hint (should return null)
+query T
+SELECT variant_get(json_to_variant('{"name": null}'), 'name', 'Utf8');
+----
+NULL
+
+# test 7: get non-existent field with type hint (should return null)
+query T
+SELECT variant_get(json_to_variant('{"name": "Charlie"}'), 'age', 'Int64');
+----
+NULL
+
+# test 8: get nested field with type hint
+query T
+SELECT variant_get(json_to_variant('{"user": {"name": "David"}}'), 'user.name', 'Utf8');
+----
+David
+
+# test 9: get array element with type hint
+query I
+SELECT variant_get(json_to_variant('{"items": [10, 20, 30]}'), 'items[1]', 'Int64');
+----
+20
+
+# test 10: get multiple rows with type hint
+query I
+SELECT variant_get(json_to_variant(json_str), 'age', 'Int64') FROM json_data WHERE id <= 2;
+----
+30
+25
+
+# test 11: get string field from various rows with utf8 type hint
+query T
+SELECT variant_get(json_to_variant(json_str), 'name', 'Utf8') FROM json_data WHERE id <= 2;
+----
+Alice
+Bob
+
+# test 12: test with int16 type hint
+query I
+SELECT variant_get(json_to_variant('{"count": 5}'), 'count', 'Int16');
+----
+5
+
+# test 13: test with int8 type hint
+query I
+SELECT variant_get(json_to_variant('{"level": 3}'), 'level', 'Int8');
+----
+3
+
+# test 14: test with float32 type hint
+query R
+SELECT variant_get(json_to_variant('{"ratio": 0.5}'), 'ratio', 'Float32');
+----
+0.5
+
+# test 15: test with large number and int64 type hint
+query I
+SELECT variant_get(json_to_variant('{"big_number": 9223372036854775807}'), 'big_number', 'Int64');
+----
+9223372036854775807
+
+# test 16: test mixed types in same query - some with type hint, some without
+query TT
+SELECT
+  variant_get(json_to_variant('{"name": "Eve", "age": 28}'), 'name', 'Utf8'),
+  variant_pretty(variant_get(json_to_variant('{"name": "Eve", "age": 28}'), 'age'));
+----
+Eve Int8(28)
+
+# test 17: test with nested path and int64 type hint
+query I
+SELECT variant_get(json_to_variant('{"data": {"count": 42}}'), 'data.count', 'Int64');
+----
+42
+
+# test 18: test boolean false with type hint
+query B
+SELECT variant_get(json_to_variant('{"enabled": false}'), 'enabled', 'Boolean');
+----
+false
+
+# test 19: test with decimal-like number and float64 type hint
+query R
+SELECT variant_get(json_to_variant('{"temperature": -5.5}'), 'temperature', 'Float64');
+----
+-5.5
+
+# test 20: test with zero values
+query I
+SELECT variant_get(json_to_variant('{"zero": 0}'), 'zero', 'Int64');
+----
+0
