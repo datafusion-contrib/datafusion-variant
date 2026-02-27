@@ -243,9 +243,36 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
 /// This function is used to merge types between schemas
 /// and coerce them into a common type when possible if types
 /// are different
-///
-/// Todo: needs more work on type coercing
-/// - add decimal coercion rules
+fn merge_decimal_types(
+    p1: u8,
+    s1: i8,
+    p2: u8,
+    s2: i8,
+) -> Option<DataType> {
+    // Decimal scale is non-negative in Arrow logical types.
+    if s1 < 0 || s2 < 0 {
+        return None;
+    }
+
+    let scale = s1.max(s2);
+    let int_digits_1 = p1 as i16 - s1 as i16;
+    let int_digits_2 = p2 as i16 - s2 as i16;
+    let int_digits = int_digits_1.max(int_digits_2);
+    let precision = int_digits + scale as i16;
+    let precision = precision.max(1);
+
+    // Decimal128 max precision in Arrow.
+    if precision > 38 {
+        return None;
+    }
+
+    Some(DataType::Decimal128(precision as u8, scale))
+}
+
+fn merge_int_and_decimal(int_min_precision: u8, p: u8, s: i8) -> Option<DataType> {
+    merge_decimal_types(int_min_precision, 0, p, s)
+}
+
 fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
     use DataType::*;
 
@@ -258,7 +285,66 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
         | (Float64, Int8 | Int16 | Int32 | Int64 | Float32) => Some(Float64),
         (Int8 | Int16 | Int32, Int64) | (Int64, Int8 | Int16 | Int32) => Some(Int64),
         (Int8 | Int16, Int32) | (Int32, Int8 | Int16) => Some(Int32),
+        (Int8, Int16) | (Int16, Int8) => Some(Int16),
+        // Keep precision safety over float32 when mixing integral + float32.
+        (Int8 | Int16 | Int32 | Int64, Float32) | (Float32, Int8 | Int16 | Int32 | Int64) => {
+            Some(Float64)
+        }
+        (Timestamp(tu1, tz1), Timestamp(tu2, tz2)) => {
+            if tz1 != tz2 {
+                None
+            } else {
+                let merged_tu = if matches!(tu1, TimeUnit::Nanosecond)
+                    || matches!(tu2, TimeUnit::Nanosecond)
+                {
+                    TimeUnit::Nanosecond
+                } else {
+                    TimeUnit::Microsecond
+                };
+                Some(Timestamp(merged_tu, tz1))
+            }
+        }
+        // Databricks precedence list promotes DATE -> TIMESTAMP.
+        // Preserve the timestamp timezone annotation when present.
         (Date32, Timestamp(tu, tz)) | (Timestamp(tu, tz), Date32) => Some(Timestamp(tu, tz)),
+        (Decimal32(p1, s1), Decimal32(p2, s2))
+        | (Decimal32(p1, s1), Decimal64(p2, s2))
+        | (Decimal32(p1, s1), Decimal128(p2, s2))
+        | (Decimal64(p1, s1), Decimal32(p2, s2))
+        | (Decimal64(p1, s1), Decimal64(p2, s2))
+        | (Decimal64(p1, s1), Decimal128(p2, s2))
+        | (Decimal128(p1, s1), Decimal32(p2, s2))
+        | (Decimal128(p1, s1), Decimal64(p2, s2))
+        | (Decimal128(p1, s1), Decimal128(p2, s2)) => merge_decimal_types(p1, s1, p2, s2),
+        (Int8, Decimal32(p, s))
+        | (Int8, Decimal64(p, s))
+        | (Int8, Decimal128(p, s))
+        | (Decimal32(p, s), Int8)
+        | (Decimal64(p, s), Int8)
+        | (Decimal128(p, s), Int8) => merge_int_and_decimal(10, p, s),
+        (Int16, Decimal32(p, s))
+        | (Int16, Decimal64(p, s))
+        | (Int16, Decimal128(p, s))
+        | (Decimal32(p, s), Int16)
+        | (Decimal64(p, s), Int16)
+        | (Decimal128(p, s), Int16) => merge_int_and_decimal(10, p, s),
+        (Int32, Decimal32(p, s))
+        | (Int32, Decimal64(p, s))
+        | (Int32, Decimal128(p, s))
+        | (Decimal32(p, s), Int32)
+        | (Decimal64(p, s), Int32)
+        | (Decimal128(p, s), Int32) => merge_int_and_decimal(10, p, s),
+        (Int64, Decimal32(p, s))
+        | (Int64, Decimal64(p, s))
+        | (Int64, Decimal128(p, s))
+        | (Decimal32(p, s), Int64)
+        | (Decimal64(p, s), Int64)
+        | (Decimal128(p, s), Int64) => merge_int_and_decimal(20, p, s),
+        // Prefer floating fallback when mixing decimals with floating point values.
+        (Decimal32(_, _) | Decimal64(_, _) | Decimal128(_, _), Float32 | Float64)
+        | (Float32 | Float64, Decimal32(_, _) | Decimal64(_, _) | Decimal128(_, _)) => {
+            Some(Float64)
+        }
 
         _ => None,
     }

@@ -92,6 +92,72 @@ SELECT variant_schema(json_to_variant('[1, 2.5, 3]'))
 ----
 ARRAY<Float64>
 
+# typed widening: tinyint + smallint
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1 AS TINYINT)),
+    cast_to_variant(CAST(2 AS SMALLINT))
+  )
+)
+----
+ARRAY<Int16>
+
+# typed widening: decimal + decimal
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1.2 AS DECIMAL(4, 1))),
+    cast_to_variant(CAST(12.345 AS DECIMAL(8, 3)))
+  )
+)
+----
+ARRAY<Decimal128(5, 3)>
+
+# typed widening: integer + decimal
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1 AS TINYINT)),
+    cast_to_variant(CAST(12.3 AS DECIMAL(4, 1)))
+  )
+)
+----
+ARRAY<Decimal128(11, 1)>
+
+# typed widening: bigint + decimal
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1 AS BIGINT)),
+    cast_to_variant(CAST(12.3 AS DECIMAL(4, 1)))
+  )
+)
+----
+ARRAY<Decimal128(21, 1)>
+
+# typed widening: decimal + float
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1.2 AS DECIMAL(4, 1))),
+    cast_to_variant(CAST(2.5 AS REAL))
+  )
+)
+----
+ARRAY<Float64>
+
+# typed widening: date + timestamp (ntz)
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST('1990-01-01' AS DATE)),
+    cast_to_variant(CAST('2015-05-14 00:00:00' AS TIMESTAMP))
+  )
+)
+----
+ARRAY<Timestamp(µs)>
+
 # array of objects
 query T
 SELECT variant_schema(json_to_variant('[{"a":1},{"a":2}]'))
