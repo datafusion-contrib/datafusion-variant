@@ -8,8 +8,8 @@ use datafusion::{
 };
 use parquet_variant::Variant;
 use parquet_variant_compute::VariantArray;
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::sync::Arc;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -344,9 +344,7 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
         | (Int64, Decimal128(p, s))
         | (Decimal32(p, s), Int64)
         | (Decimal64(p, s), Int64)
-        | (Decimal128(p, s), Int64) => {
-            merge_int_and_decimal(MIN_DECIMAL_PRECISION_FOR_INT64, p, s)
-        }
+        | (Decimal128(p, s), Int64) => merge_int_and_decimal(MIN_DECIMAL_PRECISION_FOR_INT64, p, s),
         // Prefer floating fallback when mixing decimals with floating point values.
         (Decimal32(_, _) | Decimal64(_, _) | Decimal128(_, _), Float32 | Float64)
         | (Float32 | Float64, Decimal32(_, _) | Decimal64(_, _) | Decimal128(_, _)) => {
