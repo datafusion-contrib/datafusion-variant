@@ -1,0 +1,180 @@
+# tests the variant_schema_agg udaf 
+# this function takes a Variant Array
+# and extracts it's SQL schema 
+
+# same schema
+statement ok
+CREATE TABLE t as VALUES
+(json_to_variant('{"foo": "bar", "wing": {"ding": "dong"}}')),
+(json_to_variant('{"wing": {"ding": "man"}}'));
+
+query T 
+SELECT variant_schema_agg(column1) from t;
+----
+OBJECT<foo: Utf8, wing: OBJECT<ding: Utf8>>
+
+# conflicting schema
+statement ok
+CREATE TABLE t_conflicting as VALUES
+(json_to_variant('{"foo": "bar", "wing": {"ding": "dong"}}')),
+(json_to_variant('{"wing": 123}'));
+
+query T 
+SELECT variant_schema_agg(column1) from t_conflicting;
+----
+OBJECT<foo: Utf8, wing: VARIANT>
+
+# null row
+statement ok
+CREATE TABLE t_nulls AS VALUES
+(json_to_variant('{"a": 1}')),
+(json_to_variant('null')),
+(json_to_variant('{"a": 2}'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_nulls;
+----
+OBJECT<a: Int8>
+
+# numeric widening
+statement ok
+CREATE TABLE t_nums AS VALUES
+(json_to_variant('{"a": 1}')),
+(json_to_variant('{"a": 2.5}'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_nums;
+----
+OBJECT<a: Float64>
+
+# typed widening: tinyint + smallint
+statement ok
+CREATE TABLE t_small_widen AS VALUES
+(cast_to_variant(CAST(1 AS TINYINT))),
+(cast_to_variant(CAST(2 AS SMALLINT)));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_small_widen;
+----
+Int16
+
+# typed widening: decimal + decimal
+statement ok
+CREATE TABLE t_dec_widen AS VALUES
+(cast_to_variant(CAST(1.2 AS DECIMAL(4, 1)))),
+(cast_to_variant(CAST(12.345 AS DECIMAL(8, 3))));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_dec_widen;
+----
+Decimal128(5, 3)
+
+# typed widening: integer + decimal
+statement ok
+CREATE TABLE t_int_dec_widen AS VALUES
+(cast_to_variant(CAST(1 AS TINYINT))),
+(cast_to_variant(CAST(12.3 AS DECIMAL(4, 1))));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_int_dec_widen;
+----
+Decimal128(11, 1)
+
+# typed widening: bigint + decimal
+statement ok
+CREATE TABLE t_bigint_dec_widen AS VALUES
+(cast_to_variant(CAST(1 AS BIGINT))),
+(cast_to_variant(CAST(12.3 AS DECIMAL(4, 1))));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_bigint_dec_widen;
+----
+Decimal128(21, 1)
+
+# typed widening: decimal + float
+statement ok
+CREATE TABLE t_dec_float_widen AS VALUES
+(cast_to_variant(CAST(1.2 AS DECIMAL(4, 1)))),
+(cast_to_variant(CAST(2.5 AS REAL)));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_dec_float_widen;
+----
+Float64
+
+# typed widening: date + timestamp (ntz)
+statement ok
+CREATE TABLE t_date_ts_widen AS VALUES
+(cast_to_variant(CAST('1990-01-01' AS DATE))),
+(cast_to_variant(CAST('2015-05-14 00:00:00' AS TIMESTAMP)));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_date_ts_widen;
+----
+Timestamp(µs)
+
+# field appears later
+statement ok
+CREATE TABLE t_sparse AS VALUES
+(json_to_variant('{}')),
+(json_to_variant('{"a": 1}'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_sparse;
+----
+OBJECT<a: Int8>
+
+# conflicting array of objects
+statement ok
+CREATE TABLE t_arr_objs AS VALUES
+(json_to_variant('[{"a":1}]')),
+(json_to_variant('[{"a":"x"}]'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_arr_objs;
+----
+ARRAY<OBJECT<a: VARIANT>>
+
+# empty aggregates
+statement ok
+CREATE TABLE t_empty AS VALUES
+(json_to_variant('{}')),
+(json_to_variant('{}'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_empty;
+----
+OBJECT<>
+
+# field ordering
+statement ok
+CREATE TABLE t_order AS VALUES
+(json_to_variant('{"b":1}')),
+(json_to_variant('{"a":2}'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_order;
+----
+OBJECT<a: Int8, b: Int8>
+
+# root conflict
+statement ok
+CREATE TABLE t_root_conflict AS VALUES
+(json_to_variant('{"a":1}')),
+(json_to_variant('[1,2,3]'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_root_conflict;
+----
+VARIANT
+
+# mixed root 
+statement ok
+CREATE TABLE t_mixed AS VALUES
+(json_to_variant('1')),
+(json_to_variant('{"a": 1}'));
+
+query T
+SELECT variant_schema_agg(column1) FROM t_mixed;
+----
+VARIANT

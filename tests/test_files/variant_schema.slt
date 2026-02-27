@@ -1,0 +1,189 @@
+# tests the variant_schema udf
+# this function takes a VARIANT expression
+# and extracts each row's SQL schema
+
+# simple example with a scalar value
+query T
+SELECT variant_schema(json_to_variant('{"key": 123, "data": [4, 5]}'))
+----
+OBJECT<data: ARRAY<Int8>, key: Int8>
+
+# column input (row-wise, non-aggregate)
+statement ok
+CREATE TABLE t_col AS VALUES
+(json_to_variant('{"a": 1}')),
+(json_to_variant('[1, 2, 3]'));
+
+query T
+SELECT variant_schema(column1) FROM t_col ORDER BY 1;
+----
+ARRAY<Int8>
+OBJECT<a: Int8>
+
+
+# conflicting element types in array
+query T
+SELECT variant_schema(json_to_variant('{"data": [{"a":"a"}, 5]}'))
+----
+OBJECT<data: ARRAY<VARIANT>>
+
+# typed literal
+query T
+SELECT variant_schema(json_to_variant(123.4))
+----
+Float64
+
+# explicit string primitive
+query T
+SELECT variant_schema(json_to_variant('"foo"'))
+----
+Utf8
+
+# explicit boolean primitive
+query T
+SELECT variant_schema(json_to_variant('true'))
+----
+Boolean
+
+# cast_to_variant typed DATE/TIME/TIMESTAMP/DECIMAL from columns
+statement ok
+CREATE TABLE t_typed AS
+SELECT
+  CAST('1990-01-01' AS DATE) AS d,
+  CAST('00:00:00' AS TIME) AS t,
+  CAST('2015-05-14 00:00:00' AS TIMESTAMP) AS ts,
+  CAST(123.4 AS DECIMAL(4, 1)) AS decv;
+
+query T
+SELECT variant_schema(cast_to_variant(d)) FROM t_typed;
+----
+Date32
+
+query T
+SELECT variant_schema(cast_to_variant(t)) FROM t_typed;
+----
+Time64(µs)
+
+query T
+SELECT variant_schema(cast_to_variant(ts)) FROM t_typed;
+----
+Timestamp(µs)
+
+query T
+SELECT variant_schema(cast_to_variant(decv)) FROM t_typed;
+----
+Decimal128(4, 1)
+
+# explicit null
+query T
+SELECT variant_schema(json_to_variant('null'))
+----
+Null
+
+# json null
+query T
+SELECT variant_schema(json_to_variant('{"a": null}'))
+----
+OBJECT<a: Null>
+
+# numeric widening
+query T
+SELECT variant_schema(json_to_variant('[1, 2.5, 3]'))
+----
+ARRAY<Float64>
+
+# typed widening: tinyint + smallint
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1 AS TINYINT)),
+    cast_to_variant(CAST(2 AS SMALLINT))
+  )
+)
+----
+ARRAY<Int16>
+
+# typed widening: decimal + decimal
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1.2 AS DECIMAL(4, 1))),
+    cast_to_variant(CAST(12.345 AS DECIMAL(8, 3)))
+  )
+)
+----
+ARRAY<Decimal128(5, 3)>
+
+# typed widening: integer + decimal
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1 AS TINYINT)),
+    cast_to_variant(CAST(12.3 AS DECIMAL(4, 1)))
+  )
+)
+----
+ARRAY<Decimal128(11, 1)>
+
+# typed widening: bigint + decimal
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1 AS BIGINT)),
+    cast_to_variant(CAST(12.3 AS DECIMAL(4, 1)))
+  )
+)
+----
+ARRAY<Decimal128(21, 1)>
+
+# typed widening: decimal + float
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST(1.2 AS DECIMAL(4, 1))),
+    cast_to_variant(CAST(2.5 AS REAL))
+  )
+)
+----
+ARRAY<Float64>
+
+# typed widening: date + timestamp (ntz)
+query T
+SELECT variant_schema(
+  variant_list_construct(
+    cast_to_variant(CAST('1990-01-01' AS DATE)),
+    cast_to_variant(CAST('2015-05-14 00:00:00' AS TIMESTAMP))
+  )
+)
+----
+ARRAY<Timestamp(µs)>
+
+# array of objects
+query T
+SELECT variant_schema(json_to_variant('[{"a":1},{"a":2}]'))
+----
+ARRAY<OBJECT<a: Int8>>
+
+# empty object
+query T
+SELECT variant_schema(json_to_variant('{}'))
+----
+OBJECT<>
+
+# empty array
+query T
+SELECT variant_schema(json_to_variant('[]'))
+----
+ARRAY<Null>
+
+# field ordering
+query T
+SELECT variant_schema(json_to_variant('{"b":1,"a":2}'))
+----
+OBJECT<a: Int8, b: Int8>
+
+# last key wins?
+query T
+SELECT variant_schema(json_to_variant('{"a": 1, "a": {"b":2}}'))
+----
+OBJECT<a: OBJECT<b: Int8>>
