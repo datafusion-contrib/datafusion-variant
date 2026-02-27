@@ -244,6 +244,8 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
 /// and coerce them into a common type when possible if types
 /// are different
 fn merge_decimal_types(p1: u8, s1: i8, p2: u8, s2: i8) -> Option<DataType> {
+    const DECIMAL128_MAX_PRECISION: i16 = 38;
+
     // Decimal scale is non-negative in Arrow logical types.
     if s1 < 0 || s2 < 0 {
         return None;
@@ -257,7 +259,7 @@ fn merge_decimal_types(p1: u8, s1: i8, p2: u8, s2: i8) -> Option<DataType> {
     let precision = precision.max(1);
 
     // Decimal128 max precision in Arrow.
-    if precision > 38 {
+    if precision > DECIMAL128_MAX_PRECISION {
         return None;
     }
 
@@ -270,6 +272,8 @@ fn merge_int_and_decimal(int_min_precision: u8, p: u8, s: i8) -> Option<DataType
 
 fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
     use DataType::*;
+    const MIN_DECIMAL_PRECISION_FOR_INT8_INT16_INT32: u8 = 10;
+    const MIN_DECIMAL_PRECISION_FOR_INT64: u8 = 20;
 
     match (a, b) {
         (x, y) if x == y => Some(x),
@@ -315,25 +319,33 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
         | (Int8, Decimal128(p, s))
         | (Decimal32(p, s), Int8)
         | (Decimal64(p, s), Int8)
-        | (Decimal128(p, s), Int8) => merge_int_and_decimal(10, p, s),
+        | (Decimal128(p, s), Int8) => {
+            merge_int_and_decimal(MIN_DECIMAL_PRECISION_FOR_INT8_INT16_INT32, p, s)
+        }
         (Int16, Decimal32(p, s))
         | (Int16, Decimal64(p, s))
         | (Int16, Decimal128(p, s))
         | (Decimal32(p, s), Int16)
         | (Decimal64(p, s), Int16)
-        | (Decimal128(p, s), Int16) => merge_int_and_decimal(10, p, s),
+        | (Decimal128(p, s), Int16) => {
+            merge_int_and_decimal(MIN_DECIMAL_PRECISION_FOR_INT8_INT16_INT32, p, s)
+        }
         (Int32, Decimal32(p, s))
         | (Int32, Decimal64(p, s))
         | (Int32, Decimal128(p, s))
         | (Decimal32(p, s), Int32)
         | (Decimal64(p, s), Int32)
-        | (Decimal128(p, s), Int32) => merge_int_and_decimal(10, p, s),
+        | (Decimal128(p, s), Int32) => {
+            merge_int_and_decimal(MIN_DECIMAL_PRECISION_FOR_INT8_INT16_INT32, p, s)
+        }
         (Int64, Decimal32(p, s))
         | (Int64, Decimal64(p, s))
         | (Int64, Decimal128(p, s))
         | (Decimal32(p, s), Int64)
         | (Decimal64(p, s), Int64)
-        | (Decimal128(p, s), Int64) => merge_int_and_decimal(20, p, s),
+        | (Decimal128(p, s), Int64) => {
+            merge_int_and_decimal(MIN_DECIMAL_PRECISION_FOR_INT64, p, s)
+        }
         // Prefer floating fallback when mixing decimals with floating point values.
         (Decimal32(_, _) | Decimal64(_, _) | Decimal128(_, _), Float32 | Float64)
         | (Float32 | Float64, Decimal32(_, _) | Decimal64(_, _) | Decimal128(_, _)) => {
