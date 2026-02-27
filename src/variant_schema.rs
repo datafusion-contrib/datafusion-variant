@@ -8,6 +8,7 @@ use datafusion::{
 };
 use parquet_variant::Variant;
 use parquet_variant_compute::VariantArray;
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -359,30 +360,68 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
 /// Merges two inferred Variant schemas into a common schema.
 /// Returns VARIANT if no common schema can be determined.
 pub fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
+    let mut merged = a;
+    merge_variant_schema_from(&mut merged, &b);
+    merged
+}
+
+pub fn merge_variant_schema_from(target: &mut VariantSchema, incoming: &VariantSchema) {
     use VariantSchema::*;
 
-    match (a, b) {
-        (Variant, _) | (_, Variant) => Variant,
-
-        (Primitive(DataType::Null), x) | (x, Primitive(DataType::Null)) => x,
-
-        (Primitive(p1), Primitive(p2)) => {
-            merge_primitives(p1, p2).map(Primitive).unwrap_or(Variant)
-        }
-
-        (Array(a), Array(b)) => Array(Box::new(merge_variant_schema(*a, *b))),
-
-        (Object(mut a), Object(b)) => {
-            for (k, v_b) in b {
-                a.entry(k)
-                    .and_modify(|v_a| *v_a = merge_variant_schema(v_a.clone(), v_b.clone()))
-                    .or_insert(v_b);
-            }
-            Object(a)
-        }
-
-        _ => Variant,
+    if matches!(target, Variant) || matches!(incoming, Variant) {
+        *target = Variant;
+        return;
     }
+
+    if matches!(incoming, Primitive(DataType::Null)) {
+        return;
+    }
+
+    if matches!(target, Primitive(DataType::Null)) {
+        *target = incoming.clone();
+        return;
+    }
+
+    match incoming {
+        Primitive(p2) => {
+            if let Primitive(p1) = target {
+                let merged = merge_primitives(p1.clone(), p2.clone())
+                    .map(Primitive)
+                    .unwrap_or(Variant);
+                *target = merged;
+            } else {
+                *target = Variant;
+            }
+        }
+        Array(b) => {
+            if let Array(a) = target {
+                merge_variant_schema_from(a.as_mut(), b.as_ref());
+            } else {
+                *target = Variant;
+            }
+        }
+        Object(b) => {
+            if let Object(a) = target {
+                for (k, v_b) in b {
+                    match a.entry(k.clone()) {
+                        Entry::Occupied(mut occ) => merge_variant_schema_from(occ.get_mut(), v_b),
+                        Entry::Vacant(vac) => {
+                            vac.insert(v_b.clone());
+                        }
+                    }
+                }
+            } else {
+                *target = Variant;
+            }
+        }
+        Variant => {
+            *target = Variant;
+        }
+    }
+}
+
+pub fn merge_variant_schema_into(target: &mut VariantSchema, incoming: VariantSchema) {
+    merge_variant_schema_from(target, &incoming);
 }
 
 /// Prints schema in a presentable manner

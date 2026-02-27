@@ -13,7 +13,7 @@ use parquet_variant_compute::VariantArray;
 use std::sync::Arc;
 
 use crate::{
-    VariantSchema, merge_variant_schema, print_schema, schema_from_variant,
+    VariantSchema, merge_variant_schema_from, print_schema, schema_from_variant,
     shared::try_parse_binary_columnar,
 };
 
@@ -117,7 +117,7 @@ impl Accumulator for VariantSchemaAccumulator {
             for variant in variant_array.iter().flatten() {
                 let new_schema = schema_from_variant(&variant);
                 // Merge the new schema with the current schema
-                self.schema = merge_variant_schema(self.schema.clone(), new_schema);
+                merge_variant_schema_from(&mut self.schema, &new_schema);
                 if self.schema == VariantSchema::Variant {
                     return Ok(());
                 }
@@ -134,7 +134,7 @@ impl Accumulator for VariantSchemaAccumulator {
         for state in states {
             for encoded_state in try_parse_binary_columnar(state)?.into_iter().flatten() {
                 let new_schema = VariantSchema::from_state_bytes(encoded_state)?;
-                self.schema = merge_variant_schema(self.schema.clone(), new_schema);
+                merge_variant_schema_from(&mut self.schema, &new_schema);
                 if self.schema == VariantSchema::Variant {
                     return Ok(());
                 }
