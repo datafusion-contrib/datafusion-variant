@@ -14,7 +14,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "nightly"
+          toolchain: "stable"
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -33,7 +33,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly
+          toolchain: stable
 
       - run: |
           rustup component add rustfmt
@@ -47,7 +47,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "nightly"
+          toolchain: "stable"
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
