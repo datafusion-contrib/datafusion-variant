@@ -243,12 +243,7 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
 /// This function is used to merge types between schemas
 /// and coerce them into a common type when possible if types
 /// are different
-fn merge_decimal_types(
-    p1: u8,
-    s1: i8,
-    p2: u8,
-    s2: i8,
-) -> Option<DataType> {
+fn merge_decimal_types(p1: u8, s1: i8, p2: u8, s2: i8) -> Option<DataType> {
     // Decimal scale is non-negative in Arrow logical types.
     if s1 < 0 || s2 < 0 {
         return None;
@@ -294,13 +289,12 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
             if tz1 != tz2 {
                 None
             } else {
-                let merged_tu = if matches!(tu1, TimeUnit::Nanosecond)
-                    || matches!(tu2, TimeUnit::Nanosecond)
-                {
-                    TimeUnit::Nanosecond
-                } else {
-                    TimeUnit::Microsecond
-                };
+                let merged_tu =
+                    if matches!(tu1, TimeUnit::Nanosecond) || matches!(tu2, TimeUnit::Nanosecond) {
+                        TimeUnit::Nanosecond
+                    } else {
+                        TimeUnit::Microsecond
+                    };
                 Some(Timestamp(merged_tu, tz1))
             }
         }
