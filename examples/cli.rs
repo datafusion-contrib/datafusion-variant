@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
 use arrow::array::{ArrayRef, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
+use datafusion::execution::FunctionRegistry;
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::*;
 use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantGetUdf, VariantListConstruct,
-    VariantListInsert, VariantObjectConstruct, VariantObjectInsert, VariantPretty,
-    VariantToJsonUdf,
+    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantExprPlanner, VariantGetUdf,
+    VariantListConstruct, VariantListInsert, VariantObjectConstruct, VariantObjectInsert,
+    VariantPretty, VariantToJsonUdf,
 };
 use flate2::read::GzDecoder;
 use rustyline::error::ReadlineError;
@@ -97,7 +98,7 @@ async fn main() -> Result<()> {
     let ctx = {
         let setup_start = Instant::now();
 
-        let ctx = SessionContext::new();
+        let mut ctx = SessionContext::new();
         let schema = Schema::new(vec![Field::new("json_data", DataType::Utf8, false)]);
         let string_array: ArrayRef = Arc::new(StringArray::from(json_strings));
         let batch = RecordBatch::try_new(Arc::new(schema), vec![string_array])?;
@@ -118,6 +119,7 @@ async fn main() -> Result<()> {
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListInsert::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectInsert::default()));
+        ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
 
         let setup_duration = setup_start.elapsed();
         println!(

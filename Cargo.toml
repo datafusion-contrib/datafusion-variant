@@ -4,24 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-datafusion = "52.1.0"
-arrow = "=57.2.0"
-arrow-schema = "=57.2.0"
-parquet-variant-compute = "=57.2.0"
-parquet-variant-json = "=57.2.0"
-parquet-variant = "=57.2.0"
+datafusion = { path = "../datafusion/datafusion/core/" }
+# datafusion = { path = "https://github.com/apache/datafusion.git", branch = "main" }
+arrow = "58.0.0"
+arrow-schema = "58.0.0"
+parquet-variant-compute = "58.0.0"
+parquet-variant-json = "58.0.0"
+parquet-variant = "58.0.0"
 
 [dev-dependencies]
 anyhow = "1.0.100"
-arrow-cast = "=57.2.0"
+arrow-cast = "58.0.0"
 serde_json = "1.0.145"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
-datafusion-sqllogictest = "52.1.0"
+datafusion-sqllogictest = { path = "../datafusion/datafusion/sqllogictest/" }
 sqllogictest = "0.28"
 indicatif = "0.18"
 env_logger = "0.11"
 insta = "1.43.2"
 rustyline = { version = "14.0", features = ["derive"] }
-
-
