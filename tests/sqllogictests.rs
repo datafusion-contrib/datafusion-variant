@@ -60,7 +60,6 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectInsert::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectDelete::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantSchemaUDF::default()));
-        ctx.register_udaf(AggregateUDF::new_from_impl(VariantSchemaAggUDAF::default()));
 
         let pb = ProgressBar::new(24);
 
