@@ -8,8 +8,8 @@ use datafusion::{
 };
 use parquet_variant::Variant;
 use parquet_variant_compute::VariantArray;
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::sync::Arc;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
