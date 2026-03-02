@@ -36,8 +36,7 @@ impl Default for VariantSchemaUDF {
 /// Execution semantics:
 /// - Scalar input: infer one schema string for that value.
 /// - Columnar input: infer one schema string per row (vectorized row-wise behavior).
-/// - This function does not merge schemas across rows. For cross-row/group merge use
-///   `variant_schema_agg`.
+/// - This function does not merge schemas across rows.
 ///
 /// Merge rules (within one VARIANT value only):
 /// - If outer (or inner) kinds differ, the result is `VARIANT`
@@ -63,7 +62,7 @@ impl VariantSchema {
         let mut offset = 0usize;
         let decoded = decode_variant_schema(bytes, &mut offset)?;
         if offset != bytes.len() {
-            return exec_err!("invalid variant_schema_agg state: trailing bytes");
+            return exec_err!("invalid variant_schema state: trailing bytes");
         }
         Ok(decoded)
     }
@@ -76,7 +75,7 @@ fn encode_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
 
 fn read_u8(input: &[u8], offset: &mut usize) -> Result<u8> {
     let Some(v) = input.get(*offset) else {
-        return exec_err!("invalid variant_schema_agg state: missing tag");
+        return exec_err!("invalid variant_schema state: missing tag");
     };
     *offset += 1;
     Ok(*v)
@@ -84,7 +83,7 @@ fn read_u8(input: &[u8], offset: &mut usize) -> Result<u8> {
 
 fn read_u32(input: &[u8], offset: &mut usize) -> Result<u32> {
     let Some(raw) = input.get(*offset..(*offset + 4)) else {
-        return exec_err!("invalid variant_schema_agg state: missing u32");
+        return exec_err!("invalid variant_schema state: missing u32");
     };
     *offset += 4;
     Ok(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
@@ -93,7 +92,7 @@ fn read_u32(input: &[u8], offset: &mut usize) -> Result<u32> {
 fn read_len_prefixed_bytes<'a>(input: &'a [u8], offset: &mut usize) -> Result<&'a [u8]> {
     let len = read_u32(input, offset)? as usize;
     let Some(raw) = input.get(*offset..(*offset + len)) else {
-        return exec_err!("invalid variant_schema_agg state: truncated payload");
+        return exec_err!("invalid variant_schema state: truncated payload");
     };
     *offset += len;
     Ok(raw)
@@ -127,11 +126,11 @@ fn decode_variant_schema(input: &[u8], offset: &mut usize) -> Result<VariantSche
             let raw = read_len_prefixed_bytes(input, offset)?;
             let dtype_str = match std::str::from_utf8(raw) {
                 Ok(v) => v,
-                Err(e) => return exec_err!("invalid variant_schema_agg state: {e}"),
+                Err(e) => return exec_err!("invalid variant_schema state: {e}"),
             };
             let dtype = match dtype_str.parse::<DataType>() {
                 Ok(v) => v,
-                Err(e) => return exec_err!("invalid variant_schema_agg datatype state: {e}"),
+                Err(e) => return exec_err!("invalid variant_schema datatype state: {e}"),
             };
             Ok(VariantSchema::Primitive(dtype))
         }
@@ -145,7 +144,7 @@ fn decode_variant_schema(input: &[u8], offset: &mut usize) -> Result<VariantSche
                 let key_raw = read_len_prefixed_bytes(input, offset)?;
                 let key = match std::str::from_utf8(key_raw) {
                     Ok(v) => v.to_string(),
-                    Err(e) => return exec_err!("invalid variant_schema_agg field key: {e}"),
+                    Err(e) => return exec_err!("invalid variant_schema field key: {e}"),
                 };
                 let value = decode_variant_schema(input, offset)?;
                 fields.insert(key, value);
@@ -153,7 +152,7 @@ fn decode_variant_schema(input: &[u8], offset: &mut usize) -> Result<VariantSche
             Ok(VariantSchema::Object(fields))
         }
         3 => Ok(VariantSchema::Variant),
-        tag => exec_err!("invalid variant_schema_agg state tag: {tag}"),
+        tag => exec_err!("invalid variant_schema state tag: {tag}"),
     }
 }
 

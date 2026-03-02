@@ -1,12 +1,9 @@
-use datafusion::{
-    logical_expr::{AggregateUDF, ScalarUDF},
-    prelude::*,
-};
+use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
     CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantGetUdf, VariantListConstruct,
     VariantListDelete, VariantListInsert, VariantObjectConstruct, VariantObjectDelete,
-    VariantObjectInsert, VariantPretty, VariantSchemaAggUDAF, VariantSchemaUDF, VariantToJsonUdf,
+    VariantObjectInsert, VariantPretty, VariantSchemaUDF, VariantToJsonUdf,
 };
 use indicatif::ProgressBar;
 use sqllogictest::strict_column_validator;
