@@ -8,6 +8,7 @@ use datafusion::{
 };
 use parquet_variant::Variant;
 use parquet_variant_compute::VariantArray;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::sync::Arc;
@@ -53,106 +54,117 @@ pub enum VariantSchema {
 
 impl VariantSchema {
     pub fn to_state_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        encode_variant_schema(self, &mut out);
-        out
+        self.to_state_string().into_bytes()
+    }
+
+    pub fn to_state_string(&self) -> String {
+        schema_to_json(self).to_string()
     }
 
     pub fn from_state_bytes(bytes: &[u8]) -> Result<Self> {
-        let mut offset = 0usize;
-        let decoded = decode_variant_schema(bytes, &mut offset)?;
-        if offset != bytes.len() {
-            return exec_err!("invalid variant_schema state: trailing bytes");
-        }
-        Ok(decoded)
+        let state = match std::str::from_utf8(bytes) {
+            Ok(v) => v,
+            Err(e) => return exec_err!("invalid variant_schema utf8 state: {e}"),
+        };
+        Self::from_state_str(state)
+    }
+
+    pub fn from_state_str(state: &str) -> Result<Self> {
+        let value = match serde_json::from_str::<Value>(state) {
+            Ok(v) => v,
+            Err(e) => return exec_err!("invalid variant_schema json state: {e}"),
+        };
+        schema_from_json(&value)
     }
 }
 
-fn encode_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
-    out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-    out.extend_from_slice(bytes);
-}
-
-fn read_u8(input: &[u8], offset: &mut usize) -> Result<u8> {
-    let Some(v) = input.get(*offset) else {
-        return exec_err!("invalid variant_schema state: missing tag");
-    };
-    *offset += 1;
-    Ok(*v)
-}
-
-fn read_u32(input: &[u8], offset: &mut usize) -> Result<u32> {
-    let Some(raw) = input.get(*offset..(*offset + 4)) else {
-        return exec_err!("invalid variant_schema state: missing u32");
-    };
-    *offset += 4;
-    Ok(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
-}
-
-fn read_len_prefixed_bytes<'a>(input: &'a [u8], offset: &mut usize) -> Result<&'a [u8]> {
-    let len = read_u32(input, offset)? as usize;
-    let Some(raw) = input.get(*offset..(*offset + len)) else {
-        return exec_err!("invalid variant_schema state: truncated payload");
-    };
-    *offset += len;
-    Ok(raw)
-}
-
-fn encode_variant_schema(schema: &VariantSchema, out: &mut Vec<u8>) {
+fn schema_to_json(schema: &VariantSchema) -> Value {
     match schema {
         VariantSchema::Primitive(dtype) => {
-            out.push(0);
-            encode_len_prefixed_bytes(out, dtype.to_string().as_bytes());
+            let mut node = Map::new();
+            node.insert("kind".to_string(), Value::String("primitive".to_string()));
+            node.insert("dtype".to_string(), Value::String(dtype.to_string()));
+            Value::Object(node)
         }
         VariantSchema::Array(inner) => {
-            out.push(1);
-            encode_variant_schema(inner, out);
+            let mut node = Map::new();
+            node.insert("kind".to_string(), Value::String("array".to_string()));
+            node.insert("inner".to_string(), schema_to_json(inner));
+            Value::Object(node)
         }
         VariantSchema::Object(fields) => {
-            out.push(2);
-            out.extend_from_slice(&(fields.len() as u32).to_le_bytes());
+            let mut field_map = Map::new();
             for (key, value) in fields {
-                encode_len_prefixed_bytes(out, key.as_bytes());
-                encode_variant_schema(value, out);
+                field_map.insert(key.clone(), schema_to_json(value));
             }
+
+            let mut node = Map::new();
+            node.insert("kind".to_string(), Value::String("object".to_string()));
+            node.insert("fields".to_string(), Value::Object(field_map));
+            Value::Object(node)
         }
-        VariantSchema::Variant => out.push(3),
+        VariantSchema::Variant => {
+            let mut node = Map::new();
+            node.insert("kind".to_string(), Value::String("variant".to_string()));
+            Value::Object(node)
+        }
     }
 }
 
-fn decode_variant_schema(input: &[u8], offset: &mut usize) -> Result<VariantSchema> {
-    match read_u8(input, offset)? {
-        0 => {
-            let raw = read_len_prefixed_bytes(input, offset)?;
-            let dtype_str = match std::str::from_utf8(raw) {
-                Ok(v) => v,
-                Err(e) => return exec_err!("invalid variant_schema state: {e}"),
+fn schema_from_json(value: &Value) -> Result<VariantSchema> {
+    let obj = match value {
+        Value::Object(obj) => obj,
+        _ => return exec_err!("invalid variant_schema state: expected object"),
+    };
+
+    let kind = match obj.get("kind") {
+        Some(Value::String(v)) => v.as_str(),
+        _ => return exec_err!("invalid variant_schema state: missing or invalid `kind`"),
+    };
+
+    match kind {
+        "primitive" => {
+            let dtype_str = match obj.get("dtype") {
+                Some(Value::String(v)) => v,
+                _ => {
+                    return exec_err!(
+                        "invalid variant_schema primitive state: missing or invalid `dtype`"
+                    );
+                }
             };
+
             let dtype = match dtype_str.parse::<DataType>() {
                 Ok(v) => v,
                 Err(e) => return exec_err!("invalid variant_schema datatype state: {e}"),
             };
             Ok(VariantSchema::Primitive(dtype))
         }
-        1 => Ok(VariantSchema::Array(Box::new(decode_variant_schema(
-            input, offset,
-        )?))),
-        2 => {
-            let count = read_u32(input, offset)? as usize;
+        "array" => {
+            let inner = match obj.get("inner") {
+                Some(v) => v,
+                None => return exec_err!("invalid variant_schema array state: missing `inner`"),
+            };
+            Ok(VariantSchema::Array(Box::new(schema_from_json(inner)?)))
+        }
+        "object" => {
+            let fields_obj = match obj.get("fields") {
+                Some(Value::Object(v)) => v,
+                _ => {
+                    return exec_err!(
+                        "invalid variant_schema object state: missing or invalid `fields`"
+                    );
+                }
+            };
+
             let mut fields = BTreeMap::new();
-            for _ in 0..count {
-                let key_raw = read_len_prefixed_bytes(input, offset)?;
-                let key = match std::str::from_utf8(key_raw) {
-                    Ok(v) => v.to_string(),
-                    Err(e) => return exec_err!("invalid variant_schema field key: {e}"),
-                };
-                let value = decode_variant_schema(input, offset)?;
-                fields.insert(key, value);
+            for (field_name, field_value) in fields_obj {
+                fields.insert(field_name.clone(), schema_from_json(field_value)?);
             }
+
             Ok(VariantSchema::Object(fields))
         }
-        3 => Ok(VariantSchema::Variant),
-        tag => exec_err!("invalid variant_schema state tag: {tag}"),
+        "variant" => Ok(VariantSchema::Variant),
+        other => exec_err!("invalid variant_schema state kind: {other}"),
     }
 }
 
@@ -406,5 +418,32 @@ impl ScalarUDFImpl for VariantSchemaUDF {
             DataFusionError::Execution("empty argument, expected 1 argument".to_string())
         })?;
         infer_variant_schema(arg)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{VariantSchema, print_schema};
+    use arrow_schema::DataType;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn state_round_trip_uses_utf8_json() {
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "a:key,with>delims".to_string(),
+            VariantSchema::Array(Box::new(VariantSchema::Primitive(DataType::Int64))),
+        );
+
+        let schema = VariantSchema::Object(fields);
+        let bytes = schema.to_state_bytes();
+
+        let text = std::str::from_utf8(&bytes).expect("state should be utf8");
+        assert!(text.contains("\"kind\":\"object\""));
+        assert!(text.contains("\"fields\""));
+
+        let decoded = VariantSchema::from_state_bytes(&bytes).expect("round-trip decode");
+        assert_eq!(decoded, schema);
+        assert_eq!(print_schema(&decoded), print_schema(&schema));
     }
 }
