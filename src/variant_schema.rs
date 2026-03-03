@@ -8,7 +8,7 @@ use datafusion::{
 };
 use parquet_variant::Variant;
 use parquet_variant_compute::VariantArray;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::sync::Arc;
@@ -62,140 +62,137 @@ impl VariantSchema {
     }
 
     pub fn from_state_bytes(bytes: &[u8]) -> Result<Self> {
-        let state = match std::str::from_utf8(bytes) {
-            Ok(v) => v,
-            Err(e) => return exec_err!("invalid variant_schema utf8 state: {e}"),
-        };
+        let state = std::str::from_utf8(bytes).map_err(|e| {
+            DataFusionError::Execution(format!("invalid variant_schema utf8 state: {e}"))
+        })?;
         Self::from_state_str(state)
     }
 
     pub fn from_state_str(state: &str) -> Result<Self> {
-        let value = match serde_json::from_str::<Value>(state) {
-            Ok(v) => v,
-            Err(e) => return exec_err!("invalid variant_schema json state: {e}"),
+        let value = serde_json::from_str::<Value>(state).map_err(|e| {
+            DataFusionError::Execution(format!("invalid variant_schema json state: {e}"))
+        })?;
+        Self::try_from(&value)
+    }
+}
+
+impl From<&Variant<'_, '_>> for VariantSchema {
+    fn from(value: &Variant) -> Self {
+        match value {
+            Variant::Object(obj) => {
+                let fields = obj
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), Self::from(&v)))
+                    .collect();
+
+                VariantSchema::Object(fields)
+            }
+            Variant::List(list) => {
+                let inner = list
+                    .iter()
+                    .map(|v| Self::from(&v))
+                    .try_fold(VariantSchema::Primitive(DataType::Null), |acc, next| {
+                        let merged = merge_variant_schema(acc, next);
+                        if merged == VariantSchema::Variant {
+                            Err(merged)
+                        } else {
+                            Ok(merged)
+                        }
+                    })
+                    .unwrap_or_else(|schema| schema);
+
+                VariantSchema::Array(Box::new(inner))
+            }
+            _ => VariantSchema::Primitive(primitive_from_variant(value)),
+        }
+    }
+}
+
+impl TryFrom<&Value> for VariantSchema {
+    type Error = DataFusionError;
+
+    fn try_from(value: &Value) -> std::result::Result<Self, Self::Error> {
+        let obj = match value {
+            Value::Object(obj) => obj,
+            _ => return exec_err!("invalid variant_schema state: expected object"),
         };
-        schema_from_json(&value)
+
+        let kind = match obj.get("kind") {
+            Some(Value::String(v)) => v.as_str(),
+            _ => return exec_err!("invalid variant_schema state: missing or invalid `kind`"),
+        };
+
+        match kind {
+            "primitive" => {
+                let dtype_str = match obj.get("dtype") {
+                    Some(Value::String(v)) => v,
+                    _ => {
+                        return exec_err!(
+                            "invalid variant_schema primitive state: missing or invalid `dtype`"
+                        );
+                    }
+                };
+
+                let dtype = match dtype_str.parse::<DataType>() {
+                    Ok(v) => v,
+                    Err(e) => return exec_err!("invalid variant_schema datatype state: {e}"),
+                };
+                Ok(VariantSchema::Primitive(dtype))
+            }
+            "array" => {
+                let inner = match obj.get("inner") {
+                    Some(v) => v,
+                    None => {
+                        return exec_err!("invalid variant_schema array state: missing `inner`");
+                    }
+                };
+                Ok(VariantSchema::Array(Box::new(Self::try_from(inner)?)))
+            }
+            "object" => {
+                let fields_obj = match obj.get("fields") {
+                    Some(Value::Object(v)) => v,
+                    _ => {
+                        return exec_err!(
+                            "invalid variant_schema object state: missing or invalid `fields`"
+                        );
+                    }
+                };
+
+                let mut fields = BTreeMap::new();
+                for (field_name, field_value) in fields_obj {
+                    fields.insert(field_name.clone(), Self::try_from(field_value)?);
+                }
+
+                Ok(VariantSchema::Object(fields))
+            }
+            "variant" => Ok(VariantSchema::Variant),
+            other => exec_err!("invalid variant_schema state kind: {other}"),
+        }
     }
 }
 
 fn schema_to_json(schema: &VariantSchema) -> Value {
     match schema {
-        VariantSchema::Primitive(dtype) => {
-            let mut node = Map::new();
-            node.insert("kind".to_string(), Value::String("primitive".to_string()));
-            node.insert("dtype".to_string(), Value::String(dtype.to_string()));
-            Value::Object(node)
-        }
-        VariantSchema::Array(inner) => {
-            let mut node = Map::new();
-            node.insert("kind".to_string(), Value::String("array".to_string()));
-            node.insert("inner".to_string(), schema_to_json(inner));
-            Value::Object(node)
-        }
+        VariantSchema::Primitive(dtype) => serde_json::json!({
+            "kind": "primitive",
+            "dtype": dtype.to_string()
+        }),
+        VariantSchema::Array(inner) => serde_json::json!({
+            "kind": "array",
+            "inner": schema_to_json(inner)
+        }),
         VariantSchema::Object(fields) => {
-            let mut field_map = Map::new();
-            for (key, value) in fields {
-                field_map.insert(key.clone(), schema_to_json(value));
-            }
-
-            let mut node = Map::new();
-            node.insert("kind".to_string(), Value::String("object".to_string()));
-            node.insert("fields".to_string(), Value::Object(field_map));
-            Value::Object(node)
-        }
-        VariantSchema::Variant => {
-            let mut node = Map::new();
-            node.insert("kind".to_string(), Value::String("variant".to_string()));
-            Value::Object(node)
-        }
-    }
-}
-
-fn schema_from_json(value: &Value) -> Result<VariantSchema> {
-    let obj = match value {
-        Value::Object(obj) => obj,
-        _ => return exec_err!("invalid variant_schema state: expected object"),
-    };
-
-    let kind = match obj.get("kind") {
-        Some(Value::String(v)) => v.as_str(),
-        _ => return exec_err!("invalid variant_schema state: missing or invalid `kind`"),
-    };
-
-    match kind {
-        "primitive" => {
-            let dtype_str = match obj.get("dtype") {
-                Some(Value::String(v)) => v,
-                _ => {
-                    return exec_err!(
-                        "invalid variant_schema primitive state: missing or invalid `dtype`"
-                    );
-                }
-            };
-
-            let dtype = match dtype_str.parse::<DataType>() {
-                Ok(v) => v,
-                Err(e) => return exec_err!("invalid variant_schema datatype state: {e}"),
-            };
-            Ok(VariantSchema::Primitive(dtype))
-        }
-        "array" => {
-            let inner = match obj.get("inner") {
-                Some(v) => v,
-                None => return exec_err!("invalid variant_schema array state: missing `inner`"),
-            };
-            Ok(VariantSchema::Array(Box::new(schema_from_json(inner)?)))
-        }
-        "object" => {
-            let fields_obj = match obj.get("fields") {
-                Some(Value::Object(v)) => v,
-                _ => {
-                    return exec_err!(
-                        "invalid variant_schema object state: missing or invalid `fields`"
-                    );
-                }
-            };
-
-            let mut fields = BTreeMap::new();
-            for (field_name, field_value) in fields_obj {
-                fields.insert(field_name.clone(), schema_from_json(field_value)?);
-            }
-
-            Ok(VariantSchema::Object(fields))
-        }
-        "variant" => Ok(VariantSchema::Variant),
-        other => exec_err!("invalid variant_schema state kind: {other}"),
-    }
-}
-
-/// This function extracts the schema from a single Variant scalar
-pub fn schema_from_variant(v: &Variant) -> VariantSchema {
-    match v {
-        Variant::Object(obj) => {
-            let fields = obj
+            let fields_json = fields
                 .iter()
-                .map(|(k, v)| (k.to_string(), schema_from_variant(&v)))
-                .collect();
+                .map(|(k, v)| (k.clone(), schema_to_json(v)))
+                .collect::<serde_json::Map<String, Value>>();
 
-            VariantSchema::Object(fields)
+            serde_json::json!({
+                "kind": "object",
+                "fields": fields_json
+            })
         }
-        Variant::List(list) => {
-            let inner = list
-                .iter()
-                .map(|v| schema_from_variant(&v))
-                .try_fold(VariantSchema::Primitive(DataType::Null), |acc, next| {
-                    let merged = merge_variant_schema(acc, next);
-                    if merged == VariantSchema::Variant {
-                        Err(merged)
-                    } else {
-                        Ok(merged)
-                    }
-                })
-                .unwrap_or_else(|schema| schema);
-
-            VariantSchema::Array(Box::new(inner))
-        }
-        _ => VariantSchema::Primitive(primitive_from_variant(v)),
+        VariantSchema::Variant => serde_json::json!({ "kind": "variant" }),
     }
 }
 
@@ -374,7 +371,7 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
 
             let variant_array = VariantArray::try_new(struct_array.as_ref())?;
             let v = variant_array.value(0);
-            let schema = schema_from_variant(&v);
+            let schema = VariantSchema::from(&v);
 
             Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
                 print_schema(&schema),
@@ -384,7 +381,7 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
             let variant_array = VariantArray::try_new(array.as_ref())?;
             let out = variant_array
                 .iter()
-                .map(|v| v.map(|v| print_schema(&schema_from_variant(&v))))
+                .map(|v| v.map(|v| print_schema(&VariantSchema::from(&v))))
                 .collect::<Vec<_>>();
 
             let out: StringViewArray = out.into();
