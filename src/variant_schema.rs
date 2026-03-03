@@ -26,6 +26,32 @@ impl Default for VariantSchemaUDF {
     }
 }
 
+impl ScalarUDFImpl for VariantSchemaUDF {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "variant_schema"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
+        Ok(DataType::Utf8View)
+    }
+
+    fn invoke_with_args(
+        &self,
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> Result<ColumnarValue> {
+        let arg = &args.args[0];
+        infer_variant_schema(arg)
+    }
+}
+
 /// Infers a schema description for one VARIANT value.
 ///
 /// The inferred schema can be one of four logical forms:
@@ -254,21 +280,10 @@ fn primitive_from_variant<'m, 'v>(v: &Variant<'m, 'v>) -> DataType {
 /// are different
 ///
 /// Todo: needs more work on type coercing
-/// - add decimal coercion rules
+/// docs.databricks.com/aws/en/sql/language-manual/sql-ref-datatype-rules#type-precedence-list
 fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
-    use DataType::*;
-
     match (a, b) {
         (x, y) if x == y => Some(x),
-        // numeric widening
-        // docs.databricks.com/aws/en/sql/language-manual/sql-ref-datatype-rules#type-precedence-list
-        // For least common type resolution FLOAT is skipped to avoid loss of precision.
-        (Int8 | Int16 | Int32 | Int64 | Float32, Float64)
-        | (Float64, Int8 | Int16 | Int32 | Int64 | Float32) => Some(Float64),
-        (Int8 | Int16 | Int32, Int64) | (Int64, Int8 | Int16 | Int32) => Some(Int64),
-        (Int8 | Int16, Int32) | (Int32, Int8 | Int16) => Some(Int32),
-        (Date32, Timestamp(tu, tz)) | (Timestamp(tu, tz), Date32) => Some(Timestamp(tu, tz)),
-
         _ => None,
     }
 }
@@ -387,34 +402,6 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
             let out: StringViewArray = out.into();
             Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
         }
-    }
-}
-
-impl ScalarUDFImpl for VariantSchemaUDF {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn name(&self) -> &str {
-        "variant_schema"
-    }
-
-    fn signature(&self) -> &Signature {
-        &self.signature
-    }
-
-    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        Ok(DataType::Utf8View)
-    }
-
-    fn invoke_with_args(
-        &self,
-        args: datafusion::logical_expr::ScalarFunctionArgs,
-    ) -> Result<ColumnarValue> {
-        let arg = args.args.first().ok_or_else(|| {
-            DataFusionError::Execution("empty argument, expected 1 argument".to_string())
-        })?;
-        infer_variant_schema(arg)
     }
 }
 

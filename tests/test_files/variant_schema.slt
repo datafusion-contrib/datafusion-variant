@@ -86,12 +86,6 @@ SELECT variant_schema(json_to_variant('{"a": null}'))
 ----
 OBJECT<a: Null>
 
-# numeric widening
-query T
-SELECT variant_schema(json_to_variant('[1, 2.5, 3]'))
-----
-ARRAY<Float64>
-
 # array of objects
 query T
 SELECT variant_schema(json_to_variant('[{"a":1},{"a":2}]'))
