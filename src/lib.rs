@@ -12,6 +12,7 @@ mod variant_list_insert;
 mod variant_object_construct;
 mod variant_object_delete;
 mod variant_object_insert;
+mod variant_object_keys;
 mod variant_pretty;
 mod variant_to_json;
 
@@ -25,5 +26,6 @@ pub use variant_list_insert::*;
 pub use variant_object_construct::*;
 pub use variant_object_delete::*;
 pub use variant_object_insert::*;
+pub use variant_object_keys::*;
 pub use variant_pretty::*;
 pub use variant_to_json::*;
