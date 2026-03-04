@@ -78,6 +78,12 @@ pub enum VariantSchema {
     Variant,
 }
 
+impl Default for VariantSchema {
+    fn default() -> Self {
+        Self::Primitive(DataType::Null)
+    }
+}
+
 impl std::fmt::Display for VariantSchema {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_schema(self, f)
@@ -85,7 +91,7 @@ impl std::fmt::Display for VariantSchema {
 }
 
 /// Prints schema in a presentable manner
-pub fn fmt_schema(schema: &VariantSchema, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+fn fmt_schema(schema: &VariantSchema, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match schema {
         VariantSchema::Primitive(dt) => write!(f, "{dt}"),
 
@@ -128,8 +134,8 @@ impl From<&Variant<'_, '_>> for VariantSchema {
                 let inner = list
                     .iter()
                     .map(|v| Self::from(&v))
-                    .try_fold(VariantSchema::Primitive(DataType::Null), |acc, next| {
-                        let merged = merge_variant_schema(acc, next);
+                    .try_fold(VariantSchema::default(), |acc, next| {
+                        let merged = acc.merged(next);
                         if merged == VariantSchema::Variant {
                             Err(merged)
                         } else {
@@ -230,6 +236,66 @@ impl VariantSchema {
         })?;
         Self::try_from(&value)
     }
+
+    pub fn merged(mut self, incoming: Self) -> Self {
+        self.merge_from(&incoming);
+        self
+    }
+
+    pub fn merge_from(&mut self, incoming: &Self) {
+        use VariantSchema::*;
+
+        if matches!(self, Variant) || matches!(incoming, Variant) {
+            *self = Variant;
+            return;
+        }
+
+        if matches!(incoming, Primitive(DataType::Null)) {
+            return;
+        }
+
+        if matches!(self, Primitive(DataType::Null)) {
+            *self = incoming.clone();
+            return;
+        }
+
+        match incoming {
+            Primitive(p2) => {
+                if let Primitive(p1) = self {
+                    let merged = merge_primitives(p1.clone(), p2.clone())
+                        .map(Primitive)
+                        .unwrap_or(Variant);
+                    *self = merged;
+                } else {
+                    *self = Variant;
+                }
+            }
+            Array(b) => {
+                if let Array(a) = self {
+                    a.as_mut().merge_from(b.as_ref());
+                } else {
+                    *self = Variant;
+                }
+            }
+            Object(b) => {
+                if let Object(a) = self {
+                    for (k, v_b) in b {
+                        match a.entry(k.clone()) {
+                            Entry::Occupied(mut occ) => occ.get_mut().merge_from(v_b),
+                            Entry::Vacant(vac) => {
+                                vac.insert(v_b.clone());
+                            }
+                        }
+                    }
+                } else {
+                    *self = Variant;
+                }
+            }
+            Variant => {
+                *self = Variant;
+            }
+        }
+    }
 }
 
 fn schema_to_json(schema: &VariantSchema) -> Value {
@@ -320,69 +386,6 @@ fn merge_primitives(a: DataType, b: DataType) -> Option<DataType> {
     match (a, b) {
         (x, y) if x == y => Some(x),
         _ => None,
-    }
-}
-
-/// Merges two inferred Variant schemas into a common schema.
-/// Returns VARIANT if no common schema can be determined.
-pub fn merge_variant_schema(a: VariantSchema, b: VariantSchema) -> VariantSchema {
-    let mut merged = a;
-    merge_variant_schema_from(&mut merged, &b);
-    merged
-}
-
-pub fn merge_variant_schema_from(target: &mut VariantSchema, incoming: &VariantSchema) {
-    use VariantSchema::*;
-
-    if matches!(target, Variant) || matches!(incoming, Variant) {
-        *target = Variant;
-        return;
-    }
-
-    if matches!(incoming, Primitive(DataType::Null)) {
-        return;
-    }
-
-    if matches!(target, Primitive(DataType::Null)) {
-        *target = incoming.clone();
-        return;
-    }
-
-    match incoming {
-        Primitive(p2) => {
-            if let Primitive(p1) = target {
-                let merged = merge_primitives(p1.clone(), p2.clone())
-                    .map(Primitive)
-                    .unwrap_or(Variant);
-                *target = merged;
-            } else {
-                *target = Variant;
-            }
-        }
-        Array(b) => {
-            if let Array(a) = target {
-                merge_variant_schema_from(a.as_mut(), b.as_ref());
-            } else {
-                *target = Variant;
-            }
-        }
-        Object(b) => {
-            if let Object(a) = target {
-                for (k, v_b) in b {
-                    match a.entry(k.clone()) {
-                        Entry::Occupied(mut occ) => merge_variant_schema_from(occ.get_mut(), v_b),
-                        Entry::Vacant(vac) => {
-                            vac.insert(v_b.clone());
-                        }
-                    }
-                }
-            } else {
-                *target = Variant;
-            }
-        }
-        Variant => {
-            *target = Variant;
-        }
     }
 }
 
