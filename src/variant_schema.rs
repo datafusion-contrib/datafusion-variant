@@ -351,10 +351,6 @@ pub fn merge_variant_schema_from(target: &mut VariantSchema, incoming: &VariantS
     }
 }
 
-pub fn merge_variant_schema_into(target: &mut VariantSchema, incoming: VariantSchema) {
-    merge_variant_schema_from(target, &incoming);
-}
-
 /// Prints schema in a presentable manner
 pub fn print_schema(schema: &VariantSchema) -> String {
     match schema {
