@@ -78,27 +78,38 @@ pub enum VariantSchema {
     Variant,
 }
 
-impl VariantSchema {
-    pub fn to_state_bytes(&self) -> Vec<u8> {
-        self.to_state_string().into_bytes()
+impl std::fmt::Display for VariantSchema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt_schema(self, f)
     }
+}
 
-    pub fn to_state_string(&self) -> String {
-        schema_to_json(self).to_string()
-    }
+/// Prints schema in a presentable manner
+pub fn fmt_schema(schema: &VariantSchema, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match schema {
+        VariantSchema::Primitive(dt) => write!(f, "{dt}"),
 
-    pub fn from_state_bytes(bytes: &[u8]) -> Result<Self> {
-        let state = std::str::from_utf8(bytes).map_err(|e| {
-            DataFusionError::Execution(format!("invalid variant_schema utf8 state: {e}"))
-        })?;
-        Self::from_state_str(state)
-    }
+        VariantSchema::Variant => f.write_str("VARIANT"),
 
-    pub fn from_state_str(state: &str) -> Result<Self> {
-        let value = serde_json::from_str::<Value>(state).map_err(|e| {
-            DataFusionError::Execution(format!("invalid variant_schema json state: {e}"))
-        })?;
-        Self::try_from(&value)
+        VariantSchema::Array(inner) => {
+            f.write_str("ARRAY<")?;
+            fmt_schema(inner, f)?;
+            f.write_str(">")
+        }
+
+        VariantSchema::Object(fields) => {
+            f.write_str("OBJECT<")?;
+            let mut first = true;
+            for (k, v) in fields {
+                if !first {
+                    f.write_str(", ")?;
+                }
+                first = false;
+                write!(f, "{k}: ")?;
+                fmt_schema(v, f)?;
+            }
+            f.write_str(">")
+        }
     }
 }
 
@@ -194,6 +205,30 @@ impl TryFrom<&Value> for VariantSchema {
             "variant" => Ok(VariantSchema::Variant),
             other => exec_err!("invalid variant_schema state kind: {other}"),
         }
+    }
+}
+
+impl VariantSchema {
+    pub fn to_state_bytes(&self) -> Vec<u8> {
+        self.to_state_string().into_bytes()
+    }
+
+    pub fn to_state_string(&self) -> String {
+        schema_to_json(self).to_string()
+    }
+
+    pub fn from_state_bytes(bytes: &[u8]) -> Result<Self> {
+        let state = std::str::from_utf8(bytes).map_err(|e| {
+            DataFusionError::Execution(format!("invalid variant_schema utf8 state: {e}"))
+        })?;
+        Self::from_state_str(state)
+    }
+
+    pub fn from_state_str(state: &str) -> Result<Self> {
+        let value = serde_json::from_str::<Value>(state).map_err(|e| {
+            DataFusionError::Execution(format!("invalid variant_schema json state: {e}"))
+        })?;
+        Self::try_from(&value)
     }
 }
 
@@ -351,27 +386,6 @@ pub fn merge_variant_schema_from(target: &mut VariantSchema, incoming: &VariantS
     }
 }
 
-/// Prints schema in a presentable manner
-pub fn print_schema(schema: &VariantSchema) -> String {
-    match schema {
-        VariantSchema::Primitive(s) => format!("{s}"),
-
-        VariantSchema::Variant => "VARIANT".to_string(),
-
-        VariantSchema::Array(inner) => {
-            format!("ARRAY<{}>", print_schema(inner))
-        }
-
-        VariantSchema::Object(fields) => {
-            let parts: Vec<String> = fields
-                .iter()
-                .map(|(k, v)| format!("{k}: {}", print_schema(v)))
-                .collect();
-            format!("OBJECT<{}>", parts.join(", "))
-        }
-    }
-}
-
 /// Retrieve schema text from a VARIANT scalar or array (row-wise for arrays).
 fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
     match variant {
@@ -385,14 +399,14 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
             let schema = VariantSchema::from(&v);
 
             Ok(ColumnarValue::Scalar(ScalarValue::Utf8View(Some(
-                print_schema(&schema),
+                schema.to_string(),
             ))))
         }
         ColumnarValue::Array(array) => {
             let variant_array = VariantArray::try_new(array.as_ref())?;
             let out = variant_array
                 .iter()
-                .map(|v| v.map(|v| print_schema(&VariantSchema::from(&v))))
+                .map(|v| v.map(|v| VariantSchema::from(&v).to_string()))
                 .collect::<Vec<_>>();
 
             let out: StringViewArray = out.into();
@@ -403,7 +417,7 @@ fn infer_variant_schema(variant: &ColumnarValue) -> Result<ColumnarValue> {
 
 #[cfg(test)]
 mod tests {
-    use super::{VariantSchema, print_schema};
+    use super::VariantSchema;
     use arrow_schema::DataType;
     use std::collections::BTreeMap;
 
@@ -424,6 +438,6 @@ mod tests {
 
         let decoded = VariantSchema::from_state_bytes(&bytes).expect("round-trip decode");
         assert_eq!(decoded, schema);
-        assert_eq!(print_schema(&decoded), print_schema(&schema));
+        assert_eq!(decoded.to_string(), schema.to_string());
     }
 }
