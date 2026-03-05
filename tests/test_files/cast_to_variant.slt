@@ -1,4 +1,6 @@
-# mirrors tests removed from src/cast_to_variant.rs
+# tests the cast_to_variant udf
+# this function takes a Variant Scalar or Array and converts it into a respective Variant value
+# you can also use metadata and value to create a Variant
 
 # one-arg path (from_scalar_value)
 # test_scalar_float64
