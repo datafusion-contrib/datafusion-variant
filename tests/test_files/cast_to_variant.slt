@@ -1,0 +1,104 @@
+# tests the cast_to_variant udf
+# this function takes a Variant Scalar or Array and converts it into a respective Variant value
+# you can also use metadata and value to create a Variant
+
+# one-arg path (from_scalar_value)
+# test_scalar_float64
+query T
+SELECT variant_pretty(cast_to_variant(3.25));
+----
+Double(3.25)
+
+# one-arg path (from_array)
+# test_array_int32
+statement ok
+CREATE TABLE cast_int_data (id INT, i INT) AS VALUES
+  (1, 1),
+  (2, NULL),
+  (3, -5);
+
+query IT
+SELECT id, variant_pretty(cast_to_variant(i)) FROM cast_int_data ORDER BY id;
+----
+1 Int32(1)
+2 NULL
+3 Int32(-5)
+
+# test_array_string
+statement ok
+CREATE TABLE cast_string_data (id INT, s TEXT) AS VALUES
+  (1, 'abcdefghijklmnop'),
+  (2, NULL),
+  (3, 'hello world');
+
+query IT
+SELECT id, variant_pretty(cast_to_variant(s)) FROM cast_string_data ORDER BY id;
+----
+1 ShortString(ShortString("abcdefghijklmnop"))
+2 NULL
+3 ShortString(ShortString("hello world"))
+
+# test_array_string_view
+query IT
+SELECT id, variant_pretty(cast_to_variant(arrow_cast(s, 'Utf8View'))) FROM cast_string_data ORDER BY id;
+----
+1 ShortString(ShortString("abcdefghijklmnop"))
+2 NULL
+3 ShortString(ShortString("hello world"))
+
+# test_fixed_size_binary_uuid_like
+query IT
+SELECT id, variant_pretty(cast_to_variant(b))
+FROM (
+  SELECT
+    1 AS id,
+    arrow_cast(X'01010101010101010101010101010101', 'FixedSizeBinary(16)') AS b
+  UNION ALL
+  SELECT
+    2 AS id,
+    arrow_cast(NULL, 'FixedSizeBinary(16)') AS b
+  UNION ALL
+  SELECT
+    3 AS id,
+    arrow_cast(X'02020202020202020202020202020202', 'FixedSizeBinary(16)') AS b
+) t
+ORDER BY id;
+----
+1 Binary(01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01)
+2 NULL
+3 Binary(02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02)
+
+# one-arg path (already Variant): pass-through should be unchanged
+query T
+SELECT variant_pretty(cast_to_variant(json_to_variant('{"name": "norm"}')));
+----
+{"name": ShortString(ShortString("norm"))}
+
+# two-arg path (from_metadata_value)
+# test_scalar_binary_views
+query T
+WITH input AS (
+  SELECT json_to_variant('{"name": "norm"}') AS v
+)
+SELECT variant_pretty(cast_to_variant(v.metadata, v.value)) FROM input;
+----
+{"name": ShortString(ShortString("norm"))}
+
+# test_array_binary_views
+statement ok
+CREATE TABLE cast_json_data (id INT, json_str TEXT) AS VALUES
+  (1, '{"name": "norm"}'),
+  (2, NULL),
+  (3, NULL),
+  (4, '{"id": 1, "parent_id": 0, "child_ids": [2, 3, 4, 5]}');
+
+query IT
+WITH input AS (
+  SELECT id, json_to_variant(json_str) AS v FROM cast_json_data
+)
+SELECT id, variant_to_json(cast_to_variant(v.metadata, v.value)) FROM input ORDER BY id;
+----
+1 {"name":"norm"}
+2 NULL
+3 NULL
+4 {"child_ids":[2,3,4,5],"id":1,"parent_id":0}

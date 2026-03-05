@@ -30,7 +30,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
     test_files.sort();
 
     for test_file in test_files {
-        println!("Running test file: {:?}", test_file);
+        println!("Running test file: {test_file:?}");
 
         let relative_path = test_file
             .strip_prefix(&test_files_dir)
