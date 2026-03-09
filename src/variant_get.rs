@@ -13,7 +13,7 @@ use datafusion::{
     },
     scalar::ScalarValue,
 };
-use parquet_variant::VariantPath;
+use parquet_variant::{VariantPath, VariantPathElement};
 use parquet_variant_compute::{GetOptions, VariantArray, VariantType, variant_get};
 
 use crate::shared::{
@@ -58,6 +58,158 @@ fn build_get_options<'a>(path: VariantPath<'a>, as_type: &Option<FieldRef>) -> G
     }
 }
 
+/// Determines how a string path is converted to a [`VariantPath`].
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum PathMode {
+    /// Splits the path on `.` for dot-notation traversal (e.g., `"a.b.c"` → `["a", "b", "c"]`).
+    DotNotation,
+    /// Treats the entire path string as a single field name (e.g., `"a.b.c"` → `["a.b.c"]`).
+    /// This is critical for keys that contain dots, such as OTEL attribute keys
+    /// like `http.response.status_code`.
+    SingleField,
+}
+
+impl PathMode {
+    fn build_path<'a>(&self, path: &'a str) -> VariantPath<'a> {
+        match self {
+            PathMode::DotNotation => VariantPath::from(path),
+            PathMode::SingleField => VariantPath::new(vec![VariantPathElement::field(path)]),
+        }
+    }
+}
+
+/// shared invoke logic for `variant_get`` and `variant_get_field`
+/// the only difference between the 2 udfs is how the path strings are interpreted
+/// - `variant_get` uses [`PathMode::DotNotation`]`
+/// - `variant_get_field` uses [`PathMode::SingleField`] (no splitting)
+fn invoke_variant_get(
+    args: datafusion::logical_expr::ScalarFunctionArgs,
+    udf_name: &str,
+    path_mode: PathMode,
+) -> Result<ColumnarValue> {
+    let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
+        [variant_arg, variant_path] => (variant_arg, variant_path, None),
+        [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
+        _ => return exec_err!("expected 2 or 3 arguments"),
+    };
+
+    let variant_field = args
+        .arg_fields
+        .first()
+        .ok_or_else(|| exec_datafusion_err!("expected argument field"))?;
+
+    try_field_as_variant_array(variant_field.as_ref())?;
+
+    let type_field = type_arg
+        .map(|arg| type_hint_from_value(udf_name, arg))
+        .transpose()?;
+
+    let out = match (variant_arg, variant_path) {
+        (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {
+            let variant_path = try_parse_string_scalar(variant_path)?
+                .map(|s| s.as_str())
+                .unwrap_or_default();
+
+            let res = variant_get(
+                variant_array,
+                build_get_options(path_mode.build_path(variant_path), &type_field),
+            )?;
+
+            ColumnarValue::Array(res)
+        }
+        (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(variant_path)) => {
+            let ScalarValue::Struct(variant_array) = scalar_variant else {
+                return exec_err!("expected struct array");
+            };
+
+            let variant_array = Arc::clone(variant_array) as ArrayRef;
+
+            let variant_path = try_parse_string_scalar(variant_path)?
+                .map(|s| s.as_str())
+                .unwrap_or_default();
+
+            let res = variant_get(
+                &variant_array,
+                build_get_options(path_mode.build_path(variant_path), &type_field),
+            )?;
+
+            let scalar = ScalarValue::try_from_array(res.as_ref(), 0)?;
+            ColumnarValue::Scalar(scalar)
+        }
+        (ColumnarValue::Array(variant_array), ColumnarValue::Array(variant_paths)) => {
+            if variant_array.len() != variant_paths.len() {
+                return exec_err!("expected variant_array and variant paths to be of same length");
+            }
+
+            let variant_paths = try_parse_string_columnar(variant_paths)?;
+            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
+
+            let mut out = Vec::with_capacity(variant_array.len());
+
+            for (i, path) in variant_paths.iter().enumerate() {
+                let v = variant_array.value(i);
+                // todo: is there a better way to go from Variant -> VariantArray?
+                let singleton_variant_array: StructArray = VariantArray::from_iter([v]).into();
+
+                let arr = Arc::new(singleton_variant_array) as ArrayRef;
+
+                let res = variant_get(
+                    &arr,
+                    build_get_options(path_mode.build_path(path.unwrap_or_default()), &type_field),
+                )?;
+
+                out.push(res);
+            }
+
+            let out_refs: Vec<&dyn Array> = out.iter().map(|a| a.as_ref()).collect();
+            ColumnarValue::Array(concat(&out_refs)?)
+        }
+        (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(variant_paths)) => {
+            let ScalarValue::Struct(variant_array) = scalar_variant else {
+                return exec_err!("expected struct array");
+            };
+
+            let variant_array = Arc::clone(variant_array) as ArrayRef;
+            let variant_paths = try_parse_string_columnar(variant_paths)?;
+
+            let mut out = Vec::with_capacity(variant_paths.len());
+
+            for path in variant_paths {
+                let path = path.unwrap_or_default();
+                let res = variant_get(
+                    &variant_array,
+                    build_get_options(path_mode.build_path(path), &type_field),
+                )?;
+
+                out.push(res);
+            }
+
+            let out_refs: Vec<&dyn Array> = out.iter().map(|a| a.as_ref()).collect();
+            ColumnarValue::Array(concat(&out_refs)?)
+        }
+    };
+
+    Ok(out)
+}
+
+fn return_field_for_variant_get(name: &str, args: ReturnFieldArgs) -> Result<Arc<Field>> {
+    if let Some(maybe_scalar) = args.scalar_arguments.get(2) {
+        let scalar = maybe_scalar.ok_or_else(|| {
+            exec_datafusion_err!("type hint argument to {name} must be a literal")
+        })?;
+        return type_hint_from_scalar(name, scalar);
+    }
+
+    let data_type = DataType::Struct(Fields::from(vec![
+        Field::new("metadata", DataType::BinaryView, false),
+        Field::new("value", DataType::BinaryView, true),
+    ]));
+
+    Ok(Arc::new(
+        Field::new(name, data_type, true).with_extension_type(VariantType),
+    ))
+}
+
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
@@ -94,132 +246,71 @@ impl ScalarUDFImpl for VariantGetUdf {
     }
 
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
-        if let Some(maybe_scalar) = args.scalar_arguments.get(2) {
-            let scalar = maybe_scalar.ok_or_else(|| {
-                exec_datafusion_err!("type hint argument to variant_get must be a literal")
-            })?;
-            return type_hint_from_scalar(self.name(), scalar);
-        }
-
-        let data_type = DataType::Struct(Fields::from(vec![
-            Field::new("metadata", DataType::BinaryView, false),
-            Field::new("value", DataType::BinaryView, true),
-        ]));
-
-        Ok(Arc::new(
-            Field::new(self.name(), data_type, true).with_extension_type(VariantType),
-        ))
+        return_field_for_variant_get(self.name(), args)
     }
 
     fn invoke_with_args(
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
-            [variant_arg, variant_path] => (variant_arg, variant_path, None),
-            [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
-            _ => return exec_err!("expected 2 or 3 arguments"),
-        };
+        invoke_variant_get(args, self.name(), PathMode::DotNotation)
+    }
+}
 
-        let variant_field = args
-            .arg_fields
-            .first()
-            .ok_or_else(|| exec_datafusion_err!("expected argument field"))?;
+/// Like `variant_get`, but treats the path argument as a single field name
+/// without splitting on dots.
+///
+/// This is critical for keys that contain dots, such as OTEL attribute keys
+/// like `http.response.status_code`.
+///
+/// ## Arguments
+/// - expr: a Variant expression
+/// - field: the field name (treated as a single key, not split on `.`)
+/// - type_hint (optional): a type to cast the result to (e.g., `'Int64'`)
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct VariantGetFieldUdf {
+    signature: Signature,
+}
 
-        try_field_as_variant_array(variant_field.as_ref())?;
+impl Default for VariantGetFieldUdf {
+    fn default() -> Self {
+        Self {
+            signature: Signature::new(
+                TypeSignature::OneOf(vec![TypeSignature::Any(2), TypeSignature::Any(3)]),
+                Volatility::Immutable,
+            ),
+        }
+    }
+}
 
-        let type_field = type_arg
-            .map(|arg| type_hint_from_value(self.name(), arg))
-            .transpose()?;
+impl ScalarUDFImpl for VariantGetFieldUdf {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 
-        let out = match (variant_arg, variant_path) {
-            (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {
-                let variant_path = try_parse_string_scalar(variant_path)?
-                    .map(|s| s.as_str())
-                    .unwrap_or_default();
+    fn name(&self) -> &str {
+        "variant_get_field"
+    }
 
-                let res = variant_get(
-                    variant_array,
-                    build_get_options(VariantPath::from(variant_path), &type_field),
-                )?;
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
 
-                ColumnarValue::Array(res)
-            }
-            (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(variant_path)) => {
-                let ScalarValue::Struct(variant_array) = scalar_variant else {
-                    return exec_err!("expected struct array");
-                };
+    fn return_type(&self, _arg_types: &[arrow_schema::DataType]) -> Result<arrow_schema::DataType> {
+        Err(DataFusionError::Internal(
+            "implemented return_field_from_args instead".into(),
+        ))
+    }
 
-                let variant_array = Arc::clone(variant_array) as ArrayRef;
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
+        return_field_for_variant_get(self.name(), args)
+    }
 
-                let variant_path = try_parse_string_scalar(variant_path)?
-                    .map(|s| s.as_str())
-                    .unwrap_or_default();
-
-                let res = variant_get(
-                    &variant_array,
-                    build_get_options(VariantPath::from(variant_path), &type_field),
-                )?;
-
-                let scalar = ScalarValue::try_from_array(res.as_ref(), 0)?;
-                ColumnarValue::Scalar(scalar)
-            }
-            (ColumnarValue::Array(variant_array), ColumnarValue::Array(variant_paths)) => {
-                if variant_array.len() != variant_paths.len() {
-                    return exec_err!(
-                        "expected variant_array and variant paths to be of same length"
-                    );
-                }
-
-                let variant_paths = try_parse_string_columnar(variant_paths)?;
-                let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-
-                let mut out = Vec::with_capacity(variant_array.len());
-
-                for (i, path) in variant_paths.iter().enumerate() {
-                    let v = variant_array.value(i);
-                    // todo: is there a better way to go from Variant -> VariantArray?
-                    let singleton_variant_array: StructArray = VariantArray::from_iter([v]).into();
-
-                    let arr = Arc::new(singleton_variant_array) as ArrayRef;
-
-                    let res = variant_get(
-                        &arr,
-                        build_get_options(VariantPath::from(path.unwrap_or_default()), &type_field),
-                    )?;
-
-                    out.push(res);
-                }
-
-                let out_refs: Vec<&dyn Array> = out.iter().map(|a| a.as_ref()).collect();
-                ColumnarValue::Array(concat(&out_refs)?)
-            }
-            (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(variant_paths)) => {
-                let ScalarValue::Struct(variant_array) = scalar_variant else {
-                    return exec_err!("expected struct array");
-                };
-
-                let variant_array = Arc::clone(variant_array) as ArrayRef;
-                let variant_paths = try_parse_string_columnar(variant_paths)?;
-
-                let mut out = Vec::with_capacity(variant_paths.len());
-
-                for path in variant_paths {
-                    let path = path.unwrap_or_default();
-                    let res = variant_get(
-                        &variant_array,
-                        build_get_options(VariantPath::from(path), &type_field),
-                    )?;
-
-                    out.push(res);
-                }
-
-                let out_refs: Vec<&dyn Array> = out.iter().map(|a| a.as_ref()).collect();
-                ColumnarValue::Array(concat(&out_refs)?)
-            }
-        };
-
-        Ok(out)
+    fn invoke_with_args(
+        &self,
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> Result<ColumnarValue> {
+        invoke_variant_get(args, self.name(), PathMode::SingleField)
     }
 }
 
@@ -264,7 +355,7 @@ mod tests {
     }
 
     fn get_return_field(
-        udf: &VariantGetUdf,
+        udf: &dyn ScalarUDFImpl,
         arg_fields: &[FieldRef],
         type_hint_value: Option<&ScalarValue>,
     ) -> FieldRef {
@@ -422,5 +513,138 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert_eq!(values.value(0), 50);
         assert_eq!(values.value(1), 60);
+    }
+
+    #[test]
+    fn test_get_field_with_dotted_key() {
+        // Key contains dots — variant_get would split this, variant_get_field should not
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "http.response.status_code": 200
+        }));
+
+        let udf = VariantGetFieldUdf::default();
+        let arg_fields = standard_arg_fields(true);
+        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
+
+        let args = build_scalar_function_args(
+            ColumnarValue::Scalar(variant_input),
+            "http.response.status_code",
+            arg_fields,
+            return_field,
+            Some(type_hint),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(Some(value))) = result else {
+            panic!("expected ScalarValue Int64");
+        };
+
+        assert_eq!(value, 200);
+    }
+
+    #[test]
+    fn test_get_field_dotted_key_returns_null_with_variant_get() {
+        // Verify that variant_get with dot-notation CANNOT find keys with dots
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "http.response.status_code": 200
+        }));
+
+        let udf = VariantGetUdf::default();
+        let arg_fields = standard_arg_fields(true);
+        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
+
+        let args = build_scalar_function_args(
+            ColumnarValue::Scalar(variant_input),
+            "http.response.status_code",
+            arg_fields,
+            return_field,
+            Some(type_hint),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(None)) = result else {
+            panic!("expected NULL Int64 (dot-notation splits the key)");
+        };
+    }
+
+    #[test]
+    fn test_get_field_simple_key() {
+        // Simple keys (no dots) should work the same as variant_get
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm"
+        }));
+
+        let udf = VariantGetFieldUdf::default();
+        let arg_fields = standard_arg_fields(false);
+        let return_field = get_return_field(&udf, &arg_fields, None);
+
+        let args = build_scalar_function_args(
+            ColumnarValue::Scalar(variant_input),
+            "name",
+            arg_fields,
+            return_field,
+            None,
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Struct(struct_arr)) = result else {
+            panic!("expected ScalarValue struct");
+        };
+
+        let metadata_arr = struct_arr
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryViewArray>()
+            .unwrap();
+        let value_arr = struct_arr
+            .column(1)
+            .as_any()
+            .downcast_ref::<BinaryViewArray>()
+            .unwrap();
+
+        let metadata = metadata_arr.value(0);
+        let value = value_arr.value(0);
+        let v = Variant::try_new(metadata, value).unwrap();
+
+        assert_eq!(v, Variant::from("norm"));
+    }
+
+    #[test]
+    fn test_get_field_array_with_dotted_keys() {
+        let json_rows = vec![
+            serde_json::json!({"http.method": "GET", "http.status": 200}),
+            serde_json::json!({"http.method": "POST", "http.status": 201}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+
+        let udf = VariantGetFieldUdf::default();
+        let arg_fields = standard_arg_fields(true);
+        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
+
+        let args = build_scalar_function_args(
+            ColumnarValue::Array(variant_array),
+            "http.status",
+            arg_fields,
+            return_field,
+            Some(type_hint),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(array) = result else {
+            panic!("expected array output");
+        };
+
+        let values = array.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values.value(0), 200);
+        assert_eq!(values.value(1), 201);
     }
 }
