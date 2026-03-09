@@ -17,7 +17,8 @@ use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantArray, VariantType, variant_get};
 
 use crate::shared::{
-    try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
+    args_count_err, try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
+    type_err,
 };
 
 fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
@@ -26,10 +27,7 @@ fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<Field
         | ScalarValue::Utf8View(Some(value))
         | ScalarValue::LargeUtf8(Some(value)) => value.as_str(),
         other => {
-            return exec_err!(
-                "type hint must be a non-null UTF8 literal, got {}",
-                other.data_type()
-            );
+            return type_err("Utf8, LargeUtf8, or Utf8View", &other.data_type());
         }
     };
 
@@ -95,9 +93,8 @@ impl ScalarUDFImpl for VariantGetUdf {
 
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
         if let Some(maybe_scalar) = args.scalar_arguments.get(2) {
-            let scalar = maybe_scalar.ok_or_else(|| {
-                exec_datafusion_err!("type hint argument to variant_get must be a literal")
-            })?;
+            let scalar = maybe_scalar
+                .ok_or_else(|| exec_datafusion_err!("Expected Some() scalar argument got None"))?;
             return type_hint_from_scalar(self.name(), scalar);
         }
 
@@ -118,7 +115,7 @@ impl ScalarUDFImpl for VariantGetUdf {
         let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
             [variant_arg, variant_path] => (variant_arg, variant_path, None),
             [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
-            _ => return exec_err!("expected 2 or 3 arguments"),
+            _ => return Err(args_count_err("2 or 3", args.args.len())),
         };
 
         let variant_field = args
@@ -147,7 +144,7 @@ impl ScalarUDFImpl for VariantGetUdf {
             }
             (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(variant_path)) => {
                 let ScalarValue::Struct(variant_array) = scalar_variant else {
-                    return exec_err!("expected struct array");
+                    return type_err("Struct", &scalar_variant.data_type());
                 };
 
                 let variant_array = Arc::clone(variant_array) as ArrayRef;
@@ -167,7 +164,7 @@ impl ScalarUDFImpl for VariantGetUdf {
             (ColumnarValue::Array(variant_array), ColumnarValue::Array(variant_paths)) => {
                 if variant_array.len() != variant_paths.len() {
                     return exec_err!(
-                        "expected variant_array and variant paths to be of same length"
+                        "expected variant array and variant paths array to be of same length"
                     );
                 }
 
@@ -196,7 +193,7 @@ impl ScalarUDFImpl for VariantGetUdf {
             }
             (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(variant_paths)) => {
                 let ScalarValue::Struct(variant_array) = scalar_variant else {
-                    return exec_err!("expected struct array");
+                    return type_err("Struct", &scalar_variant.data_type());
                 };
 
                 let variant_array = Arc::clone(variant_array) as ArrayRef;
