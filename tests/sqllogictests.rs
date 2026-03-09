@@ -2,9 +2,9 @@ use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
     CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantGetFieldUdf, VariantGetStrUdf,
-    VariantGetUdf,
-    VariantListConstruct, VariantListDelete, VariantListInsert, VariantObjectConstruct,
-    VariantObjectDelete, VariantObjectInsert, VariantObjectKeys, VariantPretty, VariantToJsonUdf,
+    VariantGetUdf, VariantListConstruct, VariantListDelete, VariantListInsert,
+    VariantObjectConstruct, VariantObjectDelete, VariantObjectInsert, VariantObjectKeys,
+    VariantPretty, VariantToJsonUdf,
 };
 use indicatif::ProgressBar;
 use sqllogictest::strict_column_validator;
