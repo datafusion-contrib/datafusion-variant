@@ -316,38 +316,17 @@ impl ScalarUDFImpl for VariantGetFieldUdf {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::shared::{
+        standard_variant_get_arg_fields, variant_array_from_json_rows, variant_scalar_from_json,
+    };
     use arrow::array::{Array, BinaryViewArray, Int64Array};
-    use arrow_schema::{Field, Fields};
+    use arrow_schema::Field;
     use datafusion::logical_expr::{ReturnFieldArgs, ScalarFunctionArgs};
     use parquet_variant::Variant;
-    use parquet_variant_compute::{VariantArrayBuilder, VariantType};
-    use parquet_variant_json::JsonToVariant;
-
-    use super::*;
-
-    fn variant_scalar_from_json(json: serde_json::Value) -> ScalarValue {
-        let mut builder = VariantArrayBuilder::new(1);
-        builder.append_json(json.to_string().as_str()).unwrap();
-        ScalarValue::Struct(Arc::new(builder.build().into()))
-    }
-
-    fn variant_array_from_json_rows(json_rows: &[serde_json::Value]) -> ArrayRef {
-        let mut builder = VariantArrayBuilder::new(json_rows.len());
-        for value in json_rows {
-            builder.append_json(value.to_string().as_str()).unwrap();
-        }
-        let variant_array: StructArray = builder.build().into();
-        Arc::new(variant_array) as ArrayRef
-    }
 
     fn standard_arg_fields(with_type_hint: bool) -> Vec<FieldRef> {
-        let mut fields = vec![
-            Arc::new(
-                Field::new("input", DataType::Struct(Fields::empty()), true)
-                    .with_extension_type(VariantType),
-            ),
-            Arc::new(Field::new("path", DataType::Utf8, true)),
-        ];
+        let mut fields = standard_variant_get_arg_fields();
         if with_type_hint {
             fields.push(Arc::new(Field::new("type", DataType::Utf8, true)));
         }
