@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
-use arrow::array::{Array, cast::AsArray};
+#[cfg(test)]
+use arrow::array::StructArray;
+use arrow::array::{Array, ArrayRef, cast::AsArray};
+#[cfg(test)]
+use arrow_schema::Fields;
 use arrow_schema::extension::ExtensionType;
 use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
 use datafusion::error::Result;
+use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs};
 use datafusion::{common::exec_err, scalar::ScalarValue};
+use parquet_variant::{Variant, VariantPath};
 use parquet_variant_compute::{VariantArray, VariantType};
 
 #[cfg(test)]
@@ -118,6 +124,129 @@ pub fn try_parse_string_columnar(array: &Arc<dyn Array>) -> Result<Vec<Option<&s
     Err(exec_datafusion_err!("expected string array"))
 }
 
+pub fn variant_get_single_value<T>(
+    variant_array: &VariantArray,
+    index: usize,
+    path: &str,
+    extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
+) -> Result<Option<T>> {
+    let Some(variant) = variant_array.iter().nth(index).flatten() else {
+        return Ok(None);
+    };
+
+    let variant_path = VariantPath::from(path);
+    let Some(value) = variant.get_path(&variant_path) else {
+        return Ok(None);
+    };
+
+    extract(value)
+}
+
+pub fn variant_get_array_values<T>(
+    variant_array: &VariantArray,
+    path: &str,
+    extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
+) -> Result<Vec<Option<T>>> {
+    let variant_path = VariantPath::from(path);
+
+    variant_array
+        .iter()
+        .map(|maybe_variant| {
+            let Some(variant) = maybe_variant else {
+                return Ok(None);
+            };
+
+            let Some(value) = variant.get_path(&variant_path) else {
+                return Ok(None);
+            };
+
+            extract(value)
+        })
+        .collect()
+}
+
+pub fn invoke_variant_get_typed<T>(
+    args: ScalarFunctionArgs,
+    scalar_from_option: fn(Option<T>) -> ScalarValue,
+    array_from_values: fn(Vec<Option<T>>) -> ArrayRef,
+    extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
+) -> Result<ColumnarValue> {
+    let (variant_arg, path_arg) = match args.args.as_slice() {
+        [variant_arg, path_arg] => (variant_arg, path_arg),
+        _ => return exec_err!("expected 2 arguments"),
+    };
+
+    let variant_field = args
+        .arg_fields
+        .first()
+        .ok_or_else(|| exec_datafusion_err!("expected argument field"))?;
+
+    try_field_as_variant_array(variant_field.as_ref())?;
+
+    let out = match (variant_arg, path_arg) {
+        (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(path_scalar)) => {
+            let path = try_parse_string_scalar(path_scalar)?
+                .map(|s| s.as_str())
+                .unwrap_or_default();
+
+            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
+            let values = variant_get_array_values(&variant_array, path, extract)?;
+            ColumnarValue::Array(array_from_values(values))
+        }
+        (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(path_scalar)) => {
+            let ScalarValue::Struct(variant_array) = scalar_variant else {
+                return exec_err!("expected struct array");
+            };
+
+            let path = try_parse_string_scalar(path_scalar)?
+                .map(|s| s.as_str())
+                .unwrap_or_default();
+
+            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
+            let value = variant_get_single_value(&variant_array, 0, path, extract)?;
+
+            ColumnarValue::Scalar(scalar_from_option(value))
+        }
+        (ColumnarValue::Array(variant_array), ColumnarValue::Array(paths)) => {
+            if variant_array.len() != paths.len() {
+                return exec_err!("expected variant array and paths to be of same length");
+            }
+
+            let paths = try_parse_string_columnar(paths)?;
+            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
+
+            let values: Vec<Option<T>> = (0..variant_array.len())
+                .map(|i| {
+                    let path = paths[i].unwrap_or_default();
+                    variant_get_single_value(&variant_array, i, path, extract)
+                })
+                .collect::<Result<_>>()?;
+
+            ColumnarValue::Array(array_from_values(values))
+        }
+        (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(paths)) => {
+            let ScalarValue::Struct(variant_array) = scalar_variant else {
+                return exec_err!("expected struct array");
+            };
+
+            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
+            let paths = try_parse_string_columnar(paths)?;
+
+            let values: Vec<Option<T>> = paths
+                .iter()
+                .map(|path| {
+                    let path = path.unwrap_or_default();
+                    variant_get_single_value(&variant_array, 0, path, extract)
+                })
+                .collect::<Result<_>>()?;
+
+            ColumnarValue::Array(array_from_values(values))
+        }
+    };
+
+    Ok(out)
+}
+
 /// This is similar to anyhow's ensure! macro
 /// If the `pred` fails, it will return a DataFusionError
 pub fn ensure(pred: bool, err_msg: &str) -> Result<()> {
@@ -137,6 +266,50 @@ pub fn build_variant_array_from_json(value: &serde_json::Value) -> VariantArray 
     builder.append_json(json_str.as_str()).unwrap();
 
     builder.build()
+}
+
+#[cfg(test)]
+pub fn variant_scalar_from_json(json: serde_json::Value) -> ScalarValue {
+    let mut builder = VariantArrayBuilder::new(1);
+    builder.append_json(json.to_string().as_str()).unwrap();
+    ScalarValue::Struct(Arc::new(builder.build().into()))
+}
+
+#[cfg(test)]
+pub fn variant_array_from_json_rows(json_rows: &[serde_json::Value]) -> ArrayRef {
+    let mut builder = VariantArrayBuilder::new(json_rows.len());
+    for value in json_rows {
+        builder.append_json(value.to_string().as_str()).unwrap();
+    }
+    let variant_array: StructArray = builder.build().into();
+    Arc::new(variant_array) as ArrayRef
+}
+
+#[cfg(test)]
+pub fn standard_variant_get_arg_fields() -> Vec<Arc<Field>> {
+    vec![
+        Arc::new(
+            Field::new("input", DataType::Struct(Fields::empty()), true)
+                .with_extension_type(VariantType),
+        ),
+        Arc::new(Field::new("path", DataType::Utf8, true)),
+    ]
+}
+
+#[cfg(test)]
+pub fn build_variant_get_args(
+    variant_input: ColumnarValue,
+    path: ColumnarValue,
+    return_data_type: DataType,
+    arg_fields: Vec<Arc<Field>>,
+) -> ScalarFunctionArgs {
+    ScalarFunctionArgs {
+        args: vec![variant_input, path],
+        return_field: Arc::new(Field::new("result", return_data_type, true)),
+        arg_fields,
+        number_rows: Default::default(),
+        config_options: Default::default(),
+    }
 }
 
 #[cfg(test)]
