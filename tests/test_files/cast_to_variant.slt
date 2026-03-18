@@ -2,20 +2,28 @@
 # this function takes a Variant Scalar or Array and converts it into a respective Variant value
 # you can also use metadata and value to create a Variant
 
-# one-arg path (from_array)
-# test_array_int32
+# one-arg path (from_array): primitive coverage
 statement ok
 CREATE TABLE cast_int_data (id INT, i INT) AS VALUES
   (1, 1),
   (2, NULL),
   (3, -5);
 
-query IT
-SELECT id, variant_pretty(cast_to_variant(i)) FROM cast_int_data ORDER BY id;
+query ITTTTTT
+SELECT
+  id,
+  variant_pretty(cast_to_variant(i)),
+  variant_pretty(cast_to_variant(arrow_cast(i, 'Int8'))),
+  variant_pretty(cast_to_variant(arrow_cast(i, 'Int16'))),
+  variant_pretty(cast_to_variant(arrow_cast(i, 'Int64'))),
+  variant_pretty(cast_to_variant(arrow_cast(i, 'Float32'))),
+  variant_pretty(cast_to_variant(arrow_cast(i, 'Float64')))
+FROM cast_int_data
+ORDER BY id;
 ----
-1 Int32(1)
-2 NULL
-3 Int32(-5)
+1 Int32(1) Int8(1) Int16(1) Int64(1) Float(1.0) Double(1.0)
+2 NULL NULL NULL NULL NULL NULL
+3 Int32(-5) Int8(-5) Int16(-5) Int64(-5) Float(-5.0) Double(-5.0)
 
 # one-arg path (from_array): string family with nulls
 statement ok
