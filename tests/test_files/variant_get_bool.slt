@@ -1,0 +1,80 @@
+statement ok
+CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
+  (1, '{"name": "Alice", "active": true}'),
+  (2, '{"name": "Bob", "active": false}'),
+  (3, '{"items": [1, 2, 3], "count": 3}'),
+  (4, 'null'),
+  (5, '"simple string"'),
+  (6, '123'),
+  (7, 'true'),
+  (8, '{"deleted": false, "verified": true}');
+
+# Boolean true and false are returned as Boolean
+query B
+select variant_get_bool(json_to_variant(json_str), 'active') from json_data;
+----
+true
+false
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+# Missing paths return NULL
+query B
+select variant_get_bool(json_to_variant(json_str), 'nonexistent') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+# Non-boolean values return NULL (strings, integers, arrays, objects)
+query B
+select variant_get_bool(json_to_variant(json_str), 'name') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+# Nested boolean path using dot notation
+query B
+select variant_get_bool(json_to_variant('{"user": {"active": true}}'), 'user.active');
+----
+true
+
+# Multiple boolean fields in same object
+query B
+select variant_get_bool(json_to_variant(json_str), 'deleted') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+false
+
+query B
+select variant_get_bool(json_to_variant(json_str), 'verified') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+true
