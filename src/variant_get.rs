@@ -296,6 +296,25 @@ impl_variant_get_typed!(
     |value: Variant<'_, '_>| -> Result<Option<bool>> { Ok(value.as_boolean()) },
 );
 
+impl_variant_get_typed!(
+    /// Extracts a value from a Variant by path and returns it as a JSON string.
+    ///
+    /// `variant_get_json(variant, path)` returns the value at `path` as a JSON string.
+    /// - All values are JSON-serialized (strings include quotes, unlike `variant_get_str`)
+    /// - Returns NULL if the path does not exist
+    VariantGetJsonUdf,
+    "variant_get_json",
+    DataType::Utf8View,
+    ScalarValue::Utf8View,
+    |values: Vec<Option<String>>| -> ArrayRef {
+        let out: StringViewArray = values.into_iter().collect();
+        Arc::new(out)
+    },
+    |value: Variant<'_, '_>| -> Result<Option<String>> {
+        Ok(Some(value.to_json_string()?))
+    },
+);
+
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
