@@ -1,0 +1,98 @@
+statement ok
+CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
+  (1, '{"name": "Alice", "age": 30}'),
+  (2, '{"name": "Bob", "age": 25}'),
+  (3, '{"items": [1, 2, 3], "count": 3}'),
+  (4, 'null'),
+  (5, '"simple string"'),
+  (6, '123'),
+  (7, 'true'),
+  (8, '{"active": true, "deleted": false}');
+
+# boolean values are returned as boolean
+query B
+select variant_get_bool(json_to_variant(json_str), 'active') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+true
+
+# missing paths return null
+query B
+select variant_get_bool(json_to_variant(json_str), 'nonexistent') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+# non-boolean values return null (string field)
+query B
+select variant_get_bool(json_to_variant(json_str), 'name') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+# non-boolean values return null (integer field)
+query B
+select variant_get_bool(json_to_variant(json_str), 'age') from json_data;
+----
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+# scalar variant with true value
+query B
+select variant_get_bool(json_to_variant('{"flag": true}'), 'flag');
+----
+true
+
+# scalar variant with false value
+query B
+select variant_get_bool(json_to_variant('{"flag": false}'), 'flag');
+----
+false
+
+# scalar variant with string value returns null
+query B
+select variant_get_bool(json_to_variant('{"greeting": "hello world"}'), 'greeting');
+----
+NULL
+
+# scalar variant with numeric value returns null
+query B
+select variant_get_bool(json_to_variant('{"count": 42}'), 'count');
+----
+NULL
+
+# nested boolean path
+query B
+select variant_get_bool(json_to_variant('{"obj": {"a": true}}'), 'obj.a');
+----
+true
+
+# boolean false via nested path
+query B
+select variant_get_bool(json_to_variant('{"obj": {"a": false}}'), 'obj.a');
+----
+false
