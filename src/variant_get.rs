@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, Float64Array, Int64Array, StringViewArray, StructArray},
+    array::{
+        Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray, StructArray,
+    },
     compute::concat,
 };
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
@@ -277,6 +279,23 @@ impl_variant_get_typed!(
     },
 );
 
+impl_variant_get_typed!(
+    /// Extracts a boolean value from a Variant by path.
+    ///
+    /// `variant_get_bool(variant, path)` returns the value at `path` as a `BOOLEAN`.
+    /// - Boolean values are returned as-is
+    /// - Non-boolean values return NULL
+    /// - Returns NULL if the path does not exist
+    VariantGetBoolUdf,
+    "variant_get_bool",
+    DataType::Boolean,
+    ScalarValue::Boolean,
+    |values: Vec<Option<bool>>| -> ArrayRef {
+        Arc::new(values.into_iter().collect::<BooleanArray>())
+    },
+    |value: Variant<'_, '_>| -> Result<Option<bool>> { Ok(value.as_boolean()) },
+);
+
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
@@ -388,7 +407,7 @@ mod tests {
         build_variant_get_args, standard_variant_get_arg_fields, variant_array_from_json_rows,
         variant_scalar_from_json,
     };
-    use arrow::array::{Array, BinaryViewArray, Int64Array};
+    use arrow::array::{Array, BinaryViewArray, BooleanArray, Int64Array};
     use arrow_schema::Field;
     use datafusion::logical_expr::{ReturnFieldArgs, ScalarFunctionArgs};
     use parquet_variant::Variant;
@@ -1296,5 +1315,209 @@ mod tests {
         assert_eq!(float_arr.value(1), 3.0);
         assert!(float_arr.is_null(2));
         assert!(float_arr.is_null(3));
+    }
+
+    #[test]
+    fn test_bool_scalar_bool_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "active": true
+        }));
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("active".to_string()))),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Boolean(Some(v))) = result else {
+            panic!("expected Boolean scalar");
+        };
+
+        assert!(v);
+    }
+
+    #[test]
+    fn test_bool_scalar_false_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "active": false
+        }));
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("active".to_string()))),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Boolean(Some(v))) = result else {
+            panic!("expected Boolean scalar");
+        };
+
+        assert!(!v);
+    }
+
+    #[test]
+    fn test_bool_scalar_non_bool_value_returns_null() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50
+        }));
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("name".to_string()))),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Boolean(None)) = result else {
+            panic!("expected NULL Boolean scalar");
+        };
+    }
+
+    #[test]
+    fn test_bool_scalar_int_value_returns_null() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "count": 1
+        }));
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("count".to_string()))),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Boolean(None)) = result else {
+            panic!("expected NULL Boolean scalar");
+        };
+    }
+
+    #[test]
+    fn test_bool_scalar_missing_path() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({"name": "norm"}));
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("missing".to_string()))),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Boolean(None)) = result else {
+            panic!("expected NULL Boolean scalar");
+        };
+    }
+
+    #[test]
+    fn test_bool_array_variant_scalar_path() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "active": true}),
+            serde_json::json!({"name": "bob", "active": false}),
+            serde_json::json!({"name": "charlie"}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("active".to_string()))),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let bool_arr = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
+        assert_eq!(bool_arr.len(), 3);
+        assert!(bool_arr.value(0));
+        assert!(!bool_arr.value(1));
+        assert!(bool_arr.is_null(2));
+    }
+
+    #[test]
+    fn test_bool_array_variant_array_paths() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "active": true}),
+            serde_json::json!({"name": "bob", "active": false}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+        let path_array: ArrayRef = Arc::new(StringViewArray::from(vec!["active", "name"]));
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Array(path_array),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let bool_arr = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
+        assert_eq!(bool_arr.len(), 2);
+        assert!(bool_arr.value(0));
+        assert!(bool_arr.is_null(1));
+    }
+
+    #[test]
+    fn test_bool_scalar_variant_array_paths() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "alice",
+            "active": true,
+            "count": 3
+        }));
+
+        let path_array: ArrayRef = Arc::new(StringViewArray::from(vec![
+            "active", "count", "name", "missing",
+        ]));
+
+        let udf = VariantGetBoolUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Array(path_array),
+            DataType::Boolean,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let bool_arr = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
+        assert_eq!(bool_arr.len(), 4);
+        assert!(bool_arr.value(0));
+        assert!(bool_arr.is_null(1));
+        assert!(bool_arr.is_null(2));
+        assert!(bool_arr.is_null(3));
     }
 }
