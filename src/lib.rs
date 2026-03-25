@@ -3,12 +3,10 @@
 mod shared;
 
 mod cast_to_variant;
+mod impl_variant_get;
 mod is_variant_null;
 mod json_to_variant;
 mod variant_get;
-mod variant_get_float;
-mod variant_get_int;
-mod variant_get_str;
 mod variant_list_construct;
 mod variant_list_delete;
 mod variant_list_insert;
@@ -23,9 +21,6 @@ pub use cast_to_variant::*;
 pub use is_variant_null::*;
 pub use json_to_variant::*;
 pub use variant_get::*;
-pub use variant_get_float::*;
-pub use variant_get_int::*;
-pub use variant_get_str::*;
 pub use variant_list_construct::*;
 pub use variant_list_delete::*;
 pub use variant_list_insert::*;

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, StructArray},
+    array::{Array, ArrayRef, Float64Array, Int64Array, StringViewArray, StructArray},
     compute::concat,
 };
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
@@ -9,15 +9,19 @@ use datafusion::{
     common::{arrow_datafusion_err, exec_datafusion_err, exec_err},
     error::{DataFusionError, Result},
     logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
+        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature,
+        TypeSignature, Volatility,
     },
     scalar::ScalarValue,
 };
-use parquet_variant::{VariantPath, VariantPathElement};
+use parquet_variant::{Variant, VariantPath, VariantPathElement};
 use parquet_variant_compute::{GetOptions, VariantArray, VariantType, variant_get};
+use parquet_variant_json::VariantToJson;
 
+use crate::impl_variant_get::impl_variant_get_typed;
 use crate::shared::{
-    try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
+    invoke_variant_get_typed, try_field_as_variant_array, try_parse_string_columnar,
+    try_parse_string_scalar,
 };
 
 fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
@@ -210,6 +214,69 @@ fn return_field_for_variant_get(name: &str, args: ReturnFieldArgs) -> Result<Arc
     ))
 }
 
+impl_variant_get_typed!(
+    /// Extracts a string value from a Variant by path.
+    ///
+    /// `variant_get_str(variant, path)` returns the value at `path` as a UTF8 string.
+    /// - String values are returned as-is (no JSON quotes)
+    /// - Non-string values (numbers, booleans, objects, arrays) are JSON-serialized
+    /// - Returns NULL if the path does not exist
+    VariantGetStrUdf,
+    "variant_get_str",
+    DataType::Utf8View,
+    ScalarValue::Utf8View,
+    |values: Vec<Option<String>>| -> ArrayRef {
+        let out: StringViewArray = values.into_iter().collect();
+        Arc::new(out)
+    },
+    |value: Variant<'_, '_>| -> Result<Option<String>> {
+        if let Some(s) = value.as_string() {
+            Ok(Some(s.to_string()))
+        } else {
+            Ok(Some(value.to_json_string()?))
+        }
+    },
+);
+
+impl_variant_get_typed!(
+    /// Extracts an integer value from a Variant by path.
+    ///
+    /// `variant_get_int(variant, path)` returns the value at `path` as an `INT64`.
+    /// - Integer values are returned as-is (with widening when needed)
+    /// - Non-integer values return NULL
+    /// - Returns NULL if the path does not exist
+    VariantGetIntUdf,
+    "variant_get_int",
+    DataType::Int64,
+    ScalarValue::Int64,
+    |values: Vec<Option<i64>>| -> ArrayRef {
+        Arc::new(values.into_iter().collect::<Int64Array>())
+    },
+    |value: Variant<'_, '_>| -> Result<Option<i64>> { Ok(value.as_int64()) },
+);
+
+impl_variant_get_typed!(
+    /// Extracts a floating-point value from a Variant by path.
+    ///
+    /// `variant_get_float(variant, path)` returns the value at `path` as a `FLOAT64`.
+    /// - Float values are returned as-is
+    /// - Integer values are returned as `FLOAT64` (large values may lose precision)
+    /// - Non-numeric values return NULL
+    /// - Returns NULL if the path does not exist
+    VariantGetFloatUdf,
+    "variant_get_float",
+    DataType::Float64,
+    ScalarValue::Float64,
+    |values: Vec<Option<f64>>| -> ArrayRef {
+        Arc::new(values.into_iter().collect::<Float64Array>())
+    },
+    |value: Variant<'_, '_>| -> Result<Option<f64>> {
+        Ok(value
+            .as_f64()
+            .or_else(|| value.as_int64().map(|i| i as f64)))
+    },
+);
+
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
@@ -318,7 +385,8 @@ impl ScalarUDFImpl for VariantGetFieldUdf {
 mod tests {
     use super::*;
     use crate::shared::{
-        standard_variant_get_arg_fields, variant_array_from_json_rows, variant_scalar_from_json,
+        build_variant_get_args, standard_variant_get_arg_fields, variant_array_from_json_rows,
+        variant_scalar_from_json,
     };
     use arrow::array::{Array, BinaryViewArray, Int64Array};
     use arrow_schema::Field;
@@ -625,5 +693,608 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert_eq!(values.value(0), 200);
         assert_eq!(values.value(1), 201);
+    }
+
+    #[test]
+    fn test_str_scalar_string_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50
+        }));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("name".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar");
+        };
+
+        assert_eq!(s, "norm");
+    }
+
+    #[test]
+    fn test_str_scalar_numeric_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50
+        }));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("age".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar");
+        };
+
+        assert_eq!(s, "50");
+    }
+
+    #[test]
+    fn test_str_scalar_missing_path() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({"name": "norm"}));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("missing".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(None)) = result else {
+            panic!("expected NULL Utf8View scalar");
+        };
+    }
+
+    #[test]
+    fn test_str_scalar_nested_object() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "obj": {"a": 1, "b": 2}
+        }));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("obj".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar");
+        };
+
+        let json: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert_eq!(json, serde_json::json!({"a": 1, "b": 2}));
+    }
+
+    #[test]
+    fn test_str_scalar_boolean_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({"flag": true}));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("flag".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar");
+        };
+
+        assert_eq!(s, "true");
+    }
+
+    #[test]
+    fn test_str_scalar_null_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({"key": null}));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("key".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar");
+        };
+
+        assert_eq!(s, "null");
+    }
+
+    #[test]
+    fn test_str_array_variant_scalar_path() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "age": 30}),
+            serde_json::json!({"name": "bob", "age": 40}),
+            serde_json::json!({"age": 50}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("name".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let str_arr = arr.as_any().downcast_ref::<StringViewArray>().unwrap();
+        assert_eq!(str_arr.len(), 3);
+        assert_eq!(str_arr.value(0), "alice");
+        assert_eq!(str_arr.value(1), "bob");
+        assert!(str_arr.is_null(2));
+    }
+
+    #[test]
+    fn test_str_array_variant_array_paths() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "age": 30}),
+            serde_json::json!({"name": "bob", "age": 40}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+        let path_array: ArrayRef = Arc::new(StringViewArray::from(vec!["name", "age"]));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Array(path_array),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let str_arr = arr.as_any().downcast_ref::<StringViewArray>().unwrap();
+        assert_eq!(str_arr.len(), 2);
+        assert_eq!(str_arr.value(0), "alice");
+        assert_eq!(str_arr.value(1), "40");
+    }
+
+    #[test]
+    fn test_str_array_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "list": [1, 2, 3]
+        }));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("list".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar");
+        };
+
+        let json: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert_eq!(json, serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn test_int_scalar_integer_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50
+        }));
+
+        let udf = VariantGetIntUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("age".to_string()))),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(Some(v))) = result else {
+            panic!("expected Int64 scalar");
+        };
+
+        assert_eq!(v, 50);
+    }
+
+    #[test]
+    fn test_int_scalar_non_integer_value_returns_null() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50.5
+        }));
+
+        let udf = VariantGetIntUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("name".to_string()))),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(None)) = result else {
+            panic!("expected NULL Int64 scalar");
+        };
+    }
+
+    #[test]
+    fn test_int_scalar_float_value_returns_null() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "price": 10.5
+        }));
+
+        let udf = VariantGetIntUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("price".to_string()))),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(None)) = result else {
+            panic!("expected NULL Int64 scalar");
+        };
+    }
+
+    #[test]
+    fn test_int_scalar_missing_path() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({"name": "norm"}));
+
+        let udf = VariantGetIntUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("missing".to_string()))),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(None)) = result else {
+            panic!("expected NULL Int64 scalar");
+        };
+    }
+
+    #[test]
+    fn test_int_array_variant_scalar_path() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "age": 30}),
+            serde_json::json!({"name": "bob", "age": 40}),
+            serde_json::json!({"name": "charlie"}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+
+        let udf = VariantGetIntUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("age".to_string()))),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let int_arr = arr.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(int_arr.len(), 3);
+        assert_eq!(int_arr.value(0), 30);
+        assert_eq!(int_arr.value(1), 40);
+        assert!(int_arr.is_null(2));
+    }
+
+    #[test]
+    fn test_int_array_variant_array_paths() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "age": 30}),
+            serde_json::json!({"name": "bob", "age": 40}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+        let path_array: ArrayRef = Arc::new(StringViewArray::from(vec!["age", "name"]));
+
+        let udf = VariantGetIntUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Array(path_array),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let int_arr = arr.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(int_arr.len(), 2);
+        assert_eq!(int_arr.value(0), 30);
+        assert!(int_arr.is_null(1));
+    }
+
+    #[test]
+    fn test_int_scalar_variant_array_paths() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "alice",
+            "age": 30
+        }));
+
+        let path_array: ArrayRef = Arc::new(StringViewArray::from(vec!["age", "name", "missing"]));
+
+        let udf = VariantGetIntUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Array(path_array),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let int_arr = arr.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(int_arr.len(), 3);
+        assert_eq!(int_arr.value(0), 30);
+        assert!(int_arr.is_null(1));
+        assert!(int_arr.is_null(2));
+    }
+
+    #[test]
+    fn test_float_scalar_float_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "price": 50.5
+        }));
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("price".to_string()))),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Float64(Some(v))) = result else {
+            panic!("expected Float64 scalar");
+        };
+
+        assert_eq!(v, 50.5);
+    }
+
+    #[test]
+    fn test_float_scalar_integer_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50
+        }));
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("age".to_string()))),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Float64(Some(v))) = result else {
+            panic!("expected Float64 scalar");
+        };
+
+        assert_eq!(v, 50.0);
+    }
+
+    #[test]
+    fn test_float_scalar_large_integer_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "n": 9007199254740993_i64
+        }));
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("n".to_string()))),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Float64(Some(v))) = result else {
+            panic!("expected Float64 scalar");
+        };
+
+        // `f64` cannot exactly represent all i64 values; this mirrors json_get_float behavior.
+        assert_eq!(v, 9_007_199_254_740_992.0);
+    }
+
+    #[test]
+    fn test_float_scalar_non_numeric_value_returns_null() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "norm",
+            "age": 50.5
+        }));
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("name".to_string()))),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Float64(None)) = result else {
+            panic!("expected NULL Float64 scalar");
+        };
+    }
+
+    #[test]
+    fn test_float_scalar_missing_path() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({"name": "norm"}));
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("missing".to_string()))),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Float64(None)) = result else {
+            panic!("expected NULL Float64 scalar");
+        };
+    }
+
+    #[test]
+    fn test_float_array_variant_scalar_path() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "price": 30.25}),
+            serde_json::json!({"name": "bob", "price": 40}),
+            serde_json::json!({"name": "charlie"}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("price".to_string()))),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let float_arr = arr.as_any().downcast_ref::<Float64Array>().unwrap();
+        assert_eq!(float_arr.len(), 3);
+        assert_eq!(float_arr.value(0), 30.25);
+        assert_eq!(float_arr.value(1), 40.0);
+        assert!(float_arr.is_null(2));
+    }
+
+    #[test]
+    fn test_float_array_variant_array_paths() {
+        let json_rows = vec![
+            serde_json::json!({"name": "alice", "price": 30.25}),
+            serde_json::json!({"name": "bob", "price": 40}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+        let path_array: ArrayRef = Arc::new(StringViewArray::from(vec!["price", "name"]));
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Array(path_array),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let float_arr = arr.as_any().downcast_ref::<Float64Array>().unwrap();
+        assert_eq!(float_arr.len(), 2);
+        assert_eq!(float_arr.value(0), 30.25);
+        assert!(float_arr.is_null(1));
+    }
+
+    #[test]
+    fn test_float_scalar_variant_array_paths() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "name": "alice",
+            "price": 30.25,
+            "count": 3
+        }));
+
+        let path_array: ArrayRef = Arc::new(StringViewArray::from(vec![
+            "price", "count", "name", "missing",
+        ]));
+
+        let udf = VariantGetFloatUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Array(path_array),
+            DataType::Float64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+
+        let float_arr = arr.as_any().downcast_ref::<Float64Array>().unwrap();
+        assert_eq!(float_arr.len(), 4);
+        assert_eq!(float_arr.value(0), 30.25);
+        assert_eq!(float_arr.value(1), 3.0);
+        assert!(float_arr.is_null(2));
+        assert!(float_arr.is_null(3));
     }
 }
