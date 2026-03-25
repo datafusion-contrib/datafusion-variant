@@ -160,7 +160,7 @@ mod tests {
         );
         let return_field = udf
             .return_field_from_args(ReturnFieldArgs {
-                arg_fields: &[arg_field.clone()],
+                arg_fields: std::slice::from_ref(&arg_field),
                 scalar_arguments: &[],
             })
             .unwrap();
@@ -195,7 +195,7 @@ mod tests {
         );
         let return_field = udf
             .return_field_from_args(ReturnFieldArgs {
-                arg_fields: &[arg_field.clone()],
+                arg_fields: std::slice::from_ref(&arg_field),
                 scalar_arguments: &[],
             })
             .unwrap();
@@ -377,7 +377,7 @@ mod tests {
         );
         let return_field = udf
             .return_field_from_args(ReturnFieldArgs {
-                arg_fields: &[arg_field.clone()],
+                arg_fields: std::slice::from_ref(&arg_field),
                 scalar_arguments: &[],
             })
             .unwrap();
@@ -448,7 +448,7 @@ mod tests {
         );
         let return_field = udf
             .return_field_from_args(ReturnFieldArgs {
-                arg_fields: &[arg_field.clone()],
+                arg_fields: std::slice::from_ref(&arg_field),
                 scalar_arguments: &[],
             })
             .unwrap();

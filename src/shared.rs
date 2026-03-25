@@ -317,7 +317,7 @@ pub fn build_variant_get_args(
 pub fn build_variant_array_from_json_array(jsons: &[Option<serde_json::Value>]) -> VariantArray {
     let mut builder = VariantArrayBuilder::new(jsons.len());
 
-    jsons.into_iter().for_each(|v| match v.as_ref() {
+    jsons.iter().for_each(|v| match v.as_ref() {
         Some(json) => builder.append_json(json.to_string().as_str()).unwrap(),
         None => builder.append_null(),
     });
