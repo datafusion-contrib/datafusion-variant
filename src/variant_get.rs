@@ -76,9 +76,9 @@ enum PathMode {
 }
 
 impl PathMode {
-    fn build_path<'a>(&self, path: &'a str) -> Result<VariantPath<'a>> {
+    fn try_build_path<'a>(&self, path: &'a str) -> Result<VariantPath<'a>> {
         match self {
-            PathMode::DotNotation => Ok(VariantPath::try_from(path)?),
+            PathMode::DotNotation => VariantPath::try_from(path).map_err(Into::into),
             PathMode::SingleField => Ok(VariantPath::new(vec![VariantPathElement::field(path)])),
         }
     }
@@ -89,7 +89,7 @@ impl PathMode {
 /// - `variant_get` uses [`PathMode::DotNotation`]`
 /// - `variant_get_field` uses [`PathMode::SingleField`] (no splitting)
 fn invoke_variant_get(
-    args: datafusion::logical_expr::ScalarFunctionArgs,
+    args: ScalarFunctionArgs,
     udf_name: &str,
     path_mode: PathMode,
 ) -> Result<ColumnarValue> {
@@ -118,7 +118,7 @@ fn invoke_variant_get(
 
             let res = variant_get(
                 variant_array,
-                build_get_options(path_mode.build_path(variant_path)?, &type_field),
+                build_get_options(path_mode.try_build_path(variant_path)?, &type_field),
             )?;
 
             ColumnarValue::Array(res)
@@ -136,7 +136,7 @@ fn invoke_variant_get(
 
             let res = variant_get(
                 &variant_array,
-                build_get_options(path_mode.build_path(variant_path)?, &type_field),
+                build_get_options(path_mode.try_build_path(variant_path)?, &type_field),
             )?;
 
             let scalar = ScalarValue::try_from_array(res.as_ref(), 0)?;
@@ -161,7 +161,10 @@ fn invoke_variant_get(
 
                 let res = variant_get(
                     &arr,
-                    build_get_options(path_mode.build_path(path.unwrap_or_default())?, &type_field),
+                    build_get_options(
+                        path_mode.try_build_path(path.unwrap_or_default())?,
+                        &type_field,
+                    ),
                 )?;
 
                 out.push(res);
@@ -184,7 +187,7 @@ fn invoke_variant_get(
                 let path = path.unwrap_or_default();
                 let res = variant_get(
                     &variant_array,
-                    build_get_options(path_mode.build_path(path)?, &type_field),
+                    build_get_options(path_mode.try_build_path(path)?, &type_field),
                 )?;
 
                 out.push(res);
