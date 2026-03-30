@@ -76,10 +76,10 @@ enum PathMode {
 }
 
 impl PathMode {
-    fn build_path<'a>(&self, path: &'a str) -> VariantPath<'a> {
+    fn build_path<'a>(&self, path: &'a str) -> Result<VariantPath<'a>> {
         match self {
-            PathMode::DotNotation => VariantPath::from(path),
-            PathMode::SingleField => VariantPath::new(vec![VariantPathElement::field(path)]),
+            PathMode::DotNotation => Ok(VariantPath::try_from(path)?),
+            PathMode::SingleField => Ok(VariantPath::new(vec![VariantPathElement::field(path)])),
         }
     }
 }
@@ -118,7 +118,7 @@ fn invoke_variant_get(
 
             let res = variant_get(
                 variant_array,
-                build_get_options(path_mode.build_path(variant_path), &type_field),
+                build_get_options(path_mode.build_path(variant_path)?, &type_field),
             )?;
 
             ColumnarValue::Array(res)
@@ -136,7 +136,7 @@ fn invoke_variant_get(
 
             let res = variant_get(
                 &variant_array,
-                build_get_options(path_mode.build_path(variant_path), &type_field),
+                build_get_options(path_mode.build_path(variant_path)?, &type_field),
             )?;
 
             let scalar = ScalarValue::try_from_array(res.as_ref(), 0)?;
@@ -161,7 +161,7 @@ fn invoke_variant_get(
 
                 let res = variant_get(
                     &arr,
-                    build_get_options(path_mode.build_path(path.unwrap_or_default()), &type_field),
+                    build_get_options(path_mode.build_path(path.unwrap_or_default())?, &type_field),
                 )?;
 
                 out.push(res);
@@ -184,7 +184,7 @@ fn invoke_variant_get(
                 let path = path.unwrap_or_default();
                 let res = variant_get(
                     &variant_array,
-                    build_get_options(path_mode.build_path(path), &type_field),
+                    build_get_options(path_mode.build_path(path)?, &type_field),
                 )?;
 
                 out.push(res);

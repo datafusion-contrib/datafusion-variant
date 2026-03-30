@@ -134,7 +134,7 @@ pub fn variant_get_single_value<T>(
         return Ok(None);
     };
 
-    let variant_path = VariantPath::from(path);
+    let variant_path = VariantPath::try_from(path)?;
     let Some(value) = variant.get_path(&variant_path) else {
         return Ok(None);
     };
@@ -147,7 +147,7 @@ pub fn variant_get_array_values<T>(
     path: &str,
     extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
 ) -> Result<Vec<Option<T>>> {
-    let variant_path = VariantPath::from(path);
+    let variant_path = VariantPath::try_from(path)?;
 
     variant_array
         .iter()
