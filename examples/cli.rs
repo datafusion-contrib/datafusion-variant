@@ -134,7 +134,7 @@ async fn main() -> Result<()> {
     println!("Tip: Press Enter without ';' to continue query on next line\n");
 
     let config = Config::builder().auto_add_history(true).build();
-    let helper = SqlHelper::default();
+    let helper = SqlHelper;
 
     let mut rl = Editor::with_config(config)?;
     rl.set_helper(Some(helper));
