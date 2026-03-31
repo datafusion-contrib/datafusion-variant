@@ -74,7 +74,7 @@ fn build_get_options<'a>(path: VariantPath<'a>, as_type: &Option<FieldRef>) -> G
 
 /// Determines how a string path is converted to a [`VariantPath`].
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-enum PathMode {
+pub enum PathMode {
     /// Splits the path on `.` for dot-notation traversal (e.g., `"a.b.c"` → `["a", "b", "c"]`).
     DotNotation,
     /// Treats the entire path string as a single field name (e.g., `"a.b.c"` → `["a.b.c"]`).
@@ -84,7 +84,7 @@ enum PathMode {
 }
 
 impl PathMode {
-    fn try_build_path<'a>(&self, path: &'a str) -> Result<VariantPath<'a>> {
+    pub fn try_build_path<'a>(&self, path: &'a str) -> Result<VariantPath<'a>> {
         match self {
             PathMode::DotNotation => VariantPath::try_from(path).map_err(Into::into),
             PathMode::SingleField => Ok(VariantPath::new(vec![VariantPathElement::field(path)])),
@@ -1555,5 +1555,135 @@ mod tests {
         assert!(bool_arr.is_null(1));
         assert!(bool_arr.is_null(2));
         assert!(bool_arr.is_null(3));
+    }
+
+    #[test]
+    fn test_get_str_with_single_field_mode_dotted_key() {
+        // VariantGetStrUdf with SingleField mode should treat dotted keys as a single field
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "http.response.status_code": 200,
+            "service.name": "my-service"
+        }));
+
+        let udf = VariantGetStrUdf::with_path_mode(PathMode::SingleField);
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some(
+                "http.response.status_code".to_string(),
+            ))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar, got {result:?}");
+        };
+        // Integer 200 should be JSON-serialized to "200"
+        assert_eq!(s, "200");
+    }
+
+    #[test]
+    fn test_get_str_with_single_field_mode_string_value() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "service.name": "my-service"
+        }));
+
+        let udf = VariantGetStrUdf::with_path_mode(PathMode::SingleField);
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("service.name".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar, got {result:?}");
+        };
+        // String values returned as-is (no JSON quotes)
+        assert_eq!(s, "my-service");
+    }
+
+    #[test]
+    fn test_get_str_with_single_field_mode_array() {
+        // Test array input with SingleField mode
+        let json_rows = vec![
+            serde_json::json!({"http.status": 200, "http.method": "GET"}),
+            serde_json::json!({"http.status": 404, "http.method": "POST"}),
+            serde_json::json!({"http.status": 500}),
+        ];
+
+        let variant_array = variant_array_from_json_rows(&json_rows);
+
+        let udf = VariantGetStrUdf::with_path_mode(PathMode::SingleField);
+        let args = build_variant_get_args(
+            ColumnarValue::Array(variant_array),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("http.status".to_string()))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Array(arr) = result else {
+            panic!("expected array output");
+        };
+        let str_arr = arr.as_any().downcast_ref::<StringViewArray>().unwrap();
+        assert_eq!(str_arr.len(), 3);
+        assert_eq!(str_arr.value(0), "200");
+        assert_eq!(str_arr.value(1), "404");
+        assert_eq!(str_arr.value(2), "500");
+    }
+
+    #[test]
+    fn test_get_int_with_single_field_mode() {
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "http.status": 200
+        }));
+
+        let udf = VariantGetIntUdf::with_path_mode(PathMode::SingleField);
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("http.status".to_string()))),
+            DataType::Int64,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Int64(Some(v))) = result else {
+            panic!("expected Int64 scalar, got {result:?}");
+        };
+        assert_eq!(v, 200);
+    }
+
+    #[test]
+    fn test_get_str_dot_notation_splits_dotted_key() {
+        // With default DotNotation mode, dotted keys are split — should return NULL
+        // for a key like "http.response.status_code" that's stored as a single field
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "http.response.status_code": 200
+        }));
+
+        let udf = VariantGetStrUdf::default(); // DotNotation
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some(
+                "http.response.status_code".to_string(),
+            ))),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        // DotNotation splits on dots, tries to traverse http -> response -> status_code
+        // which doesn't exist, so returns NULL
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(None)) = result else {
+            panic!("expected NULL (dot notation splits the key), got {result:?}");
+        };
     }
 }

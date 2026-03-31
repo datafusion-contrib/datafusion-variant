@@ -12,12 +12,24 @@ macro_rules! impl_variant_get_typed {
         #[derive(Debug, Hash, PartialEq, Eq)]
         pub struct $struct_name {
             signature: Signature,
+            path_mode: crate::variant_get::PathMode,
         }
 
         impl Default for $struct_name {
             fn default() -> Self {
                 Self {
                     signature: Signature::new(TypeSignature::Any(2), Volatility::Immutable),
+                    path_mode: crate::variant_get::PathMode::DotNotation,
+                }
+            }
+        }
+
+        impl $struct_name {
+            /// Create a new instance with the specified path mode.
+            pub fn with_path_mode(path_mode: crate::variant_get::PathMode) -> Self {
+                Self {
+                    signature: Signature::new(TypeSignature::Any(2), Volatility::Immutable),
+                    path_mode,
                 }
             }
         }
@@ -40,7 +52,7 @@ macro_rules! impl_variant_get_typed {
             }
 
             fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-                invoke_variant_get_typed(args, $scalar_from, $array_from, $extract)
+                invoke_variant_get_typed(args, $scalar_from, $array_from, $extract, self.path_mode)
             }
         }
     };

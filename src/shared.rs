@@ -11,8 +11,10 @@ use datafusion::common::exec_datafusion_err;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs};
 use datafusion::{common::exec_err, scalar::ScalarValue};
-use parquet_variant::{Variant, VariantPath};
+use parquet_variant::Variant;
 use parquet_variant_compute::{VariantArray, VariantType};
+
+use crate::variant_get::PathMode;
 
 #[cfg(test)]
 use parquet_variant_compute::VariantArrayBuilder;
@@ -128,13 +130,14 @@ pub fn variant_get_single_value<T>(
     variant_array: &VariantArray,
     index: usize,
     path: &str,
+    path_mode: PathMode,
     extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
     let Some(variant) = variant_array.iter().nth(index).flatten() else {
         return Ok(None);
     };
 
-    let variant_path = VariantPath::try_from(path)?;
+    let variant_path = path_mode.try_build_path(path)?;
     let Some(value) = variant.get_path(&variant_path) else {
         return Ok(None);
     };
@@ -145,9 +148,10 @@ pub fn variant_get_single_value<T>(
 pub fn variant_get_array_values<T>(
     variant_array: &VariantArray,
     path: &str,
+    path_mode: PathMode,
     extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
 ) -> Result<Vec<Option<T>>> {
-    let variant_path = VariantPath::try_from(path)?;
+    let variant_path = path_mode.try_build_path(path)?;
 
     variant_array
         .iter()
@@ -170,6 +174,7 @@ pub fn invoke_variant_get_typed<T>(
     scalar_from_option: fn(Option<T>) -> ScalarValue,
     array_from_values: fn(Vec<Option<T>>) -> ArrayRef,
     extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
+    path_mode: PathMode,
 ) -> Result<ColumnarValue> {
     let (variant_arg, path_arg) = match args.args.as_slice() {
         [variant_arg, path_arg] => (variant_arg, path_arg),
@@ -190,7 +195,7 @@ pub fn invoke_variant_get_typed<T>(
                 .unwrap_or_default();
 
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-            let values = variant_get_array_values(&variant_array, path, extract)?;
+            let values = variant_get_array_values(&variant_array, path, path_mode, extract)?;
             ColumnarValue::Array(array_from_values(values))
         }
         (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(path_scalar)) => {
@@ -203,7 +208,7 @@ pub fn invoke_variant_get_typed<T>(
                 .unwrap_or_default();
 
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-            let value = variant_get_single_value(&variant_array, 0, path, extract)?;
+            let value = variant_get_single_value(&variant_array, 0, path, path_mode, extract)?;
 
             ColumnarValue::Scalar(scalar_from_option(value))
         }
@@ -218,7 +223,7 @@ pub fn invoke_variant_get_typed<T>(
             let values: Vec<Option<T>> = (0..variant_array.len())
                 .map(|i| {
                     let path = paths[i].unwrap_or_default();
-                    variant_get_single_value(&variant_array, i, path, extract)
+                    variant_get_single_value(&variant_array, i, path, path_mode, extract)
                 })
                 .collect::<Result<_>>()?;
 
@@ -236,7 +241,7 @@ pub fn invoke_variant_get_typed<T>(
                 .iter()
                 .map(|path| {
                     let path = path.unwrap_or_default();
-                    variant_get_single_value(&variant_array, 0, path, extract)
+                    variant_get_single_value(&variant_array, 0, path, path_mode, extract)
                 })
                 .collect::<Result<_>>()?;
 
