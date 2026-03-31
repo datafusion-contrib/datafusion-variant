@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, ListBuilder, StringBuilder};
 use arrow_schema::{DataType, Field};
-use datafusion::common::{exec_datafusion_err, exec_err};
 use datafusion::error::Result;
 use datafusion::logical_expr::{
     ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -12,7 +11,10 @@ use parquet_variant::Variant;
 use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantArray, variant_get as compute_variant_get};
 
-use crate::shared::{try_field_as_variant_array, try_parse_string_scalar};
+use crate::shared::{
+    arg_field_meta_missing_err, arg_null_error, arg_shape_err, arg_type_err, args_count_err,
+    try_field_as_variant_array, try_parse_string_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantObjectKeys {
@@ -70,26 +72,31 @@ impl ScalarUDFImpl for VariantObjectKeys {
             [variant_arg] => (variant_arg, None),
             [variant_arg, path_arg] => {
                 let ColumnarValue::Scalar(path_scalar) = path_arg else {
-                    return exec_err!("expected scalar value for path");
+                    return Err(arg_shape_err(
+                        self.name(),
+                        2,
+                        "scalar string value",
+                        "array value",
+                    ));
                 };
                 let path = try_parse_string_scalar(path_scalar)?
-                    .ok_or_else(|| exec_datafusion_err!("expected non-null string for path"))?;
+                    .ok_or_else(|| arg_null_error(self.name(), 2, "a non-null string literal"))?;
                 (variant_arg, Some(path))
             }
-            _ => return exec_err!("expected 1 or 2 arguments"),
+            _ => return Err(args_count_err(self.name(), "1 or 2", args.args.len())),
         };
 
         let variant_field = args
             .arg_fields
             .first()
-            .ok_or_else(|| exec_datafusion_err!("expected 1 argument field type"))?;
+            .ok_or_else(|| arg_field_meta_missing_err(self.name(), 1))?;
 
         try_field_as_variant_array(variant_field.as_ref())?;
 
         let out = match variant_arg {
             ColumnarValue::Scalar(scalar_variant) => {
                 let ScalarValue::Struct(struct_arr) = scalar_variant else {
-                    return exec_err!("expected variant scalar value");
+                    return arg_type_err(self.name(), 1, "Struct", &scalar_variant.data_type());
                 };
                 let arr: ArrayRef = Arc::clone(struct_arr) as ArrayRef;
 

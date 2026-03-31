@@ -13,7 +13,7 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{ensure, try_parse_variant_scalar};
+use crate::shared::{arg_shape_err, args_count_err, ensure, try_parse_variant_scalar};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListDelete {
@@ -109,7 +109,7 @@ impl ScalarUDFImpl for VariantListDelete {
         )?;
 
         let [variant_list_to_update, index_to_delete] = argument_values.as_slice() else {
-            return exec_err!("expected 2 arguments");
+            return Err(args_count_err(self.name(), "2", argument_values.len()));
         };
 
         ensure(
@@ -119,7 +119,12 @@ impl ScalarUDFImpl for VariantListDelete {
 
         let index = {
             let ColumnarValue::Scalar(index) = index_to_delete else {
-                return exec_err!("expected scalar value for index");
+                return Err(arg_shape_err(
+                    self.name(),
+                    2,
+                    "scalar integer value",
+                    "array value",
+                ));
             };
 
             try_parse_index_scalar(index)?

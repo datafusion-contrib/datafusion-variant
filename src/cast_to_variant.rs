@@ -3,7 +3,6 @@ use std::sync::Arc;
 use arrow::array::{Array, ArrayRef, AsArray, StructArray};
 use arrow_schema::{DataType, Field};
 use datafusion::{
-    common::exec_err,
     error::Result,
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature,
@@ -14,7 +13,9 @@ use datafusion::{
 use parquet_variant::Variant;
 use parquet_variant_compute::{VariantArray, VariantArrayBuilder, cast_to_variant};
 
-use crate::shared::{try_parse_binary_columnar, try_parse_binary_scalar};
+use crate::shared::{
+    arg_shape_err, args_count_err, try_parse_binary_columnar, try_parse_binary_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct CastToVariantUdf {
@@ -57,15 +58,19 @@ impl CastToVariantUdf {
     }
 
     fn from_metadata_value(
+        udf_name: &str,
         metadata_argument: &ColumnarValue,
         variant_argument: &ColumnarValue,
     ) -> Result<ColumnarValue> {
         let out = match (metadata_argument, variant_argument) {
             (ColumnarValue::Array(metadata_array), ColumnarValue::Array(value_array)) => {
                 if metadata_array.len() != value_array.len() {
-                    return exec_err!(
-                        "expected metadata array to be of same length as variant array"
-                    );
+                    return Err(arg_shape_err(
+                        udf_name,
+                        2,
+                        "array with same length as arg #1",
+                        "array with different length",
+                    ));
                 }
 
                 let metadata_array = try_parse_binary_columnar(metadata_array)?;
@@ -180,11 +185,11 @@ impl ScalarUDFImpl for CastToVariantUdf {
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         match args.args.as_slice() {
             [metadata_value, variant_value] => {
-                Self::from_metadata_value(metadata_value, variant_value)
+                Self::from_metadata_value(self.name(), metadata_value, variant_value)
             }
             [ColumnarValue::Scalar(scalar_value)] => Self::from_scalar_value(scalar_value),
             [ColumnarValue::Array(array)] => Self::from_array(array),
-            _ => exec_err!("unrecognized argument"),
+            _ => Err(args_count_err(self.name(), "1 or 2", args.args.len())),
         }
     }
 }
