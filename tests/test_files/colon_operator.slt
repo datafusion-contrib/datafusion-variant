@@ -3,11 +3,13 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
   (1, '{"name": "Alice", "age": 30}'),
   (2, '{"name": "Bob", "age": 25}'),
   (3, '{"items": [1, 2, 3], "count": 3}'),
-  (4, 'null'),
-  (5, '"simple string"'),
-  (6, '123'),
-  (7, 'true');
+  (4, '{"items": [{"name": "Sam", "age": 33}, "a", 3], "count": 3}'),
+  (5, 'null'),
+  (6, '"simple string"'),
+  (7, '["looooooooong string", "hehe", "a"]'),
+  (8, 'true');
 
+# field access
 query T
 select variant_pretty(json_to_variant(json_str):name) from json_data;
 ----
@@ -18,24 +20,55 @@ NULL
 NULL
 NULL
 NULL
+NULL
 
+# field + array access
 query T
 select variant_pretty(json_to_variant(json_str):items[0]) from json_data;
 ----
 NULL
 NULL
 Int8(1)
+{"age": Int8(33), "name": ShortString(ShortString("Sam"))}
 NULL
 NULL
 NULL
 NULL
 
+# array access with non-array
 query T
 select variant_pretty(json_to_variant(json_str):age[0]) from json_data;
 ----
 NULL
 NULL
 NULL
+NULL
+NULL
+NULL
+NULL
+NULL
+
+# field -> array -> field access
+query T
+select variant_pretty(json_to_variant(json_str):items[0]["name"]) from json_data;
+----
+NULL
+NULL
+NULL
+ShortString(ShortString("Sam"))
+NULL
+NULL
+NULL
+NULL
+
+# field -> array -> field access but with single quotes
+query T
+select variant_pretty(json_to_variant(json_str):items[0]['name']) from json_data;
+----
+NULL
+NULL
+NULL
+ShortString(ShortString("Sam"))
 NULL
 NULL
 NULL
