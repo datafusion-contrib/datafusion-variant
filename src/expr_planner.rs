@@ -14,6 +14,10 @@ use datafusion::{
 
 use crate::VariantGetUdf;
 
+/// Custom [`ExprPlanner`] used to handle variant-specific syntax such as colon operator.
+///
+/// Currently implements:
+/// - Colon operator: short-hand syntax for `variant_get`.
 #[derive(Debug)]
 pub struct VariantExprPlanner;
 
