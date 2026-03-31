@@ -1,9 +1,10 @@
 use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantGetUdf, VariantListConstruct,
-    VariantListInsert, VariantObjectConstruct, VariantObjectInsert, VariantPretty,
-    VariantToJsonUdf,
+    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantGetBoolUdf, VariantGetFieldUdf,
+    VariantGetFloatUdf, VariantGetIntUdf, VariantGetJsonUdf, VariantGetStrUdf, VariantGetUdf,
+    VariantListConstruct, VariantListDelete, VariantListInsert, VariantObjectConstruct,
+    VariantObjectDelete, VariantObjectInsert, VariantObjectKeys, VariantPretty, VariantToJsonUdf,
 };
 use indicatif::ProgressBar;
 use sqllogictest::strict_column_validator;
@@ -30,7 +31,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
     test_files.sort();
 
     for test_file in test_files {
-        println!("Running test file: {:?}", test_file);
+        println!("Running test file: {test_file:?}");
 
         let relative_path = test_file
             .strip_prefix(&test_files_dir)
@@ -49,11 +50,20 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantGetUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetStrUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetFloatUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetIntUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetBoolUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetJsonUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetFieldUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantListDelete::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListInsert::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectInsert::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectDelete::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectKeys::default()));
 
         let pb = ProgressBar::new(24);
 
