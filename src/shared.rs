@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 #[cfg(test)]
 use arrow::array::StructArray;
-use arrow::array::{cast::AsArray, Array, ArrayRef};
-use arrow_schema::extension::ExtensionType;
+use arrow::array::{Array, ArrayRef, cast::AsArray};
 #[cfg(test)]
 use arrow_schema::Fields;
+use arrow_schema::extension::ExtensionType;
 use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
-use datafusion::error::Result;
+use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs};
 use datafusion::{common::exec_err, scalar::ScalarValue};
 use parquet_variant::{Variant, VariantPath};
@@ -257,18 +257,47 @@ pub fn ensure(pred: bool, err_msg: &str) -> Result<()> {
     Ok(())
 }
 
-// cleaner error handling
-
-/// helper for argument count errors
-pub fn args_count_err(expected: &'static str, actual: usize) -> DataFusionError {
-    DataFusionError::Execution(format!("expected {expected} argument(s), got {actual}"))
+/// Helper for argument count errors.
+pub fn args_count_err(udf: &str, expected: &'static str, actual: usize) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf}: expected {expected} argument(s), got {actual}"
+    ))
 }
 
-// helper for argument type errors
-pub fn type_err<T>(expected: &str, actual: &DataType) -> Result<T, DataFusionError> {
+/// Helper for argument type errors.
+pub fn arg_type_err<T>(
+    udf: &str,
+    arg_index: u8,
+    expected: &str,
+    actual: &DataType,
+) -> Result<T, DataFusionError> {
     Err(DataFusionError::Execution(format!(
-        "expected {expected}, got {actual:?}"
+        "{udf} arg #{arg_index}: expected {expected}, got {actual}"
     )))
+}
+
+/// Helper for unexpected NULL argument values.
+pub fn arg_null_err<T>(udf: &str, arg_index: u8, expected: &str) -> Result<T, DataFusionError> {
+    Err(arg_null_error(udf, arg_index, expected))
+}
+
+/// Helper for unexpected NULL argument values as a plain DataFusionError.
+pub fn arg_null_error(udf: &str, arg_index: u8, expected: &str) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf} arg #{arg_index}: expected {expected}, got NULL"
+    ))
+}
+
+/// Helper for scalar/array shape mismatches.
+pub fn arg_shape_err(udf: &str, arg_index: u8, expected: &str, actual: &str) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf} arg #{arg_index}: expected {expected}, got {actual}"
+    ))
+}
+
+/// Helper for missing argument field metadata.
+pub fn arg_field_meta_missing_err(udf: &str, arg_index: u8) -> DataFusionError {
+    DataFusionError::Execution(format!("{udf} arg #{arg_index} field metadata is missing"))
 }
 
 // test related methods

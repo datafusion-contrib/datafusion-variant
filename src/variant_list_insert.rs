@@ -13,7 +13,7 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{args_count_err, ensure, try_parse_variant_scalar};
+use crate::shared::{arg_shape_err, args_count_err, ensure, try_parse_variant_scalar};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListInsert {
@@ -71,7 +71,7 @@ impl ScalarUDFImpl for VariantListInsert {
         )?;
 
         let [variant_list_to_update, element_to_append] = argument_values.as_slice() else {
-            return Err(args_count_err("2", argument_values.len()));
+            return Err(args_count_err(self.name(), "2", argument_values.len()));
         };
 
         let all_arguments_variant_field = argument_fields
@@ -96,6 +96,7 @@ impl ScalarUDFImpl for VariantListInsert {
 
                 let out: StructArray = {
                     let (m, v) = create_variant_list_with_new_elements(
+                        self.name(),
                         variant_list,
                         [variant_to_insert].into_iter(),
                     )?;
@@ -120,6 +121,7 @@ impl ScalarUDFImpl for VariantListInsert {
                     .map(|v| {
                         v.map(|v| {
                             create_variant_list_with_new_elements(
+                                self.name(),
                                 v,
                                 [variant_to_insert.clone()].into_iter(),
                             )
@@ -158,6 +160,7 @@ impl ScalarUDFImpl for VariantListInsert {
                     match (variant_list_to_update, element_to_append) {
                         (Some(variant_list), Some(element_to_append)) => {
                             let (m, v) = create_variant_list_with_new_elements(
+                                self.name(),
                                 variant_list,
                                 [element_to_append].into_iter(),
                             )?;
@@ -195,9 +198,12 @@ impl ScalarUDFImpl for VariantListInsert {
 
                 Ok(ColumnarValue::Array(Arc::new(out) as _))
             }
-            (ColumnarValue::Scalar(_), ColumnarValue::Array(_)) => {
-                exec_err!("unsupported argument")
-            }
+            (ColumnarValue::Scalar(_), ColumnarValue::Array(_)) => Err(arg_shape_err(
+                self.name(),
+                2,
+                "scalar value when arg #1 is scalar",
+                "array value",
+            )),
         }
     }
 }
@@ -205,11 +211,12 @@ impl ScalarUDFImpl for VariantListInsert {
 // note: I wonder if we can abstract this away
 // it would be good to profile and see if this pocket of code is slow
 fn create_variant_list_with_new_elements<'m, 'v>(
+    udf_name: &str,
     variant_list: Variant,
     elements_to_insert: impl Iterator<Item = Variant<'m, 'v>>,
 ) -> Result<(Vec<u8>, Vec<u8>)> {
     let Variant::List(variant_list) = variant_list else {
-        return exec_err!("expected variant list");
+        return exec_err!("{udf_name} arg #1: expected variant list");
     };
 
     // note: I wonder if we can abstract this away

@@ -14,7 +14,9 @@ use datafusion::{
 use parquet_variant_compute::VariantArray;
 use parquet_variant_json::VariantToJson;
 
-use crate::shared::{args_count_err, try_field_as_variant_array, type_err};
+use crate::shared::{
+    arg_field_meta_missing_err, arg_type_err, args_count_err, try_field_as_variant_array,
+};
 
 /// Returns a JSON string from a VariantArray
 ///
@@ -58,16 +60,19 @@ impl ScalarUDFImpl for VariantToJsonUdf {
         let field = args
             .arg_fields
             .first()
-            .ok_or_else(|| args_count_err("1", 0))?;
+            .ok_or_else(|| arg_field_meta_missing_err(self.name(), 1))?;
 
         try_field_as_variant_array(field.as_ref())?;
 
-        let arg = args.args.first().ok_or_else(|| args_count_err("1", 0))?;
+        let arg = args
+            .args
+            .first()
+            .ok_or_else(|| args_count_err(self.name(), "1", args.args.len()))?;
 
         let out = match arg {
             ColumnarValue::Scalar(scalar) => {
                 let ScalarValue::Struct(variant_array) = scalar else {
-                    return type_err("Struct", &scalar.data_type());
+                    return arg_type_err(self.name(), 1, "Struct", &scalar.data_type());
                 };
 
                 let variant_array = VariantArray::try_new(variant_array.as_ref())?;
@@ -87,7 +92,7 @@ impl ScalarUDFImpl for VariantToJsonUdf {
 
                     ColumnarValue::Array(Arc::new(out))
                 }
-                unsupported => return type_err("Struct", unsupported),
+                unsupported => return arg_type_err(self.name(), 1, "Struct", unsupported),
             },
         };
 

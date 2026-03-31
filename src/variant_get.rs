@@ -8,7 +8,7 @@ use arrow::{
 };
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
 use datafusion::{
-    common::{arrow_datafusion_err, exec_datafusion_err, exec_err},
+    common::{arrow_datafusion_err, exec_datafusion_err},
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature,
@@ -22,17 +22,30 @@ use parquet_variant_json::VariantToJson;
 
 use crate::impl_variant_get::impl_variant_get_typed;
 use crate::shared::{
+    arg_field_meta_missing_err, arg_null_err, arg_shape_err, arg_type_err, args_count_err,
     invoke_variant_get_typed, try_field_as_variant_array, try_parse_string_columnar,
     try_parse_string_scalar,
 };
 
-fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
+fn type_hint_from_scalar(
+    udf_name: &str,
+    field_name: &str,
+    scalar: &ScalarValue,
+) -> Result<FieldRef> {
     let type_name = match scalar {
         ScalarValue::Utf8(Some(value))
         | ScalarValue::Utf8View(Some(value))
         | ScalarValue::LargeUtf8(Some(value)) => value.as_str(),
+        ScalarValue::Utf8(None) | ScalarValue::Utf8View(None) | ScalarValue::LargeUtf8(None) => {
+            return arg_null_err(udf_name, 3, "a non-null UTF8 literal");
+        }
         other => {
-            return type_err("Utf8, LargeUtf8, or Utf8View", &other.data_type());
+            return arg_type_err(
+                udf_name,
+                3,
+                "Utf8, LargeUtf8, or Utf8View",
+                &other.data_type(),
+            );
         }
     };
 
@@ -45,12 +58,10 @@ fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<Field
     Ok(Arc::new(Field::new(field_name, casted_type, true)))
 }
 
-fn type_hint_from_value(field_name: &str, arg: &ColumnarValue) -> Result<FieldRef> {
+fn type_hint_from_value(udf_name: &str, field_name: &str, arg: &ColumnarValue) -> Result<FieldRef> {
     match arg {
-        ColumnarValue::Scalar(value) => type_hint_from_scalar(field_name, value),
-        ColumnarValue::Array(_) => {
-            exec_err!("type hint argument must be a scalar UTF8 literal")
-        }
+        ColumnarValue::Scalar(value) => type_hint_from_scalar(udf_name, field_name, value),
+        ColumnarValue::Array(_) => Err(arg_shape_err(udf_name, 3, "scalar value", "array value")),
     }
 }
 
@@ -93,18 +104,19 @@ fn invoke_variant_get(
     let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
         [variant_arg, variant_path] => (variant_arg, variant_path, None),
         [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
-        _ => return exec_err!("expected 2 or 3 arguments"),
+        _ => return Err(args_count_err(udf_name, "2 or 3", args.args.len())),
     };
 
     let variant_field = args
         .arg_fields
         .first()
-        .ok_or_else(|| exec_datafusion_err!("expected argument field"))?;
+        .ok_or_else(|| arg_field_meta_missing_err(udf_name, 1))?;
 
     try_field_as_variant_array(variant_field.as_ref())?;
 
+    let type_field_name = args.return_field.name();
     let type_field = type_arg
-        .map(|arg| type_hint_from_value(udf_name, arg))
+        .map(|arg| type_hint_from_value(udf_name, type_field_name, arg))
         .transpose()?;
 
     let out = match (variant_arg, variant_path) {
@@ -122,7 +134,7 @@ fn invoke_variant_get(
         }
         (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(variant_path)) => {
             let ScalarValue::Struct(variant_array) = scalar_variant else {
-                return exec_err!("expected struct array");
+                return arg_type_err(udf_name, 1, "Struct", &scalar_variant.data_type());
             };
 
             let variant_array = Arc::clone(variant_array) as ArrayRef;
@@ -141,7 +153,12 @@ fn invoke_variant_get(
         }
         (ColumnarValue::Array(variant_array), ColumnarValue::Array(variant_paths)) => {
             if variant_array.len() != variant_paths.len() {
-                return exec_err!("expected variant_array and variant paths to be of same length");
+                return Err(arg_shape_err(
+                    udf_name,
+                    2,
+                    "array with same length as arg #1",
+                    "array with different length",
+                ));
             }
 
             let variant_paths = try_parse_string_columnar(variant_paths)?;
@@ -172,7 +189,7 @@ fn invoke_variant_get(
         }
         (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(variant_paths)) => {
             let ScalarValue::Struct(variant_array) = scalar_variant else {
-                return exec_err!("expected struct array");
+                return arg_type_err(udf_name, 1, "Struct", &scalar_variant.data_type());
             };
 
             let variant_array = Arc::clone(variant_array) as ArrayRef;
@@ -203,7 +220,7 @@ fn return_field_for_variant_get(name: &str, args: ReturnFieldArgs) -> Result<Arc
         let scalar = maybe_scalar.ok_or_else(|| {
             exec_datafusion_err!("type hint argument to {name} must be a literal")
         })?;
-        return type_hint_from_scalar(name, scalar);
+        return type_hint_from_scalar(name, name, scalar);
     }
 
     let data_type = DataType::Struct(Fields::from(vec![

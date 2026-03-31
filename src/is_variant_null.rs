@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, BooleanArray};
 use arrow_schema::DataType;
-use datafusion::common::exec_datafusion_err;
 use datafusion::error::Result;
 use datafusion::logical_expr::{
     ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -11,7 +10,10 @@ use datafusion::scalar::ScalarValue;
 use parquet_variant::Variant;
 use parquet_variant_compute::VariantArray;
 
-use crate::shared::{args_count_err, try_field_as_variant_array, try_parse_variant_scalar};
+use crate::shared::{
+    arg_field_meta_missing_err, args_count_err, try_field_as_variant_array,
+    try_parse_variant_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct IsVariantNullUdf {
@@ -44,17 +46,15 @@ impl ScalarUDFImpl for IsVariantNullUdf {
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let variant_field = args.arg_fields.first().ok_or_else(|| {
-            exec_datafusion_err!(
-                "expected 1 argument field type, got {}",
-                args.arg_fields.len()
-            )
-        })?;
+        let variant_field = args
+            .arg_fields
+            .first()
+            .ok_or_else(|| arg_field_meta_missing_err(self.name(), 1))?;
 
         try_field_as_variant_array(variant_field.as_ref())?;
 
         let [variant_arg] = args.args.as_slice() else {
-            return Err(args_count_err("1", args.args.len()));
+            return Err(args_count_err(self.name(), "1", args.args.len()));
         };
 
         let out = match variant_arg {

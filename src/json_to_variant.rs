@@ -15,7 +15,7 @@ use datafusion::{
 use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
-use crate::shared::{args_count_err, try_field_as_string, try_parse_string_scalar, type_err};
+use crate::shared::{arg_type_err, args_count_err, try_field_as_string, try_parse_string_scalar};
 
 /// Returns a Variant from a JSON string
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -74,11 +74,14 @@ impl ScalarUDFImpl for JsonToVariantUdf {
         let arg_field = args
             .arg_fields
             .first()
-            .ok_or_else(|| args_count_err("1", 0))?;
+            .ok_or_else(|| args_count_err(self.name(), "1", args.arg_fields.len()))?;
 
         try_field_as_string(arg_field.as_ref())?;
 
-        let arg = args.args.first().ok_or_else(|| args_count_err("1", 0))?;
+        let arg = args
+            .args
+            .first()
+            .ok_or_else(|| args_count_err(self.name(), "1", args.args.len()))?;
 
         let out = match arg {
             ColumnarValue::Scalar(scalar_value) => {
@@ -98,7 +101,14 @@ impl ScalarUDFImpl for JsonToVariantUdf {
                 DataType::Utf8 => ColumnarValue::Array(from_utf8_arr(arr)?),
                 DataType::LargeUtf8 => ColumnarValue::Array(from_large_utf8_arr(arr)?),
                 DataType::Utf8View => ColumnarValue::Array(from_utf8view_arr(arr)?),
-                _ => return type_err("Utf8, LargeUtf8, or Utf8View", arr.data_type()),
+                _ => {
+                    return arg_type_err(
+                        self.name(),
+                        1,
+                        "Utf8, LargeUtf8, or Utf8View",
+                        arr.data_type(),
+                    );
+                }
             },
         };
 
