@@ -3,6 +3,7 @@
 mod shared;
 
 mod cast_to_variant;
+mod expr_planner;
 mod impl_variant_get;
 mod is_variant_null;
 mod json_to_variant;
@@ -19,6 +20,7 @@ mod variant_pretty;
 mod variant_to_json;
 
 pub use cast_to_variant::*;
+pub use expr_planner::*;
 pub use is_variant_null::*;
 pub use json_to_variant::*;
 pub use variant_get::*;
