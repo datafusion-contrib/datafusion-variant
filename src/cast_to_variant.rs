@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, AsArray, StructArray};
+use arrow::array::{ArrayRef, AsArray, StructArray};
 use arrow_schema::{DataType, Field};
 use datafusion::{
     common::exec_err,

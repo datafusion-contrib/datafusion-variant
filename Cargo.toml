@@ -7,22 +7,78 @@ license = "Apache-2.0"
 authors = ["Matthew Kim <matthew@pydantic.dev>"]
 
 [dependencies]
-datafusion = "53"
-arrow = "58.1"
-arrow-schema = "58.1"
-parquet-variant-compute = "58.1"
-parquet-variant-json = "58.1"
-parquet-variant = "58.1"
+datafusion = "52.2"
+arrow = "58.0"
+arrow-schema = "58.0"
+parquet-variant-compute = "58.0"
+parquet-variant-json = "58.0"
+parquet-variant = "58.0"
 
 [dev-dependencies]
 anyhow = "1.0.100"
-arrow-cast = "58.1"
+arrow-cast = "58.0"
 serde_json = "1.0.145"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
-datafusion-sqllogictest = "53"
+datafusion-sqllogictest = "52.2"
 sqllogictest = "0.29"
 indicatif = "0.18"
 env_logger = "0.11"
 insta = "1.43.2"
 rustyline = { version = "14.0", features = ["derive"] }
+
+[patch.crates-io]
+# pydantic forks: DataFusion 52.2 patched to work with Arrow 58
+arrow = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-arith = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-array = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-buffer = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-cast = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-csv = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-data = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-ipc = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-json = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-ord = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-row = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-schema = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-select = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+arrow-string = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+parquet = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+parquet-variant = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+parquet-variant-compute = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+parquet-variant-json = { git = "https://github.com/pydantic/arrow-rs.git", branch = "pydantic-main" }
+datafusion = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-catalog = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-catalog-listing = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-common = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-common-runtime = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-datasource = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-datasource-arrow = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-datasource-avro = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-datasource-csv = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-datasource-json = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-datasource-parquet = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-doc = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-execution = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-expr = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-expr-common = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-functions = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-functions-aggregate = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-functions-aggregate-common = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-functions-nested = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-functions-table = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-functions-window = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-functions-window-common = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-macros = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-optimizer = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-physical-expr = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-physical-expr-adapter = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-physical-expr-common = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-physical-optimizer = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-physical-plan = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-pruning = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-session = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-spark = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-sql = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-sqllogictest = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
+datafusion-substrait = { git = "https://github.com/pydantic/datafusion.git", branch = "pydantic-main" }
