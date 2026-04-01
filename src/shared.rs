@@ -8,13 +8,11 @@ use arrow_schema::Fields;
 use arrow_schema::extension::ExtensionType;
 use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
-use datafusion::error::Result;
+use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs};
 use datafusion::{common::exec_err, scalar::ScalarValue};
-use parquet_variant::Variant;
+use parquet_variant::{Variant, VariantPath, VariantPathElement};
 use parquet_variant_compute::{VariantArray, VariantType};
-
-use crate::variant_get::PathMode;
 
 #[cfg(test)]
 use parquet_variant_compute::VariantArrayBuilder;
@@ -129,16 +127,14 @@ pub fn try_parse_string_columnar(array: &Arc<dyn Array>) -> Result<Vec<Option<&s
 pub fn variant_get_single_value<T>(
     variant_array: &VariantArray,
     index: usize,
-    path: &str,
-    path_mode: PathMode,
+    path: &VariantPath<'_>,
     extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
     let Some(variant) = variant_array.iter().nth(index).flatten() else {
         return Ok(None);
     };
 
-    let variant_path = path_mode.try_build_path(path)?;
-    let Some(value) = variant.get_path(&variant_path) else {
+    let Some(value) = variant.get_path(path) else {
         return Ok(None);
     };
 
@@ -147,12 +143,9 @@ pub fn variant_get_single_value<T>(
 
 pub fn variant_get_array_values<T>(
     variant_array: &VariantArray,
-    path: &str,
-    path_mode: PathMode,
+    path: &VariantPath<'_>,
     extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
 ) -> Result<Vec<Option<T>>> {
-    let variant_path = path_mode.try_build_path(path)?;
-
     variant_array
         .iter()
         .map(|maybe_variant| {
@@ -160,7 +153,7 @@ pub fn variant_get_array_values<T>(
                 return Ok(None);
             };
 
-            let Some(value) = variant.get_path(&variant_path) else {
+            let Some(value) = variant.get_path(path) else {
                 return Ok(None);
             };
 
@@ -169,12 +162,66 @@ pub fn variant_get_array_values<T>(
         .collect()
 }
 
+/// Build a [`VariantPath`] from a scalar value.
+///
+/// - **String** scalars use dot-notation parsing (e.g. `'a.b.c'` → path `[a, b, c]`)
+/// - **List** scalars treat each element as a single field name
+///   (e.g. `['a.b', 'c']` → path `[a.b, c]`), which is critical for keys that
+///   contain dots such as OTEL attribute keys like `http.response.status_code`.
+fn path_from_scalar(scalar: &ScalarValue) -> Result<VariantPath<'static>> {
+    match scalar {
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::Utf8View(Some(s))
+        | ScalarValue::LargeUtf8(Some(s)) => {
+            let parsed =
+                VariantPath::try_from(s.as_str()).map_err(Into::<DataFusionError>::into)?;
+            Ok(to_owned_path(&parsed))
+        }
+        ScalarValue::Utf8(None) | ScalarValue::Utf8View(None) | ScalarValue::LargeUtf8(None) => {
+            Ok(VariantPath::default())
+        }
+        ScalarValue::List(list_arr) => {
+            if list_arr.is_null(0) {
+                return Ok(VariantPath::default());
+            }
+
+            path_from_list_values(list_arr.value(0))
+        }
+        other => exec_err!(
+            "path must be a string or list of strings, got {}",
+            other.data_type()
+        ),
+    }
+}
+
+fn path_from_list_values(values: ArrayRef) -> Result<VariantPath<'static>> {
+    let strings = try_parse_string_columnar(&values)?;
+    let elements = strings
+        .iter()
+        .map(|s| VariantPathElement::field(s.unwrap_or_default().to_string()))
+        .collect();
+
+    Ok(VariantPath::new(elements))
+}
+
+fn to_owned_path(path: &VariantPath<'_>) -> VariantPath<'static> {
+    let elements = path
+        .path()
+        .iter()
+        .map(|elem| match elem {
+            VariantPathElement::Field { name } => VariantPathElement::field(name.to_string()),
+            VariantPathElement::Index { index } => VariantPathElement::index(*index),
+        })
+        .collect();
+
+    VariantPath::new(elements)
+}
+
 pub fn invoke_variant_get_typed<T>(
     args: ScalarFunctionArgs,
     scalar_from_option: fn(Option<T>) -> ScalarValue,
     array_from_values: fn(Vec<Option<T>>) -> ArrayRef,
     extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
-    path_mode: PathMode,
 ) -> Result<ColumnarValue> {
     let (variant_arg, path_arg) = match args.args.as_slice() {
         [variant_arg, path_arg] => (variant_arg, path_arg),
@@ -190,12 +237,9 @@ pub fn invoke_variant_get_typed<T>(
 
     let out = match (variant_arg, path_arg) {
         (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(path_scalar)) => {
-            let path = try_parse_string_scalar(path_scalar)?
-                .map(|s| s.as_str())
-                .unwrap_or_default();
-
+            let path = path_from_scalar(path_scalar)?;
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-            let values = variant_get_array_values(&variant_array, path, path_mode, extract)?;
+            let values = variant_get_array_values(&variant_array, &path, extract)?;
             ColumnarValue::Array(array_from_values(values))
         }
         (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(path_scalar)) => {
@@ -203,12 +247,9 @@ pub fn invoke_variant_get_typed<T>(
                 return exec_err!("expected struct array");
             };
 
-            let path = try_parse_string_scalar(path_scalar)?
-                .map(|s| s.as_str())
-                .unwrap_or_default();
-
+            let path = path_from_scalar(path_scalar)?;
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-            let value = variant_get_single_value(&variant_array, 0, path, path_mode, extract)?;
+            let value = variant_get_single_value(&variant_array, 0, &path, extract)?;
 
             ColumnarValue::Scalar(scalar_from_option(value))
         }
@@ -220,10 +261,13 @@ pub fn invoke_variant_get_typed<T>(
             let paths = try_parse_string_columnar(paths)?;
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
 
-            let values: Vec<Option<T>> = (0..variant_array.len())
+            let values = (0..variant_array.len())
                 .map(|i| {
-                    let path = paths[i].unwrap_or_default();
-                    variant_get_single_value(&variant_array, i, path, path_mode, extract)
+                    let path_str = paths[i].unwrap_or_default();
+                    let path =
+                        VariantPath::try_from(path_str).map_err(Into::<DataFusionError>::into)?;
+
+                    variant_get_single_value(&variant_array, i, &path, extract)
                 })
                 .collect::<Result<_>>()?;
 
@@ -237,11 +281,13 @@ pub fn invoke_variant_get_typed<T>(
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
             let paths = try_parse_string_columnar(paths)?;
 
-            let values: Vec<Option<T>> = paths
+            let values = paths
                 .iter()
-                .map(|path| {
-                    let path = path.unwrap_or_default();
-                    variant_get_single_value(&variant_array, 0, path, path_mode, extract)
+                .map(|path_str| {
+                    let path_str = path_str.unwrap_or_default();
+                    let path =
+                        VariantPath::try_from(path_str).map_err(Into::<DataFusionError>::into)?;
+                    variant_get_single_value(&variant_array, 0, &path, extract)
                 })
                 .collect::<Result<_>>()?;
 

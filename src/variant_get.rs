@@ -429,7 +429,10 @@ mod tests {
         build_variant_get_args, standard_variant_get_arg_fields, variant_array_from_json_rows,
         variant_scalar_from_json,
     };
-    use arrow::array::{Array, BinaryViewArray, BooleanArray, Int64Array};
+    use arrow::{
+        array::{Array, BinaryViewArray, BooleanArray, Int64Array, ListArray},
+        buffer::OffsetBuffer,
+    };
     use arrow_schema::Field;
     use datafusion::logical_expr::{ReturnFieldArgs, ScalarFunctionArgs};
     use parquet_variant::Variant;
@@ -1543,20 +1546,29 @@ mod tests {
         assert!(bool_arr.is_null(3));
     }
 
+    fn string_list_scalar(values: &[&str]) -> ScalarValue {
+        let string_array = Arc::new(StringViewArray::from(values.to_vec())) as ArrayRef;
+
+        ScalarValue::List(Arc::new(ListArray::new(
+            Arc::new(Field::new_list_field(DataType::Utf8View, true)),
+            OffsetBuffer::from_lengths([values.len()]),
+            string_array,
+            None,
+        )))
+    }
+
     #[test]
-    fn test_get_str_with_single_field_mode_dotted_key() {
-        // VariantGetStrUdf with SingleField mode should treat dotted keys as a single field
+    fn test_get_str_list_path_dotted_key() {
+        // List path should treat each element as a single field — no dot splitting
         let variant_input = variant_scalar_from_json(serde_json::json!({
             "http.response.status_code": 200,
             "service.name": "my-service"
         }));
 
-        let udf = VariantGetStrUdf::with_path_mode(PathMode::SingleField);
+        let udf = VariantGetStrUdf::default();
         let args = build_variant_get_args(
             ColumnarValue::Scalar(variant_input),
-            ColumnarValue::Scalar(ScalarValue::Utf8(Some(
-                "http.response.status_code".to_string(),
-            ))),
+            ColumnarValue::Scalar(string_list_scalar(&["http.response.status_code"])),
             DataType::Utf8View,
             standard_variant_get_arg_fields(),
         );
@@ -1566,20 +1578,19 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
             panic!("expected Utf8View scalar, got {result:?}");
         };
-        // Integer 200 should be JSON-serialized to "200"
         assert_eq!(s, "200");
     }
 
     #[test]
-    fn test_get_str_with_single_field_mode_string_value() {
+    fn test_get_str_list_path_string_value() {
         let variant_input = variant_scalar_from_json(serde_json::json!({
             "service.name": "my-service"
         }));
 
-        let udf = VariantGetStrUdf::with_path_mode(PathMode::SingleField);
+        let udf = VariantGetStrUdf::default();
         let args = build_variant_get_args(
             ColumnarValue::Scalar(variant_input),
-            ColumnarValue::Scalar(ScalarValue::Utf8(Some("service.name".to_string()))),
+            ColumnarValue::Scalar(string_list_scalar(&["service.name"])),
             DataType::Utf8View,
             standard_variant_get_arg_fields(),
         );
@@ -1589,13 +1600,12 @@ mod tests {
         let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
             panic!("expected Utf8View scalar, got {result:?}");
         };
-        // String values returned as-is (no JSON quotes)
         assert_eq!(s, "my-service");
     }
 
     #[test]
-    fn test_get_str_with_single_field_mode_array() {
-        // Test array input with SingleField mode
+    fn test_get_str_list_path_array_variant() {
+        // Test array variant input with list path
         let json_rows = vec![
             serde_json::json!({"http.status": 200, "http.method": "GET"}),
             serde_json::json!({"http.status": 404, "http.method": "POST"}),
@@ -1604,10 +1614,10 @@ mod tests {
 
         let variant_array = variant_array_from_json_rows(&json_rows);
 
-        let udf = VariantGetStrUdf::with_path_mode(PathMode::SingleField);
+        let udf = VariantGetStrUdf::default();
         let args = build_variant_get_args(
             ColumnarValue::Array(variant_array),
-            ColumnarValue::Scalar(ScalarValue::Utf8(Some("http.status".to_string()))),
+            ColumnarValue::Scalar(string_list_scalar(&["http.status"])),
             DataType::Utf8View,
             standard_variant_get_arg_fields(),
         );
@@ -1625,15 +1635,15 @@ mod tests {
     }
 
     #[test]
-    fn test_get_int_with_single_field_mode() {
+    fn test_get_int_list_path_dotted_key() {
         let variant_input = variant_scalar_from_json(serde_json::json!({
             "http.status": 200
         }));
 
-        let udf = VariantGetIntUdf::with_path_mode(PathMode::SingleField);
+        let udf = VariantGetIntUdf::default();
         let args = build_variant_get_args(
             ColumnarValue::Scalar(variant_input),
-            ColumnarValue::Scalar(ScalarValue::Utf8(Some("http.status".to_string()))),
+            ColumnarValue::Scalar(string_list_scalar(&["http.status"])),
             DataType::Int64,
             standard_variant_get_arg_fields(),
         );
@@ -1647,14 +1657,37 @@ mod tests {
     }
 
     #[test]
-    fn test_get_str_dot_notation_splits_dotted_key() {
-        // With default DotNotation mode, dotted keys are split — should return NULL
-        // for a key like "http.response.status_code" that's stored as a single field
+    fn test_get_str_list_path_nested_traversal() {
+        // List path with multiple elements should traverse nested objects
+        let variant_input = variant_scalar_from_json(serde_json::json!({
+            "a": { "b": { "c": 42 } }
+        }));
+
+        let udf = VariantGetStrUdf::default();
+        let args = build_variant_get_args(
+            ColumnarValue::Scalar(variant_input),
+            ColumnarValue::Scalar(string_list_scalar(&["a", "b", "c"])),
+            DataType::Utf8View,
+            standard_variant_get_arg_fields(),
+        );
+
+        let result = udf.invoke_with_args(args).unwrap();
+
+        let ColumnarValue::Scalar(ScalarValue::Utf8View(Some(s))) = result else {
+            panic!("expected Utf8View scalar, got {result:?}");
+        };
+        assert_eq!(s, "42");
+    }
+
+    #[test]
+    fn test_get_str_string_path_dot_notation_splits() {
+        // String path uses dot notation — should return NULL for a dotted key
+        // stored as a single field name
         let variant_input = variant_scalar_from_json(serde_json::json!({
             "http.response.status_code": 200
         }));
 
-        let udf = VariantGetStrUdf::default(); // DotNotation
+        let udf = VariantGetStrUdf::default();
         let args = build_variant_get_args(
             ColumnarValue::Scalar(variant_input),
             ColumnarValue::Scalar(ScalarValue::Utf8(Some(
@@ -1666,7 +1699,7 @@ mod tests {
 
         let result = udf.invoke_with_args(args).unwrap();
 
-        // DotNotation splits on dots, tries to traverse http -> response -> status_code
+        // Dot notation splits on dots, tries to traverse http -> response -> status_code
         // which doesn't exist, so returns NULL
         let ColumnarValue::Scalar(ScalarValue::Utf8View(None)) = result else {
             panic!("expected NULL (dot notation splits the key), got {result:?}");
