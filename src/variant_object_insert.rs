@@ -3,7 +3,6 @@ use std::sync::Arc;
 use arrow::array::StructArray;
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
-    common::exec_err,
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -13,7 +12,10 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{ensure, try_parse_string_scalar, try_parse_variant_scalar};
+use crate::shared::{
+    arg_null_error, arg_shape_err, arg_variant_kind_err, args_count_err, ensure,
+    try_parse_string_scalar, try_parse_variant_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantObjectInsert {
@@ -71,7 +73,7 @@ impl ScalarUDFImpl for VariantObjectInsert {
         )?;
 
         let [variant_object_to_update, key, value] = argument_values.as_slice() else {
-            return exec_err!("expected 3 arguments");
+            return Err(args_count_err(self.name(), "3", argument_values.len()));
         };
 
         {
@@ -87,16 +89,26 @@ impl ScalarUDFImpl for VariantObjectInsert {
 
         let key = {
             let ColumnarValue::Scalar(key) = key else {
-                return exec_err!("expected scalar value for key");
+                return Err(arg_shape_err(
+                    self.name(),
+                    2,
+                    "scalar string value",
+                    "array value",
+                ));
             };
 
             try_parse_string_scalar(key)?
-                .ok_or_else(|| DataFusionError::Execution("expected non null string".into()))?
+                .ok_or_else(|| arg_null_error(self.name(), 2, "a non-null string literal"))?
         };
 
         let value_array = {
             let ColumnarValue::Scalar(value) = value else {
-                return exec_err!("expected scalar value for value");
+                return Err(arg_shape_err(
+                    self.name(),
+                    3,
+                    "scalar variant value",
+                    "array value",
+                ));
             };
 
             try_parse_variant_scalar(value)?
@@ -108,7 +120,7 @@ impl ScalarUDFImpl for VariantObjectInsert {
                 let variant_object = try_parse_variant_scalar(scalar_variant_object_to_update)?;
                 let variant_object = variant_object.value(0);
                 let Variant::Object(variant_object) = variant_object else {
-                    return exec_err!("expected variant object");
+                    return Err(arg_variant_kind_err(self.name(), 1, "object"));
                 };
 
                 let mut v = VariantBuilder::new();
@@ -136,7 +148,7 @@ impl ScalarUDFImpl for VariantObjectInsert {
                         v_opt
                             .map(|variant_object| {
                                 let Variant::Object(variant_object) = variant_object else {
-                                    return exec_err!("expected variant object");
+                                    return Err(arg_variant_kind_err(self.name(), 1, "object"));
                                 };
 
                                 let mut v = VariantBuilder::new();

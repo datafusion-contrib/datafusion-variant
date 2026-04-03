@@ -3,7 +3,6 @@ use std::sync::Arc;
 use arrow::array::StructArray;
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
-    common::exec_err,
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -13,7 +12,9 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{ensure, try_parse_variant_scalar};
+use crate::shared::{
+    arg_shape_err, arg_variant_kind_err, args_count_err, ensure, try_parse_variant_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListInsert {
@@ -71,7 +72,7 @@ impl ScalarUDFImpl for VariantListInsert {
         )?;
 
         let [variant_list_to_update, element_to_append] = argument_values.as_slice() else {
-            return exec_err!("expected 2 arguments");
+            return Err(args_count_err(self.name(), "2", argument_values.len()));
         };
 
         let all_arguments_variant_field = argument_fields
@@ -195,9 +196,12 @@ impl ScalarUDFImpl for VariantListInsert {
 
                 Ok(ColumnarValue::Array(Arc::new(out) as _))
             }
-            (ColumnarValue::Scalar(_), ColumnarValue::Array(_)) => {
-                exec_err!("unsupported argument")
-            }
+            (ColumnarValue::Scalar(_), ColumnarValue::Array(_)) => Err(arg_shape_err(
+                self.name(),
+                2,
+                "scalar value when arg #1 is scalar",
+                "array value",
+            )),
         }
     }
 }
@@ -209,7 +213,7 @@ fn create_variant_list_with_new_elements<'m, 'v>(
     elements_to_insert: impl Iterator<Item = Variant<'m, 'v>>,
 ) -> Result<(Vec<u8>, Vec<u8>)> {
     let Variant::List(variant_list) = variant_list else {
-        return exec_err!("expected variant list");
+        return Err(arg_variant_kind_err("variant_list_insert", 1, "list"));
     };
 
     // note: I wonder if we can abstract this away

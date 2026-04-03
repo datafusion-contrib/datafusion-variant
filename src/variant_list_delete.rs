@@ -13,7 +13,9 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{ensure, try_parse_variant_scalar};
+use crate::shared::{
+    arg_shape_err, arg_variant_kind_err, args_count_err, ensure, try_parse_variant_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListDelete {
@@ -41,7 +43,7 @@ fn try_parse_index_scalar(scalar: &ScalarValue) -> Result<usize> {
 
 fn delete_list_element(variant_list: Variant, index: usize) -> Result<(Vec<u8>, Vec<u8>)> {
     let Variant::List(variant_list) = variant_list else {
-        return exec_err!("expected variant list");
+        return Err(arg_variant_kind_err("variant_list_delete", 1, "list"));
     };
 
     if index >= variant_list.len() {
@@ -109,7 +111,7 @@ impl ScalarUDFImpl for VariantListDelete {
         )?;
 
         let [variant_list_to_update, index_to_delete] = argument_values.as_slice() else {
-            return exec_err!("expected 2 arguments");
+            return Err(args_count_err(self.name(), "2", argument_values.len()));
         };
 
         ensure(
@@ -119,7 +121,12 @@ impl ScalarUDFImpl for VariantListDelete {
 
         let index = {
             let ColumnarValue::Scalar(index) = index_to_delete else {
-                return exec_err!("expected scalar value for index");
+                return Err(arg_shape_err(
+                    self.name(),
+                    2,
+                    "scalar integer value",
+                    "array value",
+                ));
             };
 
             try_parse_index_scalar(index)?

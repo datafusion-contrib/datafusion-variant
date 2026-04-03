@@ -308,6 +308,60 @@ pub fn ensure(pred: bool, err_msg: &str) -> Result<()> {
     Ok(())
 }
 
+/// Helper for argument count errors.
+pub fn args_count_err(udf: &str, expected: &'static str, actual: usize) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf}: expected {expected} argument(s), got {actual}"
+    ))
+}
+
+/// Helper for argument type errors.
+pub fn arg_type_err<T>(
+    udf: &str,
+    arg_index: u8,
+    expected: &str,
+    actual: &DataType,
+) -> Result<T, DataFusionError> {
+    Err(DataFusionError::Execution(format!(
+        "{udf} arg #{arg_index}: expected {expected}, got {actual}"
+    )))
+}
+
+/// Helper for unexpected NULL argument values.
+pub fn arg_null_err<T>(udf: &str, arg_index: u8, expected: &str) -> Result<T, DataFusionError> {
+    Err(arg_null_error(udf, arg_index, expected))
+}
+
+/// Helper for unexpected NULL argument values as a plain DataFusionError.
+pub fn arg_null_error(udf: &str, arg_index: u8, expected: &str) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf} arg #{arg_index}: expected {expected}, got NULL"
+    ))
+}
+
+/// Helper for scalar/array shape mismatches.
+pub fn arg_shape_err(udf: &str, arg_index: u8, expected: &str, actual: &str) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf} arg #{arg_index}: expected {expected}, got {actual}"
+    ))
+}
+
+/// Helper for invalid Variant kind in an argument.
+pub fn arg_variant_kind_err(
+    udf: &str,
+    arg_index: u8,
+    expected_variant_kind: &str,
+) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf} arg #{arg_index}: expected variant {expected_variant_kind}"
+    ))
+}
+
+/// Helper for missing argument field metadata.
+pub fn arg_field_meta_missing_err(udf: &str, arg_index: u8) -> DataFusionError {
+    DataFusionError::Execution(format!("{udf} arg #{arg_index} field metadata is missing"))
+}
+
 // test related methods
 
 #[cfg(test)]

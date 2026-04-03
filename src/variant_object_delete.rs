@@ -3,7 +3,6 @@ use std::sync::Arc;
 use arrow::array::StructArray;
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
-    common::exec_err,
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -13,7 +12,10 @@ use datafusion::{
 use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
-use crate::shared::{ensure, try_parse_string_scalar, try_parse_variant_scalar};
+use crate::shared::{
+    arg_null_error, arg_shape_err, arg_variant_kind_err, args_count_err, ensure,
+    try_parse_string_scalar, try_parse_variant_scalar,
+};
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantObjectDelete {
@@ -71,7 +73,7 @@ impl ScalarUDFImpl for VariantObjectDelete {
         )?;
 
         let [variant_object_to_update, key_to_delete] = argument_values.as_slice() else {
-            return exec_err!("expected 2 arguments");
+            return Err(args_count_err(self.name(), "2", argument_values.len()));
         };
 
         ensure(
@@ -81,11 +83,16 @@ impl ScalarUDFImpl for VariantObjectDelete {
 
         let key = {
             let ColumnarValue::Scalar(key) = key_to_delete else {
-                return exec_err!("expected scalar value for key");
+                return Err(arg_shape_err(
+                    self.name(),
+                    2,
+                    "scalar string value",
+                    "array value",
+                ));
             };
 
             try_parse_string_scalar(key)?
-                .ok_or_else(|| DataFusionError::Execution("expected non null string".into()))?
+                .ok_or_else(|| arg_null_error(self.name(), 2, "a non-null string literal"))?
         };
 
         match variant_object_to_update {
@@ -93,7 +100,7 @@ impl ScalarUDFImpl for VariantObjectDelete {
                 let variant_object = try_parse_variant_scalar(scalar_variant_object_to_update)?;
                 let variant_object = variant_object.value(0);
                 let Variant::Object(variant_object) = variant_object else {
-                    return exec_err!("expected variant object");
+                    return Err(arg_variant_kind_err(self.name(), 1, "object"));
                 };
 
                 let mut v = VariantBuilder::new();
@@ -123,7 +130,7 @@ impl ScalarUDFImpl for VariantObjectDelete {
                         v_opt
                             .map(|variant_object| {
                                 let Variant::Object(variant_object) = variant_object else {
-                                    return exec_err!("expected variant object");
+                                    return Err(arg_variant_kind_err(self.name(), 1, "object"));
                                 };
 
                                 let mut v = VariantBuilder::new();
