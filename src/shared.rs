@@ -300,6 +300,17 @@ pub fn arg_shape_err(udf: &str, arg_index: u8, expected: &str, actual: &str) -> 
     ))
 }
 
+/// Helper for invalid Variant kind in an argument.
+pub fn arg_variant_kind_err(
+    udf: &str,
+    arg_index: u8,
+    expected_variant_kind: &str,
+) -> DataFusionError {
+    DataFusionError::Execution(format!(
+        "{udf} arg #{arg_index}: expected variant {expected_variant_kind}"
+    ))
+}
+
 /// Helper for missing argument field metadata.
 pub fn arg_field_meta_missing_err(udf: &str, arg_index: u8) -> DataFusionError {
     DataFusionError::Execution(format!("{udf} arg #{arg_index} field metadata is missing"))

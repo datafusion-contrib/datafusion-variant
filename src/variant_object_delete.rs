@@ -3,7 +3,6 @@ use std::sync::Arc;
 use arrow::array::StructArray;
 use arrow_schema::{DataType, Field, Fields};
 use datafusion::{
-    common::exec_err,
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, ReturnFieldArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
@@ -14,8 +13,8 @@ use parquet_variant::{Variant, VariantBuilder};
 use parquet_variant_compute::{VariantArray, VariantType};
 
 use crate::shared::{
-    arg_null_error, arg_shape_err, args_count_err, ensure, try_parse_string_scalar,
-    try_parse_variant_scalar,
+    arg_null_error, arg_shape_err, arg_variant_kind_err, args_count_err, ensure,
+    try_parse_string_scalar, try_parse_variant_scalar,
 };
 
 #[derive(Debug, Hash, PartialEq, Eq)]
@@ -101,7 +100,7 @@ impl ScalarUDFImpl for VariantObjectDelete {
                 let variant_object = try_parse_variant_scalar(scalar_variant_object_to_update)?;
                 let variant_object = variant_object.value(0);
                 let Variant::Object(variant_object) = variant_object else {
-                    return exec_err!("expected variant object");
+                    return Err(arg_variant_kind_err(self.name(), 1, "object"));
                 };
 
                 let mut v = VariantBuilder::new();
@@ -131,7 +130,7 @@ impl ScalarUDFImpl for VariantObjectDelete {
                         v_opt
                             .map(|variant_object| {
                                 let Variant::Object(variant_object) = variant_object else {
-                                    return exec_err!("expected variant object");
+                                    return Err(arg_variant_kind_err(self.name(), 1, "object"));
                                 };
 
                                 let mut v = VariantBuilder::new();
