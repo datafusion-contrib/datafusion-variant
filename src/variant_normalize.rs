@@ -62,9 +62,6 @@ impl Default for VariantNormalizeUdf {
 }
 
 impl ScalarUDFImpl for VariantNormalizeUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "variant_normalize"

@@ -27,9 +27,6 @@ impl Default for IsVariantNullUdf {
 }
 
 impl ScalarUDFImpl for IsVariantNullUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "is_variant_null"

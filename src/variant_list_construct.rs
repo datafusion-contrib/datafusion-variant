@@ -28,9 +28,6 @@ impl Default for VariantListConstruct {
 }
 
 impl ScalarUDFImpl for VariantListConstruct {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "variant_list_construct"
