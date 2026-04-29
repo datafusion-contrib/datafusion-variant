@@ -38,9 +38,6 @@ impl Default for JsonToVariantUdf {
 }
 
 impl ScalarUDFImpl for JsonToVariantUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "json_to_variant"

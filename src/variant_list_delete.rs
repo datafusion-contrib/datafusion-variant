@@ -67,9 +67,6 @@ fn delete_list_element(variant_list: Variant, index: usize) -> Result<(Vec<u8>, 
 }
 
 impl ScalarUDFImpl for VariantListDelete {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "variant_list_delete"

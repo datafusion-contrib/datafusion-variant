@@ -31,10 +31,6 @@ fn variant_contains(variant: Option<&Variant<'_, '_>>, path: &VariantPath<'_>) -
 }
 
 impl ScalarUDFImpl for VariantContainsUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn name(&self) -> &str {
         "variant_contains"
     }
