@@ -29,9 +29,6 @@ impl Default for VariantObjectDelete {
 }
 
 impl ScalarUDFImpl for VariantObjectDelete {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "variant_object_delete"

@@ -157,9 +157,6 @@ impl CastToVariantUdf {
 }
 
 impl ScalarUDFImpl for CastToVariantUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "cast_to_variant"

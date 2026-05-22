@@ -28,9 +28,6 @@ impl Default for VariantPretty {
 }
 
 impl ScalarUDFImpl for VariantPretty {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "variant_pretty"

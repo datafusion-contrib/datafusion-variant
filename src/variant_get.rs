@@ -335,9 +335,6 @@ impl Default for VariantGetUdf {
 }
 
 impl ScalarUDFImpl for VariantGetUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "variant_get"
@@ -392,9 +389,6 @@ impl Default for VariantGetFieldUdf {
 }
 
 impl ScalarUDFImpl for VariantGetFieldUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 
     fn name(&self) -> &str {
         "variant_get_field"

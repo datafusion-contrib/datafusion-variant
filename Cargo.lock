@@ -170,8 +170,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 [[package]]
 name = "arrow"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d441fdda254b65f3e9025910eb2c2066b6295d9c8ed409522b8d2ace1ff8574c"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-arith",
  "arrow-array",
@@ -191,8 +190,7 @@ dependencies = [
 [[package]]
 name = "arrow-arith"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ced5406f8b720cc0bc3aa9cf5758f93e8593cda5490677aa194e4b4b383f9a59"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -205,8 +203,7 @@ dependencies = [
 [[package]]
 name = "arrow-array"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "772bd34cacdda8baec9418d80d23d0fb4d50ef0735685bd45158b83dfeb6e62d"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "ahash",
  "arrow-buffer",
@@ -215,7 +212,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "half",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "num-complex",
  "num-integer",
  "num-traits",
@@ -224,8 +221,7 @@ dependencies = [
 [[package]]
 name = "arrow-buffer"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "898f4cf1e9598fdb77f356fdf2134feedfd0ee8d5a4e0a5f573e7d0aec16baa4"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "bytes",
  "half",
@@ -236,8 +232,7 @@ dependencies = [
 [[package]]
 name = "arrow-cast"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0127816c96533d20fc938729f48c52d3e48f99717e7a0b5ade77d742510736d"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -258,8 +253,7 @@ dependencies = [
 [[package]]
 name = "arrow-csv"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca025bd0f38eeecb57c2153c0123b960494138e6a957bbda10da2b25415209fe"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -273,8 +267,7 @@ dependencies = [
 [[package]]
 name = "arrow-data"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42d10beeab2b1c3bb0b53a00f7c944a178b622173a5c7bcabc3cb45d90238df4"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-buffer",
  "arrow-schema",
@@ -286,8 +279,7 @@ dependencies = [
 [[package]]
 name = "arrow-ipc"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "609a441080e338147a84e8e6904b6da482cefb957c5cdc0f3398872f69a315d0"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -302,14 +294,14 @@ dependencies = [
 [[package]]
 name = "arrow-json"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ead0914e4861a531be48fe05858265cf854a4880b9ed12618b1d08cba9bebc8"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-cast",
- "arrow-data",
+ "arrow-ord",
  "arrow-schema",
+ "arrow-select",
  "chrono",
  "half",
  "indexmap",
@@ -326,8 +318,7 @@ dependencies = [
 [[package]]
 name = "arrow-ord"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "763a7ba279b20b52dad300e68cfc37c17efa65e68623169076855b3a9e941ca5"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -339,8 +330,7 @@ dependencies = [
 [[package]]
 name = "arrow-row"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e14fe367802f16d7668163ff647830258e6e0aeea9a4d79aaedf273af3bdcd3e"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -352,8 +342,7 @@ dependencies = [
 [[package]]
 name = "arrow-schema"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c30a1365d7a7dc50cc847e54154e6af49e4c4b0fddc9f607b687f29212082743"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "serde_core",
  "serde_json",
@@ -362,8 +351,7 @@ dependencies = [
 [[package]]
 name = "arrow-select"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78694888660a9e8ac949853db393af2a8b8fc82c19ce333132dfa2e72cc1a7fe"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "ahash",
  "arrow-array",
@@ -376,8 +364,7 @@ dependencies = [
 [[package]]
 name = "arrow-string"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61e04a01f8bb73ce54437514c5fd3ee2aa3e8abe4c777ee5cc55853b1652f79e"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -2037,6 +2024,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashbrown"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2657,8 +2650,7 @@ dependencies = [
 [[package]]
 name = "parquet"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d3f9f2205199603564127932b89695f52b62322f541d0fc7179d57c2e1c9877"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "ahash",
  "arrow-array",
@@ -2674,7 +2666,7 @@ dependencies = [
  "flate2",
  "futures",
  "half",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "lz4_flex",
  "num-bigint",
  "num-integer",
@@ -2693,13 +2685,14 @@ dependencies = [
 [[package]]
 name = "parquet-variant"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bf493f3c9ddd984d0efb019f67343e4aa4bab893931f6a14b82083065dc3d28"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
+ "arrow",
  "arrow-schema",
  "chrono",
  "half",
  "indexmap",
+ "num-traits",
  "simdutf8",
  "uuid",
 ]
@@ -2707,8 +2700,7 @@ dependencies = [
 [[package]]
 name = "parquet-variant-compute"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ac038d46a503a7d563b4f5df5802c4315d5343d009feab195d15ac512b4cb27"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -2724,8 +2716,7 @@ dependencies = [
 [[package]]
 name = "parquet-variant-json"
 version = "58.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "015a09c2ffe5108766c7c1235c307b8a3c2ea64eca38455ba1a7f3a7f32f16e2"
+source = "git+https://github.com/pydantic/arrow-rs.git?branch=main#a3dbc154af4b9f6aebf38b4e5343fed176449a8e"
 dependencies = [
  "arrow-schema",
  "base64",
@@ -4364,3 +4355,178 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "datafusion"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-catalog"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-catalog-listing"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-common"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-common-runtime"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-datasource"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-datasource-arrow"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-datasource-avro"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-datasource-csv"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-datasource-json"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-datasource-parquet"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-doc"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-execution"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-expr"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-expr-common"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-functions"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-functions-aggregate"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-functions-aggregate-common"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-functions-nested"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-functions-table"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-functions-window"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-functions-window-common"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-macros"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-optimizer"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-physical-expr"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-physical-expr-adapter"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-physical-expr-common"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-physical-optimizer"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-physical-plan"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-pruning"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-session"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-spark"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-sql"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-sqllogictest"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
+
+[[patch.unused]]
+name = "datafusion-substrait"
+version = "53.1.0"
+source = "git+https://github.com/pydantic/datafusion.git?branch=pydantic-main#15bb745c3aab36c48fffe31751d66802a2e12200"
