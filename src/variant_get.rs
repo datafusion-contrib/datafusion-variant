@@ -996,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn test_int_scalar_float_value_returns_null() {
+    fn test_int_scalar_float_value_coerces() {
         let variant_input = variant_scalar_from_json(serde_json::json!({
             "price": 10.5
         }));
@@ -1011,8 +1011,10 @@ mod tests {
 
         let result = udf.invoke_with_args(args).unwrap();
 
-        let ColumnarValue::Scalar(ScalarValue::Int64(None)) = result else {
-            panic!("expected NULL Int64 scalar");
+        // parquet-variant 59 coerces numeric variants to the requested type,
+        // truncating floats toward zero (10.5 -> 10) rather than returning NULL.
+        let ColumnarValue::Scalar(ScalarValue::Int64(Some(10))) = result else {
+            panic!("expected Int64(10) from float coercion, got {result:?}");
         };
     }
 
@@ -1404,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bool_scalar_int_value_returns_null() {
+    fn test_bool_scalar_int_value_coerces() {
         let variant_input = variant_scalar_from_json(serde_json::json!({
             "count": 1
         }));
@@ -1419,8 +1421,10 @@ mod tests {
 
         let result = udf.invoke_with_args(args).unwrap();
 
-        let ColumnarValue::Scalar(ScalarValue::Boolean(None)) = result else {
-            panic!("expected NULL Boolean scalar");
+        // parquet-variant 59 coerces numeric variants to boolean (nonzero -> true)
+        // rather than returning NULL.
+        let ColumnarValue::Scalar(ScalarValue::Boolean(Some(true))) = result else {
+            panic!("expected Boolean(true) from int coercion, got {result:?}");
         };
     }
 
@@ -1532,10 +1536,10 @@ mod tests {
 
         let bool_arr = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
         assert_eq!(bool_arr.len(), 4);
-        assert!(bool_arr.value(0));
-        assert!(bool_arr.is_null(1));
-        assert!(bool_arr.is_null(2));
-        assert!(bool_arr.is_null(3));
+        assert!(bool_arr.value(0)); // active = true
+        assert!(bool_arr.value(1)); // count = 3 coerces to true (parquet-variant 59)
+        assert!(bool_arr.is_null(2)); // name = "alice" is not boolean-castable
+        assert!(bool_arr.is_null(3)); // missing path
     }
 
     fn string_list_scalar(values: &[&str]) -> ScalarValue {
