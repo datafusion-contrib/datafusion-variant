@@ -157,7 +157,6 @@ impl CastToVariantUdf {
 }
 
 impl ScalarUDFImpl for CastToVariantUdf {
-
     fn name(&self) -> &str {
         "cast_to_variant"
     }

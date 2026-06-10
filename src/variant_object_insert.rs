@@ -29,7 +29,6 @@ impl Default for VariantObjectInsert {
 }
 
 impl ScalarUDFImpl for VariantObjectInsert {
-
     fn name(&self) -> &str {
         "variant_object_insert"
     }

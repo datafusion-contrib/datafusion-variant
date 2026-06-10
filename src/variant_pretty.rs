@@ -28,7 +28,6 @@ impl Default for VariantPretty {
 }
 
 impl ScalarUDFImpl for VariantPretty {
-
     fn name(&self) -> &str {
         "variant_pretty"
     }

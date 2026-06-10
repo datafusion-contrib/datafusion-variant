@@ -29,7 +29,6 @@ impl Default for VariantObjectDelete {
 }
 
 impl ScalarUDFImpl for VariantObjectDelete {
-
     fn name(&self) -> &str {
         "variant_object_delete"
     }
