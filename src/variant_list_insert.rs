@@ -29,7 +29,6 @@ impl Default for VariantListInsert {
 }
 
 impl ScalarUDFImpl for VariantListInsert {
-
     fn name(&self) -> &str {
         "variant_list_insert"
     }

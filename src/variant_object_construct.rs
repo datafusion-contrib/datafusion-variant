@@ -29,7 +29,6 @@ impl Default for VariantObjectConstruct {
 }
 
 impl ScalarUDFImpl for VariantObjectConstruct {
-
     fn name(&self) -> &str {
         "variant_object_construct"
     }

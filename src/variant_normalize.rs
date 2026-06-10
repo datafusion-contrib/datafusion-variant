@@ -62,7 +62,6 @@ impl Default for VariantNormalizeUdf {
 }
 
 impl ScalarUDFImpl for VariantNormalizeUdf {
-
     fn name(&self) -> &str {
         "variant_normalize"
     }

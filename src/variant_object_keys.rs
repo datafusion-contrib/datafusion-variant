@@ -45,7 +45,6 @@ fn append_keys_from_variant(v_opt: Option<Variant>, builder: &mut ListBuilder<St
 }
 
 impl ScalarUDFImpl for VariantObjectKeys {
-
     fn name(&self) -> &str {
         "variant_object_keys"
     }

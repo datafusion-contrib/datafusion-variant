@@ -28,7 +28,6 @@ impl Default for VariantListConstruct {
 }
 
 impl ScalarUDFImpl for VariantListConstruct {
-
     fn name(&self) -> &str {
         "variant_list_construct"
     }
