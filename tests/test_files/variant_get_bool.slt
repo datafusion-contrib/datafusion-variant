@@ -48,12 +48,12 @@ NULL
 NULL
 NULL
 
-# non-boolean values return null (integer field)
+# integer fields coerce to boolean (nonzero -> true); rows without `age` are null
 query B
 select variant_get_bool(json_to_variant(json_str), 'age') from json_data;
 ----
-NULL
-NULL
+true
+true
 NULL
 NULL
 NULL
@@ -79,11 +79,11 @@ select variant_get_bool(json_to_variant('{"greeting": "hello world"}'), 'greetin
 ----
 NULL
 
-# scalar variant with numeric value returns null
+# scalar variant with numeric value coerces to boolean (nonzero -> true)
 query B
 select variant_get_bool(json_to_variant('{"count": 42}'), 'count');
 ----
-NULL
+true
 
 # nested boolean path
 query B

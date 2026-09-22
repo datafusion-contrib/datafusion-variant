@@ -48,6 +48,7 @@ NULL
 NULL
 NULL
 
+# float values coerce to Int64 (truncated toward zero); rows without `pi` are null
 query I
 select variant_get_int(json_to_variant(json_str), 'pi') from json_data;
 ----
@@ -58,7 +59,7 @@ NULL
 NULL
 NULL
 NULL
-NULL
+3
 
 # Scalar variant with integer value
 query I

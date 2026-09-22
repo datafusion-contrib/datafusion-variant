@@ -8,15 +8,15 @@ authors = ["Matthew Kim <matthew@pydantic.dev>"]
 
 [dependencies]
 datafusion = "54"
-arrow = "58.3"
-arrow-schema = "58.3"
-parquet-variant-compute = "58.3"
-parquet-variant-json = "58.3"
-parquet-variant = "58.3"
+arrow = "59"
+arrow-schema = "59"
+parquet-variant-compute = "59"
+parquet-variant-json = "59"
+parquet-variant = "59"
 
 [dev-dependencies]
 anyhow = "1.0.100"
-arrow-cast = "58.3"
+arrow-cast = "59"
 serde_json = "1.0.145"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
@@ -26,3 +26,43 @@ indicatif = "0.18"
 env_logger = "0.11"
 insta = "1.43.2"
 rustyline = { version = "14.0", features = ["derive"] }
+
+[patch.crates-io]
+# DataFusion does not yet have a crates.io release built against arrow 59.
+# Point at apache/datafusion PR #22744 (alamb/update_arrow_59), which updates
+# DataFusion to arrow/parquet 59.0.0, so the whole graph resolves to a single
+# arrow 59 major. Drop this patch once a DataFusion release ships arrow 59.
+datafusion = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-catalog = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-catalog-listing = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-common = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-common-runtime = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-datasource = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-datasource-arrow = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-datasource-avro = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-datasource-csv = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-datasource-json = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-datasource-parquet = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-doc = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-execution = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-expr = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-expr-common = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-functions = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-functions-aggregate = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-functions-aggregate-common = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-functions-nested = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-functions-table = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-functions-window = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-functions-window-common = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-macros = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-optimizer = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-physical-expr = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-physical-expr-adapter = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-physical-expr-common = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-physical-optimizer = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-physical-plan = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-pruning = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-session = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-spark = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-sql = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
+datafusion-sqllogictest = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/update_arrow_59" }
