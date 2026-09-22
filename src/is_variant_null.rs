@@ -27,7 +27,6 @@ impl Default for IsVariantNullUdf {
 }
 
 impl ScalarUDFImpl for IsVariantNullUdf {
-
     fn name(&self) -> &str {
         "is_variant_null"
     }

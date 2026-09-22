@@ -38,7 +38,6 @@ impl Default for JsonToVariantUdf {
 }
 
 impl ScalarUDFImpl for JsonToVariantUdf {
-
     fn name(&self) -> &str {
         "json_to_variant"
     }
