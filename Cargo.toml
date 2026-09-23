@@ -15,6 +15,7 @@ parquet-variant-json = "59"
 parquet-variant = "59"
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false }
 anyhow = "1.0.100"
 arrow-cast = "59"
 serde_json = "1.0.145"
@@ -26,6 +27,10 @@ indicatif = "0.18"
 env_logger = "0.11"
 insta = "1.43.2"
 rustyline = { version = "14.0", features = ["derive"] }
+
+[[bench]]
+name = "variant_get"
+harness = false
 
 [patch.crates-io]
 # DataFusion does not yet have a crates.io release built against arrow 59.
