@@ -1,0 +1,42 @@
+# tests the variant_length udf
+
+query I
+SELECT variant_length(json_to_variant('[1, 2, 3]'), '');
+----
+3
+
+query I
+SELECT variant_length(json_to_variant('{"a": 1, "b": 2}'), '');
+----
+2
+
+query I
+SELECT variant_length(json_to_variant('{"a": [1, 2, 3, 4]}'), 'a');
+----
+4
+
+query I
+SELECT variant_length(json_to_variant('42'), '');
+----
+NULL
+
+query I
+SELECT variant_length(json_to_variant('null'), '');
+----
+NULL
+
+statement ok
+create table length_data(json_data text) as values
+  ('[1, 2]'),
+  ('{"a": 1, "b": 2, "c": 3}'),
+  ('42'),
+  (null);
+
+query I
+select variant_length(json_to_variant(json_data), '')
+from length_data;
+----
+2
+3
+NULL
+NULL
