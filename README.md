@@ -26,9 +26,11 @@ cargo test --test sqllogictests
 ## Benchmarks
 
 The `variant_get` benchmark extracts the literal field `a` from 8,192 unshredded
-Variant objects containing deterministic Int64 values. It compares Variant output
-(`variant_get`), an explicit `Int64` type hint (`variant_get_int64`), and the typed
-helper (`variant_get_int`). Timings include argument cloning (shared input buffers),
+Variant objects containing deterministic Int64, Float64, Boolean, or string values.
+Each input type compares Variant output, an explicit type hint (strings use
+`Utf8View`), and its typed helper (`variant_get_int`, `variant_get_float`,
+`variant_get_bool`, or `variant_get_str`), for 12 cases total.
+Timings include argument cloning (shared input buffers),
 UDF execution, and output disposal. Input construction, return-field resolution,
 and output correctness checks run outside timing; SQL planning and I/O are excluded.
 Results include time per batch and rows/second.
