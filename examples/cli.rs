@@ -5,9 +5,9 @@ use datafusion::execution::FunctionRegistry;
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::*;
 use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantExprPlanner, VariantGetUdf,
-    VariantListConstruct, VariantListInsert, VariantObjectConstruct, VariantObjectInsert,
-    VariantObjectKeys, VariantPretty, VariantToJsonUdf,
+    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantContainsUdf, VariantExprPlanner,
+    VariantGetUdf, VariantListConstruct, VariantListInsert, VariantObjectConstruct,
+    VariantObjectInsert, VariantObjectKeys, VariantPretty, VariantToJsonUdf,
 };
 use flate2::read::GzDecoder;
 use rustyline::error::ReadlineError;
@@ -113,6 +113,7 @@ async fn main() -> Result<()> {
         ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantContainsUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantGetUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));

@@ -23,9 +23,6 @@ macro_rules! impl_variant_get_typed {
         }
 
         impl ScalarUDFImpl for $struct_name {
-            fn as_any(&self) -> &dyn std::any::Any {
-                self
-            }
 
             fn name(&self) -> &str {
                 $func_name
