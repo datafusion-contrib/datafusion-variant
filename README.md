@@ -123,13 +123,22 @@ Run the extraction benchmarks:
 cargo bench --bench variant_get
 ```
 
-The suite compares `variant_get`, explicit type hints, and typed helpers.
-See [the benchmark source](benches/variant_get.rs) for the workloads.
+The suite has two groups, both using 8,192 rows and the literal path `a`:
 
-The `storage_layout` cases extract the literal field `a` as Variant from the
-same 8,192 two-field objects in three layouts: unshredded, fully shredded, and
-partially shredded (only sibling field `b` is shredded). Run just these cases
-with `cargo bench --bench variant_get -- storage_layout`.
+- `output_types`: compares Variant output, explicit type hints, and typed helpers
+  for integer, float, boolean, and string values in unshredded objects.
+- `storage_layout`: extracts Variant output from identical two-field objects in
+  unshredded, fully shredded, and partially shredded layouts. The partial layout
+  shreds only sibling field `b`, leaving `a` in binary storage.
+
+Run one group by filtering its name:
+
+```sh
+cargo bench --bench variant_get -- output_types
+cargo bench --bench variant_get -- storage_layout
+```
+
+See [the benchmark source](benches/variant_get.rs) for the workloads.
 
 To compare a change, save a baseline before making it, then rerun afterward:
 
