@@ -1,0 +1,371 @@
+# Ported from Apache Spark variant-field-extractions.sql.
+# Source commit: 5c63836176a2a15a5d43a61f2e18890eb4ac7ece
+# See ../spark/README.md for provenance and the adapted SQL/golden reference files.
+# Special-key cases isolate extraction from casts; see the adaptation notes above.
+
+statement ok
+CREATE VIEW variant_test_data AS
+SELECT
+  json_to_variant('{ "price": 30 }') as int_price_variant,
+  json_to_variant('{ "price": 12345.678 }') as double_price_variant,
+  json_to_variant('{ "name": "John", "age": 30, "city": "New York", "active": true, "scores": [85, 92, 78] }') as multi_field_variant,
+  json_to_variant('{ "item": [ { "model" : "basic", "price" : 6.12 }, { "model" : "medium", "price" : 9.24 } ] }') as array_value_variant,
+  json_to_variant('[{ "id": 1, "name": "Alice" }, { "id": 2, "name": "Bob" }, { "id": 3, "name": "Charlie" }]') as array_variant,
+  json_to_variant('{ "metadata": { "version": "1.0", "tags": ["important", "urgent"], "nested": { "level": 2, "value": "deep" } } }') as nested_variant,
+  json_to_variant('{ "field-name": "value1", "field.name": "value2", "field_name": "value3" }') as special_chars_variant;
+
+# Spark case 01
+# Spark schema: struct<price:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select int_price_variant:price from variant_test_data
+) AS spark_result(c1);
+----
+30
+
+# Spark case 02
+# Spark schema: struct<price:decimal(5,2)>
+# TODO: Support SQL CAST from variant to the requested SQL type.
+skipif DataFusion
+query R
+select int_price_variant:price::decimal(5, 2) from variant_test_data;
+----
+30.00
+
+# Spark case 03
+# Spark schema: struct<price:string>
+# TODO: Support SQL CAST from variant to the requested SQL type.
+skipif DataFusion
+query T
+select int_price_variant:price::string from variant_test_data;
+----
+30
+
+# Spark case 04
+# Spark schema: struct<>
+# Spark expected error: INVALID_VARIANT_CAST (DECIMAL(3,2), value 12345.678)
+# TODO: Implement variant-to-decimal CAST and report overflow (Spark: INVALID_VARIANT_CAST).
+skipif DataFusion
+statement error INVALID_VARIANT_CAST
+select double_price_variant:price::decimal(3, 2) from variant_test_data;
+
+# Spark case 05
+# Spark schema: struct<name:variant,age:variant,city:variant>
+query TTT
+SELECT variant_to_json(c1), variant_to_json(c2), variant_to_json(c3)
+FROM (
+  select multi_field_variant:name, multi_field_variant:age, multi_field_variant:city from variant_test_data
+) AS spark_result(c1, c2, c3);
+----
+"John" 30 "New York"
+
+# Spark case 06
+# Spark schema: struct<name:string,age:int,active:boolean>
+# TODO: Support SQL CAST from variant to the requested SQL type.
+skipif DataFusion
+query TIB
+select multi_field_variant:name::string, multi_field_variant:age::int, multi_field_variant:active::boolean from variant_test_data;
+----
+John 30 true
+
+# Spark case 07
+# Spark schema: struct<name:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select multi_field_variant:['name'] from variant_test_data
+) AS spark_result(c1);
+----
+"John"
+
+# Spark case 08
+# Spark schema: struct<age:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select multi_field_variant:['age'] from variant_test_data
+) AS spark_result(c1);
+----
+30
+
+# Spark case 09
+# Spark schema: struct<model:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_value_variant:item[0].model from variant_test_data
+) AS spark_result(c1);
+----
+"basic"
+
+# Spark case 10
+# Spark schema: struct<price:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_value_variant:item[0].price from variant_test_data
+) AS spark_result(c1);
+----
+6.12
+
+# Spark case 11
+# Spark schema: struct<model:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_value_variant:item[1].model from variant_test_data
+) AS spark_result(c1);
+----
+"medium"
+
+# Spark case 12
+# Spark schema: struct<price:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_value_variant:item[1].price from variant_test_data
+) AS spark_result(c1);
+----
+9.24
+
+# Spark case 13
+# Spark schema: struct<id:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_variant:[0].id from variant_test_data
+) AS spark_result(c1);
+----
+1
+
+# Spark case 14
+# Spark schema: struct<name:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_variant:[0].name from variant_test_data
+) AS spark_result(c1);
+----
+"Alice"
+
+# Spark case 15
+# Spark schema: struct<id:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_variant:[1].id from variant_test_data
+) AS spark_result(c1);
+----
+2
+
+# Spark case 16
+# Spark schema: struct<name:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select array_variant:[1].name from variant_test_data
+) AS spark_result(c1);
+----
+"Bob"
+
+# Spark case 17
+# Spark schema: struct<version:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select nested_variant:metadata.version from variant_test_data
+) AS spark_result(c1);
+----
+"1.0"
+
+# Spark case 18
+# Spark schema: struct<tags:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select nested_variant:metadata.tags[0] from variant_test_data
+) AS spark_result(c1);
+----
+"important"
+
+# Spark case 19
+# Spark schema: struct<level:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select nested_variant:metadata.nested.level from variant_test_data
+) AS spark_result(c1);
+----
+2
+
+# Spark case 20
+# Spark schema: struct<value:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select nested_variant:metadata.nested.value from variant_test_data
+) AS spark_result(c1);
+----
+"deep"
+
+# Spark case 21
+# Spark schema: struct<version:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select nested_variant:metadata['version'] from variant_test_data
+) AS spark_result(c1);
+----
+"1.0"
+
+# Spark case 22
+# Spark schema: struct<tags:variant>
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select nested_variant:metadata['tags'] from variant_test_data
+) AS spark_result(c1);
+----
+["important","urgent"]
+
+# Special-key extraction is tested independently of SQL string casts.
+# Spark cases 23-28 also use ::string; case 03 covers that conversion separately.
+# The original combined queries remain in ../spark/variant-field-extractions.sql.
+
+# Spark case 23 (extraction only)
+# TODO: Decode backtick-quoted field names; this currently returns SQL NULL.
+skipif DataFusion
+query T
+SELECT variant_to_json(special_chars_variant:`field-name`) FROM variant_test_data;
+----
+"value1"
+
+# Spark case 24 (extraction only)
+query T
+SELECT variant_to_json(special_chars_variant:['field-name']) FROM variant_test_data;
+----
+"value1"
+
+# Spark case 25 (extraction only)
+query T
+SELECT variant_to_json(special_chars_variant:field_name) FROM variant_test_data;
+----
+"value3"
+
+# Spark case 26 (extraction only)
+query T
+SELECT variant_to_json(special_chars_variant:['field_name']) FROM variant_test_data;
+----
+"value3"
+
+# Spark case 27 (extraction only)
+# Spark also returns SQL NULL for this backtick-quoted dotted key.
+query B
+SELECT (special_chars_variant:`field.name`) IS NULL FROM variant_test_data;
+----
+true
+
+# Spark case 28 (extraction only)
+query T
+SELECT variant_to_json(special_chars_variant:['field.name']) FROM variant_test_data;
+----
+"value2"
+
+# Spark case 29
+# Spark schema: struct<(CAST(variant_get(multi_field_variant, $.scores[0]) AS scores AS INT) + CAST(variant_get(multi_field_variant, $.scores[1]) AS scores AS INT)):int>
+# TODO: Support SQL casts of extracted variants and arithmetic on the converted values.
+skipif DataFusion
+query I
+select multi_field_variant:scores[0]::int + multi_field_variant:scores[1]::int from variant_test_data;
+----
+177
+
+# Spark case 30
+# Spark schema: struct<count(1):bigint>
+# TODO: Support Spark explode and SQL CAST from variant to ARRAY<INT>.
+skipif DataFusion
+query I
+select count(*) from (select explode(cast(multi_field_variant:scores as array<int>)) as score from variant_test_data);
+----
+3
+
+# Spark case 31
+# Spark schema: struct<int_price_variant:variant,double_price_variant:variant,multi_field_variant:variant,array_value_variant:variant,array_variant:variant,nested_variant:variant,special_chars_variant:variant>
+query TTTTTTT
+SELECT variant_to_json(c1), variant_to_json(c2), variant_to_json(c3), variant_to_json(c4), variant_to_json(c5), variant_to_json(c6), variant_to_json(c7)
+FROM (
+  select * from variant_test_data
+) AS spark_result(c1, c2, c3, c4, c5, c6, c7);
+----
+{"price":30} {"price":12345.678} {"active":true,"age":30,"city":"New York","name":"John","scores":[85,92,78]} {"item":[{"model":"basic","price":6.12},{"model":"medium","price":9.24}]} [{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},{"id":3,"name":"Charlie"}] {"metadata":{"nested":{"level":2,"value":"deep"},"tags":["important","urgent"],"version":"1.0"}} {"field-name":"value1","field.name":"value2","field_name":"value3"}
+
+# Spark case 32
+# Spark schema: struct<>
+# Spark expected error: PARSE_SYNTAX_ERROR (*)
+statement error ParserError.*found: \*
+select multi_field_variant:* from variant_test_data;
+
+# Spark case 33
+# Spark schema: struct<typeof(variant_get(multi_field_variant, $.name) AS name):string>
+# TODO: Provide Spark typeof with the logical variant type name.
+skipif DataFusion
+query T
+select typeof(multi_field_variant:name) from variant_test_data;
+----
+variant
+
+# Spark case 34
+# Spark schema: struct<typeof(variant_get(multi_field_variant, $.age) AS age):string>
+# TODO: Provide Spark typeof with the logical variant type name.
+skipif DataFusion
+query T
+select typeof(multi_field_variant:age) from variant_test_data;
+----
+variant
+
+# Spark case 35
+# Spark schema: struct<typeof(variant_get(multi_field_variant, $.active) AS active):string>
+# TODO: Provide Spark typeof with the logical variant type name.
+skipif DataFusion
+query T
+select typeof(multi_field_variant:active) from variant_test_data;
+----
+variant
+
+# Spark case 36
+# Spark schema: struct<typeof(variant_get(multi_field_variant, $.scores) AS scores):string>
+# TODO: Provide Spark typeof with the logical variant type name.
+skipif DataFusion
+query T
+select typeof(multi_field_variant:scores) from variant_test_data;
+----
+variant
+
+# Spark case 37
+# Spark schema: struct<(variant_get(multi_field_variant, $.missing_field) AS missing_field IS NULL):boolean>
+# Spark isnull(expr) is expressed as the equivalent SQL predicate.
+query B
+select (multi_field_variant:missing_field) IS NULL from variant_test_data;
+----
+true
+
+# Spark case 38
+# Spark schema: struct<(variant_get(multi_field_variant, $.name) AS name IS NOT NULL):boolean>
+# Spark isnotnull(expr) is expressed as the equivalent SQL predicate.
+query B
+select (multi_field_variant:name) IS NOT NULL from variant_test_data;
+----
+true
+
+# Spark case 39
+# Spark schema: struct<coalesce(variant_get(multi_field_variant, $.missing_field) AS missing_field, default_value):variant>
+# TODO: Support common-type coercion between variant and string in coalesce.
+skipif DataFusion
+query T
+SELECT variant_to_json(c1)
+FROM (
+  select coalesce(multi_field_variant:missing_field, 'default_value') from variant_test_data
+) AS spark_result(c1);
+----
+"default_value"
