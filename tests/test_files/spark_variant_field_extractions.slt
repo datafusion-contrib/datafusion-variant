@@ -6,6 +6,7 @@
 # Case numbers follow Spark; cases 23-28 isolate extraction from SQL string casts.
 # Skipped cases retain Spark expectations. Validated against Spark 4.2.0.
 
+# Create temp view with Variant columns for testing field extraction and type casting.
 statement ok
 CREATE VIEW variant_test_data AS
 SELECT
@@ -17,6 +18,7 @@ SELECT
   json_to_variant('{ "metadata": { "version": "1.0", "tags": ["important", "urgent"], "nested": { "level": 2, "value": "deep" } } }') as nested_variant,
   json_to_variant('{ "field-name": "value1", "field.name": "value2", "field_name": "value3" }') as special_chars_variant;
 
+# Single field extraction and type casting.
 # Spark case 01
 # Spark schema: struct<price:variant>
 query T
@@ -45,6 +47,7 @@ select int_price_variant:price::string from variant_test_data;
 ----
 30
 
+# Applying an invalid function -- will throw an error.
 # Spark case 04
 # Spark schema: struct<>
 # Spark expected error: INVALID_VARIANT_CAST (DECIMAL(3,2), value 12345.678)
@@ -53,6 +56,7 @@ skipif DataFusion
 statement error INVALID_VARIANT_CAST
 select double_price_variant:price::decimal(3, 2) from variant_test_data;
 
+# Multi-field access.
 # Spark case 05
 # Spark schema: struct<name:variant,age:variant,city:variant>
 query TTT
@@ -92,6 +96,7 @@ FROM (
 ----
 30
 
+# Array value access.
 # Spark case 09
 # Spark schema: struct<model:variant>
 query T
@@ -132,6 +137,7 @@ FROM (
 ----
 9.24
 
+# Array access.
 # Spark case 13
 # Spark schema: struct<id:variant>
 query T
@@ -172,6 +178,7 @@ FROM (
 ----
 "Bob"
 
+# Nested field access.
 # Spark case 17
 # Spark schema: struct<version:variant>
 query T
@@ -232,6 +239,7 @@ FROM (
 ----
 ["important","urgent"]
 
+# Special characters.
 # Special-key extraction is tested independently of SQL string casts.
 # Spark cases 23-28 also use ::string; case 03 covers that conversion separately.
 
@@ -261,6 +269,7 @@ SELECT variant_to_json(special_chars_variant:['field_name']) FROM variant_test_d
 ----
 "value3"
 
+# Not supported; will return NULL.
 # Spark case 27 (extraction only)
 # Spark also returns SQL NULL for this backtick-quoted dotted key.
 query B
@@ -268,12 +277,14 @@ SELECT (special_chars_variant:`field.name`) IS NULL FROM variant_test_data;
 ----
 true
 
+# Using [] is okay.
 # Spark case 28 (extraction only)
 query T
 SELECT variant_to_json(special_chars_variant:['field.name']) FROM variant_test_data;
 ----
 "value2"
 
+# Array operations on Variant arrays.
 # Spark case 29
 # Spark schema: struct<(CAST(variant_get(multi_field_variant, $.scores[0]) AS scores AS INT) + CAST(variant_get(multi_field_variant, $.scores[1]) AS scores AS INT)):int>
 # TODO: Support SQL casts of extracted variants and arithmetic on the converted values.
@@ -292,6 +303,7 @@ select count(*) from (select explode(cast(multi_field_variant:scores as array<in
 ----
 3
 
+# ASTERISK syntax.
 # Spark case 31
 # Spark schema: struct<int_price_variant:variant,double_price_variant:variant,multi_field_variant:variant,array_value_variant:variant,array_variant:variant,nested_variant:variant,special_chars_variant:variant>
 query TTTTTTT
@@ -302,12 +314,14 @@ FROM (
 ----
 {"price":30} {"price":12345.678} {"active":true,"age":30,"city":"New York","name":"John","scores":[85,92,78]} {"item":[{"model":"basic","price":6.12},{"model":"medium","price":9.24}]} [{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},{"id":3,"name":"Charlie"}] {"metadata":{"nested":{"level":2,"value":"deep"},"tags":["important","urgent"],"version":"1.0"}} {"field-name":"value1","field.name":"value2","field_name":"value3"}
 
+# Not supported; will throw an error.
 # Spark case 32
 # Spark schema: struct<>
 # Spark expected error: PARSE_SYNTAX_ERROR (*)
 statement error ParserError.*found: \*
 select multi_field_variant:* from variant_test_data;
 
+# Type checking: The result of the following would all be 'variant'.
 # Spark case 33
 # Spark schema: struct<typeof(variant_get(multi_field_variant, $.name) AS name):string>
 # TODO: Provide Spark typeof with the logical variant type name.
@@ -344,6 +358,7 @@ select typeof(multi_field_variant:scores) from variant_test_data;
 ----
 variant
 
+# Variant field access with NULL handling.
 # Spark case 37
 # Spark schema: struct<(variant_get(multi_field_variant, $.missing_field) AS missing_field IS NULL):boolean>
 # Spark isnull(expr) is expressed as the equivalent SQL predicate.
