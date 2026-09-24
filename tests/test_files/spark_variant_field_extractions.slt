@@ -371,3 +371,32 @@ FROM (
 ) AS spark_result(c1);
 ----
 "default_value"
+
+# Additional path cases verified on Spark 4.2.0, outside the pinned source suite.
+statement ok
+CREATE VIEW additional_path_data AS
+SELECT json_to_variant('{"name":"lower","field name":"space","a]b":"bracket"}') AS v;
+
+# Backticks around an ordinary field name.
+# TODO: Decode backtick-quoted field names; this currently returns SQL NULL.
+skipif DataFusion
+query T
+SELECT variant_to_json(v:`name`) FROM additional_path_data;
+----
+"lower"
+
+# Backticks around a field name containing a space.
+# TODO: Decode backtick-quoted field names; this currently returns SQL NULL.
+skipif DataFusion
+query T
+SELECT variant_to_json(v:`field name`) FROM additional_path_data;
+----
+"space"
+
+# A closing bracket inside a quoted field name is part of the key.
+# TODO: Preserve quoted closing brackets; the getter currently reports a path-parser error.
+skipif DataFusion
+query T
+SELECT variant_to_json(v:['a]b']) FROM additional_path_data;
+----
+"bracket"
