@@ -1,6 +1,6 @@
 use std::{hint::black_box, sync::Arc};
 
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray};
+use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray};
 use arrow_schema::{DataType, Field};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use datafusion::{
@@ -11,7 +11,7 @@ use datafusion_variant::{
     VariantGetBoolUdf, VariantGetFloatUdf, VariantGetIntUdf, VariantGetStrUdf, VariantGetUdf,
 };
 use parquet_variant::{Variant, VariantBuilderExt};
-use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType};
+use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType, shred_variant};
 
 const ROWS: usize = 8192;
 
@@ -126,6 +126,60 @@ fn bench_values(
     group.finish();
 }
 
+fn bench_storage_layouts(c: &mut Criterion, values: &[Variant<'_, '_>]) {
+    let mut builder = VariantArrayBuilder::new(ROWS);
+    for (row, value) in values.iter().enumerate() {
+        builder
+            .new_object()
+            .with_field("a", value.clone())
+            .with_field("b", format!("value_{row}").as_str())
+            .finish();
+    }
+    let unshredded = builder.build();
+    let fully_shredded = shred_variant(
+        &unshredded,
+        &DataType::Struct(
+            vec![
+                Field::new("a", DataType::Int64, true),
+                Field::new("b", DataType::Utf8, true),
+            ]
+            .into(),
+        ),
+    )
+    .unwrap();
+    // Shred only the sibling field, leaving a in binary storage to exercise
+    // fallback within a partially shredded object.
+    let partially_shredded = shred_variant(
+        &unshredded,
+        &DataType::Struct(vec![Field::new("b", DataType::Utf8, true)].into()),
+    )
+    .unwrap();
+
+    let udf = VariantGetUdf::default();
+    let mut group = c.benchmark_group("variant_get/storage_layout/literal_a/8192");
+    group.throughput(Throughput::Elements(ROWS as u64));
+    for (name, input, residual_nulls) in [
+        ("unshredded", unshredded, 0),
+        ("fully_shredded", fully_shredded, ROWS),
+        ("partially_shredded", partially_shredded, 0),
+    ] {
+        // Verify storage layouts as well as the extracted values before timing.
+        assert_eq!(input.typed_value_field().is_some(), name != "unshredded");
+        assert_eq!(input.value_field().unwrap().null_count(), residual_nulls);
+        let args = make_args(&udf, &ArrayRef::from(input), None);
+        check_output(udf.invoke_with_args(args.clone()).unwrap(), values, None);
+        group.bench_function(name, |b| {
+            // Match the existing cases: include argument cloning and output drop.
+            b.iter(|| {
+                drop(black_box(
+                    udf.invoke_with_args(black_box(args.clone())).unwrap(),
+                ));
+            });
+        });
+    }
+    group.finish();
+}
+
 fn variant_get(c: &mut Criterion) {
     // Alternate signs and use values outside the i32 range to exercise Int64 storage.
     let integers: Vec<i64> = (0..ROWS)
@@ -134,16 +188,14 @@ fn variant_get(c: &mut Criterion) {
             if i % 2 == 0 { value } else { -value }
         })
         .collect();
+    let integer_values: Vec<_> = integers.iter().copied().map(Variant::from).collect();
     bench_values(
         c,
-        &integers
-            .iter()
-            .copied()
-            .map(Variant::from)
-            .collect::<Vec<_>>(),
+        &integer_values,
         Arc::new(Int64Array::from(integers.clone())),
         &VariantGetIntUdf::default(),
     );
+    bench_storage_layouts(c, &integer_values);
     let floats: Vec<f64> = (0..ROWS)
         .map(|i| (i as f64 - ROWS as f64 / 2.0) / 4.0)
         .collect();

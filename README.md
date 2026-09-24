@@ -126,6 +126,11 @@ cargo bench --bench variant_get
 The suite compares `variant_get`, explicit type hints, and typed helpers.
 See [the benchmark source](benches/variant_get.rs) for the workloads.
 
+The `storage_layout` cases extract the literal field `a` as Variant from the
+same 8,192 two-field objects in three layouts: unshredded, fully shredded, and
+partially shredded (only sibling field `b` is shredded). Run just these cases
+with `cargo bench --bench variant_get -- storage_layout`.
+
 To compare a change, save a baseline before making it, then rerun afterward:
 
 ```sh
