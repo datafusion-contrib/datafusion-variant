@@ -1,7 +1,10 @@
 # Ported from Apache Spark variant-field-extractions.sql.
 # Source commit: 5c63836176a2a15a5d43a61f2e18890eb4ac7ece
-# See ../spark/README.md for provenance and the adapted SQL/golden reference files.
-# Special-key cases isolate extraction from casts; see the adaptation notes above.
+# SQL: https://github.com/apache/spark/blob/5c63836176a2a15a5d43a61f2e18890eb4ac7ece/sql/core/src/test/resources/sql-tests/inputs/variant-field-extractions.sql
+# Results: https://github.com/apache/spark/blob/5c63836176a2a15a5d43a61f2e18890eb4ac7ece/sql/core/src/test/resources/sql-tests/results/variant-field-extractions.sql.out
+# Uses json_to_variant, SQL null predicates, and JSON rendering for variant results.
+# Case numbers follow Spark; cases 23-28 isolate extraction from SQL string casts.
+# Skipped cases retain Spark expectations. Validated against Spark 4.2.0.
 
 statement ok
 CREATE VIEW variant_test_data AS
@@ -231,7 +234,6 @@ FROM (
 
 # Special-key extraction is tested independently of SQL string casts.
 # Spark cases 23-28 also use ::string; case 03 covers that conversion separately.
-# The original combined queries remain in ../spark/variant-field-extractions.sql.
 
 # Spark case 23 (extraction only)
 # TODO: Decode backtick-quoted field names; this currently returns SQL NULL.
