@@ -1,8 +1,11 @@
 use std::{hint::black_box, sync::Arc};
 
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray};
+use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray};
 use arrow_schema::{DataType, Field};
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{
+    BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
+    measurement::WallTime,
+};
 use datafusion::{
     logical_expr::{ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl},
     scalar::ScalarValue,
@@ -11,7 +14,7 @@ use datafusion_variant::{
     VariantGetBoolUdf, VariantGetFloatUdf, VariantGetIntUdf, VariantGetStrUdf, VariantGetUdf,
 };
 use parquet_variant::{Variant, VariantBuilderExt};
-use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType};
+use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType, shred_variant};
 
 const ROWS: usize = 8192;
 
@@ -77,7 +80,7 @@ fn check_output(output: ColumnarValue, values: &[Variant<'_, '_>], expected: Opt
 }
 
 fn bench_values(
-    c: &mut Criterion,
+    group: &mut BenchmarkGroup<'_, WallTime>,
     values: &[Variant<'_, '_>],
     expected: ArrayRef,
     helper: &dyn ScalarUDFImpl,
@@ -96,26 +99,69 @@ fn bench_values(
         (helper.name(), helper, None),
     ];
 
-    // Preserve the original integer benchmark IDs and saved baselines.
-    let suffix = if expected.data_type() == &DataType::Int64 {
-        String::new()
-    } else {
-        format!("/{type_hint}")
-    };
-    let mut group = c.benchmark_group(format!(
-        "variant_get/unshredded_object/literal_a{suffix}/8192"
-    ));
-    group.throughput(Throughput::Elements(ROWS as u64));
-    for (name, udf, type_hint) in cases {
-        let args = make_args(udf, &input, type_hint);
+    for (name, udf, hint) in cases {
+        let args = make_args(udf, &input, hint);
         check_output(
             udf.invoke_with_args(args.clone()).unwrap(),
             values,
             (name != "variant_get").then_some(&expected),
         );
-        group.bench_function(name, |b| {
+        group.bench_function(BenchmarkId::new(format!("{type_hint}/{name}"), ROWS), |b| {
             // Invocation consumes its arguments; cloning shares the input buffers.
             // Include argument cloning, path parsing, and output allocation/drop.
+            b.iter(|| {
+                drop(black_box(
+                    udf.invoke_with_args(black_box(args.clone())).unwrap(),
+                ));
+            });
+        });
+    }
+}
+
+fn bench_storage_layouts(c: &mut Criterion, values: &[Variant<'_, '_>]) {
+    let mut builder = VariantArrayBuilder::new(ROWS);
+    for (row, value) in values.iter().enumerate() {
+        builder
+            .new_object()
+            .with_field("a", value.clone())
+            .with_field("b", format!("value_{row}").as_str())
+            .finish();
+    }
+    let unshredded = builder.build();
+    let fully_shredded = shred_variant(
+        &unshredded,
+        &DataType::Struct(
+            vec![
+                Field::new("a", DataType::Int64, true),
+                Field::new("b", DataType::Utf8, true),
+            ]
+            .into(),
+        ),
+    )
+    .unwrap();
+    // Shred only the sibling field, leaving a in binary storage to exercise
+    // fallback within a partially shredded object.
+    let partially_shredded = shred_variant(
+        &unshredded,
+        &DataType::Struct(vec![Field::new("b", DataType::Utf8, true)].into()),
+    )
+    .unwrap();
+
+    let udf = VariantGetUdf::default();
+    let mut group = c.benchmark_group("variant_get/storage_layout");
+    group.throughput(Throughput::Elements(ROWS as u64));
+    for (name, input, residual_nulls) in [
+        ("unshredded", unshredded, 0),
+        ("fully_shredded", fully_shredded, ROWS),
+        ("partially_shredded", partially_shredded, 0),
+    ] {
+        // Verify storage layouts as well as the extracted values before timing.
+        assert_eq!(input.typed_value_field().is_some(), name != "unshredded");
+        assert_eq!(input.value_field().unwrap().null_count(), residual_nulls);
+        let args = make_args(&udf, &ArrayRef::from(input), None);
+        check_output(udf.invoke_with_args(args.clone()).unwrap(), values, None);
+        group.bench_function(BenchmarkId::new(name, ROWS), |b| {
+            // Match the existing cases: include argument cloning and output drop.
             b.iter(|| {
                 drop(black_box(
                     udf.invoke_with_args(black_box(args.clone())).unwrap(),
@@ -127,6 +173,8 @@ fn bench_values(
 }
 
 fn variant_get(c: &mut Criterion) {
+    let mut group = c.benchmark_group("variant_get/output_types");
+    group.throughput(Throughput::Elements(ROWS as u64));
     // Alternate signs and use values outside the i32 range to exercise Int64 storage.
     let integers: Vec<i64> = (0..ROWS)
         .map(|i| {
@@ -134,13 +182,10 @@ fn variant_get(c: &mut Criterion) {
             if i % 2 == 0 { value } else { -value }
         })
         .collect();
+    let integer_values: Vec<_> = integers.iter().copied().map(Variant::from).collect();
     bench_values(
-        c,
-        &integers
-            .iter()
-            .copied()
-            .map(Variant::from)
-            .collect::<Vec<_>>(),
+        &mut group,
+        &integer_values,
         Arc::new(Int64Array::from(integers.clone())),
         &VariantGetIntUdf::default(),
     );
@@ -148,7 +193,7 @@ fn variant_get(c: &mut Criterion) {
         .map(|i| (i as f64 - ROWS as f64 / 2.0) / 4.0)
         .collect();
     bench_values(
-        c,
+        &mut group,
         &floats
             .iter()
             .copied()
@@ -159,7 +204,7 @@ fn variant_get(c: &mut Criterion) {
     );
     let booleans: Vec<bool> = (0..ROWS).map(|i| i % 2 == 0).collect();
     bench_values(
-        c,
+        &mut group,
         &booleans
             .iter()
             .copied()
@@ -170,7 +215,7 @@ fn variant_get(c: &mut Criterion) {
     );
     let strings: Vec<String> = (0..ROWS).map(|i| format!("value_{i}")).collect();
     bench_values(
-        c,
+        &mut group,
         &strings
             .iter()
             .map(|s| Variant::from(s.as_str()))
@@ -178,6 +223,8 @@ fn variant_get(c: &mut Criterion) {
         Arc::new(StringViewArray::from_iter_values(&strings)),
         &VariantGetStrUdf::default(),
     );
+    group.finish();
+    bench_storage_layouts(c, &integer_values);
 }
 
 criterion_group!(benches, variant_get);
