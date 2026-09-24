@@ -1,60 +1,178 @@
 # datafusion-variant
 
-This crate provides user-defined functions for efficient Variant type handling in Datafusion. Variant types enable semi-structured data storage and querying, supporting JSON-like nested structs with dynamic schemas.
+Variant support for Apache DataFusion, with functions and SQL syntax for
+querying and manipulating semi-structured data.
 
-This crate aims to achieve complete feature parity with Spark and Databricks Variant functions.
+Variant values can contain primitives, objects, and arrays without requiring
+a fixed schema for their contents.
 
-Contributers are welcomed! [Now check this out](https://www.youtube.com/watch?v=1dj1kCrUFCY)
+## Project status
 
-# Status
+This crate is under active development. The compatibility target is
+**Apache Spark 4.2.0**. Compatibility is incomplete, and function names,
+signatures, and behavior may change.
 
-`datafusion-variant` is still under development. Progress is tracked in https://github.com/datafusion-contrib/datafusion-variant/issues/2; once it's closed, the crate's output should be considered stable.
+Basic `:` field access is available. SQL `VARIANT` type integration and
+Variant casts through `::` are planned.
 
-# Usage
+See [#69](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
+for the compatibility roadmap, integration work, and benchmarking plans.
+
+## Getting started
+
+Register the functions you need with a DataFusion `SessionContext`.
+Register `VariantExprPlanner` to enable `:` field access:
+
+```rust
+use std::sync::Arc;
+
+use datafusion::error::Result;
+use datafusion::execution::FunctionRegistry;
+use datafusion::logical_expr::ScalarUDF;
+use datafusion::prelude::SessionContext;
+use datafusion_variant::{JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let mut ctx = SessionContext::new();
+
+    ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
+    ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
+    ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
+
+    ctx.sql(
+        r#"
+        SELECT variant_to_json(
+            json_to_variant('{"name":"Alice","age":30}'):name
+        ) AS name
+        "#,
+    )
+    .await?
+    .show()
+    .await?;
+
+    Ok(())
+}
+```
+
+This returns the JSON string `"Alice"`.
+
+Use compatible DataFusion and Arrow dependencies when embedding the crate.
+See [Cargo.toml](Cargo.toml) for the current versions and dependency patches.
+The example also requires Tokio with its `macros` and `rt-multi-thread`
+features.
+
+## Functionality
+
+The current API includes:
+
+| Area | Functions |
+| --- | --- |
+| JSON conversion | `json_to_variant`, `variant_to_json` |
+| Type conversion | `cast_to_variant` |
+| Field and path access | `variant_get`, `variant_get_field`, `variant_contains` |
+| Typed extraction | `variant_get_int`, `variant_get_float`, `variant_get_bool`, `variant_get_str`, `variant_get_json` |
+| Null inspection | `is_variant_null` |
+| Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
+| Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
+| Utilities | `variant_normalize`, `variant_pretty` |
+
+`variant_get` accepts an optional result type, currently expressed as an
+Arrow type name such as `Int64` or `Utf8View`. `variant_get_field` treats
+its key as a literal field name, allowing access to keys containing dots.
+
+The [Spark field-access tests](tests/test_files/spark_variant_field_extractions.slt)
+record known compatibility gaps.
+
+## Examples
+
+The [CLI example](examples/cli.rs) loads a sample Bluesky JSON dataset
+into an in-memory table named `bsky` and registers Variant functions
+and `:` field access.
+
+From the repository root, download the sample data and choose option `1`:
 
 ```sh
-# run the example
-cargo run --example cli
-
-# run all tests
-cargo test
-
-# run sqllogictests
-cargo test --test sqllogictests
+bash download_data.sh
 ```
+
+Start the CLI:
+
+```sh
+cargo run --example cli
+```
+
+Queries must end with a semicolon:
+
+```sql
+SELECT variant_to_json(json_to_variant(json_data))
+FROM bsky
+LIMIT 5;
+```
+
+Enter `quit` or `q` to exit. The example loads
+`data/bluesky/file_0001.json.gz` into memory before accepting queries.
+
+See [examples](examples) for the source code.
 
 ## Benchmarks
 
-The `variant_get` benchmark extracts the literal field `a` from 8,192 unshredded
-Variant objects containing deterministic Int64, Float64, Boolean, or string values.
-Each input type compares Variant output, an explicit type hint (strings use
-`Utf8View`), and its typed helper (`variant_get_int`, `variant_get_float`,
-`variant_get_bool`, or `variant_get_str`), for 12 cases total.
-Timings include argument cloning (shared input buffers),
-UDF execution, and output disposal. Input construction, return-field resolution,
-and output correctness checks run outside timing; SQL planning and I/O are excluded.
-Results include time per batch and rows/second.
+Run the extraction benchmarks:
 
 ```sh
 cargo bench --bench variant_get
-# Filter to the explicit Int64 type-hint case
-cargo bench --bench variant_get -- variant_get_int64
-# Save a baseline, then compare after changing the implementation
+```
+
+The suite compares `variant_get`, explicit type hints, and typed helpers.
+See [the benchmark source](benches/variant_get.rs) for the workloads.
+
+To compare a change, save a baseline before making it, then rerun afterward:
+
+```sh
+# Before the change
 cargo bench --bench variant_get -- --save-baseline before
+
+# After the change
 cargo bench --bench variant_get -- --baseline before
 ```
 
-Criterion stores baselines under `target/criterion`; preserve that directory and
-use the same machine, build settings, and workload when comparing prototypes.
+Use the same machine and build settings, and preserve `target/criterion`
+between runs. Include relevant results when proposing performance changes.
 
-# Reading
+Broader benchmark coverage is tracked in
+[#19](https://github.com/datafusion-contrib/datafusion-variant/issues/19).
 
-## Specifications
+## Contributing
 
-- Iceberg Variant proposal: https://docs.google.com/document/d/1sq70XDiWJ2DemWyA5dVB80gKzwi0CWoM0LOWM7VJVd8/edit?tab=t.0#heading=h.rt0cvesdzsj7<br>
-- Databricks Variant functions: https://docs.databricks.com/gcp/en/sql/language-manual/sql-ref-functions-builtin#variant-functions<br>
-- Spark Variant functions: https://spark.apache.org/docs/latest/api/sql/search.html?q=variant<br>
+Contributions are welcome, including compatibility fixes, regression tests,
+benchmarks, documentation, and integration examples.
 
-## Miscellaneous
+Use a current stable Rust toolchain with `rustfmt` and `clippy`, and install
+the Protocol Buffers compiler (`protoc`).
 
-- https://datafusion.apache.org/blog/2025/09/21/custom-types-using-metadata
+Run the development checks from the repository root:
+
+```sh
+cargo test
+cargo fmt --all -- --check
+cargo clippy -- -D warnings
+```
+
+For Spark compatibility changes, reference the upstream behavior and add
+regression coverage in the [SQL tests](tests/test_files).
+
+The [issue tracker](https://github.com/datafusion-contrib/datafusion-variant/issues)
+contains individual tasks and discussions. Overall direction is tracked
+in [#69](https://github.com/datafusion-contrib/datafusion-variant/issues/69).
+
+## References
+
+- [Apache Spark 4.2.0 documentation](https://spark.apache.org/docs/4.2.0/)
+- [Parquet Variant encoding](https://parquet.apache.org/docs/file-format/types/variantencoding/)
+- [Arrow canonical extension types](https://arrow.apache.org/docs/format/CanonicalExtensions.html)
+- [Custom types using metadata in DataFusion](https://datafusion.apache.org/blog/2025/09/21/custom-types-using-metadata)
+- [Iceberg Variant proposal — design background](https://docs.google.com/document/d/1sq70XDiWJ2DemWyA5dVB80gKzwi0CWoM0LOWM7VJVd8/edit)
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE.txt).
