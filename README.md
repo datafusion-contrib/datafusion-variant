@@ -151,6 +151,17 @@ cargo bench --bench variant_get -- path_columns
 
 See [the benchmark source](benches/variant_get.rs) for the workloads.
 
+Run serialization benchmarks with `cargo bench --bench variant_to_json`.
+They cover scalar inputs and 8,192-row arrays of integers, Variant nulls,
+escaped strings, and nested values, plus arrays with 25% and 100% SQL NULLs.
+The `storage_layout` groups compare identical integers and escaped strings in
+unshredded and typed-column storage, for both scalar and column inputs.
+Inputs are constructed before timing; measurements include UDF invocation,
+argument cloning, and output allocation/drop. Scalar SQL NULL and shredded objects
+are excluded until their correctness issues are fixed
+([#71](https://github.com/datafusion-contrib/datafusion-variant/issues/71)).
+See [the source](benches/variant_to_json.rs).
+
 To compare a change, save a baseline before making it, then rerun afterward:
 
 ```sh

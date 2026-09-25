@@ -32,6 +32,10 @@ rustyline = { version = "14.0", features = ["derive"] }
 name = "variant_get"
 harness = false
 
+[[bench]]
+name = "variant_to_json"
+harness = false
+
 [patch.crates-io]
 # DataFusion does not yet have a crates.io release built against arrow 59.
 # Point at apache/datafusion PR #22744 (alamb/update_arrow_59), which updates
