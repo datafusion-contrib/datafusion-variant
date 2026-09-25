@@ -15,6 +15,10 @@ parquet-variant-json = "59"
 parquet-variant = "59"
 
 [dev-dependencies]
+clap = { version = "4.6", features = ["derive"] }
+parquet = { version = "59", features = ["variant_experimental"] }
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
 criterion = { version = "0.8", default-features = false }
 anyhow = "1.0.100"
 arrow-cast = "59"
