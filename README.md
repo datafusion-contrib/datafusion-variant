@@ -123,7 +123,7 @@ Run the extraction benchmarks:
 cargo bench --bench variant_get
 ```
 
-The suite has three groups, each using 8,192 rows and literal paths:
+The suite has four groups, each using 8,192 rows. The first three use literal paths:
 
 - `output_types`: compares Variant output, explicit type hints, and typed helpers
   for integer, float, boolean, and string values at path `a` in unshredded objects.
@@ -134,6 +134,11 @@ The suite has three groups, each using 8,192 rows and literal paths:
   documents via `top`, `obj.b.c`, `arr[1][1]`, and `mix[1].b`. The nested paths each
   have three steps; `top` is a one-step control. Timing includes parsing the path
   once per batch, per-row traversal, and output construction.
+- `path_columns`: compares a literal `a`, a UTF-8 column repeating `a`, and a
+  UTF-8 column alternating `a`/`b` over the same unshredded objects containing
+  positive integers at `a` and their negatives at `b`, with Variant output.
+  These call the UDF directly, exercising scalar versus array path dispatch
+  without SQL optimization. Path columns are constructed outside timing.
 
 Run one group by filtering its name:
 
@@ -141,6 +146,7 @@ Run one group by filtering its name:
 cargo bench --bench variant_get -- output_types
 cargo bench --bench variant_get -- storage_layout
 cargo bench --bench variant_get -- path_traversal
+cargo bench --bench variant_get -- path_columns
 ```
 
 See [the benchmark source](benches/variant_get.rs) for the workloads.

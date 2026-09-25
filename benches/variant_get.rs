@@ -1,6 +1,8 @@
 use std::{hint::black_box, sync::Arc};
 
-use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray};
+use arrow::array::{
+    Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringArray, StringViewArray,
+};
 use arrow_schema::{DataType, Field};
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
@@ -24,15 +26,27 @@ fn make_args(
     path: &str,
     type_hint: Option<&str>,
 ) -> ScalarFunctionArgs {
-    let mut args = vec![
-        ColumnarValue::Array(Arc::clone(input)),
+    make_args_with_path(
+        udf,
+        input,
         ColumnarValue::Scalar(ScalarValue::Utf8(Some(path.into()))),
-    ];
+        type_hint,
+    )
+}
+
+fn make_args_with_path(
+    udf: &dyn ScalarUDFImpl,
+    input: &ArrayRef,
+    path: ColumnarValue,
+    type_hint: Option<&str>,
+) -> ScalarFunctionArgs {
+    let path_type = path.data_type();
+    let mut args = vec![ColumnarValue::Array(Arc::clone(input)), path];
     let mut arg_fields = vec![
         Arc::new(
             Field::new("v", input.data_type().clone(), false).with_extension_type(VariantType),
         ),
-        Arc::new(Field::new("path", DataType::Utf8, false)),
+        Arc::new(Field::new("path", path_type, false)),
     ];
     if let Some(type_hint) = type_hint {
         args.push(ColumnarValue::Scalar(ScalarValue::Utf8(Some(
@@ -226,6 +240,58 @@ fn bench_path_traversal(c: &mut Criterion, values: &[Variant<'_, '_>]) {
     group.finish();
 }
 
+fn bench_path_columns(c: &mut Criterion) {
+    let mut builder = VariantArrayBuilder::new(ROWS);
+    let mut values = Vec::with_capacity(ROWS);
+    let mut alternating_values = Vec::with_capacity(ROWS);
+    for row in 0..ROWS {
+        let value = (1_i64 << 40) + row as i64;
+        builder
+            .new_object()
+            .with_field("a", value)
+            .with_field("b", -value)
+            .finish();
+        values.push(Variant::from(value));
+        alternating_values.push(Variant::from(if row % 2 == 0 { value } else { -value }));
+    }
+    let input = ArrayRef::from(builder.build());
+    let repeated = Arc::new(StringArray::from(vec!["a"; ROWS])) as ArrayRef;
+    let alternating = Arc::new(StringArray::from_iter_values(
+        (0..ROWS).map(|row| if row % 2 == 0 { "a" } else { "b" }),
+    )) as ArrayRef;
+    let udf = VariantGetUdf::default();
+    let mut group = c.benchmark_group("variant_get/path_columns");
+    group.throughput(Throughput::Elements(ROWS as u64));
+    // Identical unshredded input for all cases. Distinct a/b values catch
+    // incorrect path reuse; literal and repeated produce identical output.
+    for (name, path, expected) in [
+        (
+            "literal",
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("a".into()))),
+            &values,
+        ),
+        ("repeated", ColumnarValue::Array(repeated), &values),
+        (
+            "alternating",
+            ColumnarValue::Array(alternating),
+            &alternating_values,
+        ),
+    ] {
+        let args = make_args_with_path(&udf, &input, path, None);
+        check_output(udf.invoke_with_args(args.clone()).unwrap(), expected, None);
+        group.bench_function(BenchmarkId::new(name, ROWS), |b| {
+            // Construct path columns outside timing, but include argument
+            // cloning, path parsing, and output allocation/drop as in other groups.
+            b.iter(|| {
+                drop(black_box(
+                    udf.invoke_with_args(black_box(args.clone())).unwrap(),
+                ));
+            });
+        });
+    }
+    group.finish();
+}
+
 fn variant_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("variant_get/output_types");
     group.throughput(Throughput::Elements(ROWS as u64));
@@ -280,6 +346,7 @@ fn variant_get(c: &mut Criterion) {
     group.finish();
     bench_storage_layouts(c, &integer_values);
     bench_path_traversal(c, &integer_values);
+    bench_path_columns(c);
 }
 
 criterion_group!(benches, variant_get);
