@@ -21,11 +21,12 @@ const ROWS: usize = 8192;
 fn make_args(
     udf: &dyn ScalarUDFImpl,
     input: &ArrayRef,
+    path: &str,
     type_hint: Option<&str>,
 ) -> ScalarFunctionArgs {
     let mut args = vec![
         ColumnarValue::Array(Arc::clone(input)),
-        ColumnarValue::Scalar(ScalarValue::Utf8(Some("a".into()))),
+        ColumnarValue::Scalar(ScalarValue::Utf8(Some(path.into()))),
     ];
     let mut arg_fields = vec![
         Arc::new(
@@ -100,7 +101,7 @@ fn bench_values(
     ];
 
     for (name, udf, hint) in cases {
-        let args = make_args(udf, &input, hint);
+        let args = make_args(udf, &input, "a", hint);
         check_output(
             udf.invoke_with_args(args.clone()).unwrap(),
             values,
@@ -158,10 +159,63 @@ fn bench_storage_layouts(c: &mut Criterion, values: &[Variant<'_, '_>]) {
         // Verify storage layouts as well as the extracted values before timing.
         assert_eq!(input.typed_value_field().is_some(), name != "unshredded");
         assert_eq!(input.value_field().unwrap().null_count(), residual_nulls);
-        let args = make_args(&udf, &ArrayRef::from(input), None);
+        let args = make_args(&udf, &ArrayRef::from(input), "a", None);
         check_output(udf.invoke_with_args(args.clone()).unwrap(), values, None);
         group.bench_function(BenchmarkId::new(name, ROWS), |b| {
             // Match the existing cases: include argument cloning and output drop.
+            b.iter(|| {
+                drop(black_box(
+                    udf.invoke_with_args(black_box(args.clone())).unwrap(),
+                ));
+            });
+        });
+    }
+    group.finish();
+}
+
+fn bench_path_traversal(c: &mut Criterion, values: &[Variant<'_, '_>]) {
+    let mut builder = VariantArrayBuilder::new(ROWS);
+    for value in values {
+        // All paths select the same value from the same document. Distinct array
+        // elements make the result checks sensitive to incorrect indexing.
+        let mut row = builder.new_object();
+        row.insert("top", value.clone());
+        let mut object = row.new_object("obj");
+        object
+            .new_object("b")
+            .with_field("c", value.clone())
+            .finish();
+        object.finish();
+        let mut array = row.new_list("arr");
+        array.new_list().with_value(0i64).with_value(1i64).finish();
+        array
+            .new_list()
+            .with_value(2i64)
+            .with_value(value.clone())
+            .finish();
+        array.finish();
+        let mut mixed = row.new_list("mix");
+        mixed.new_object().with_field("b", 0i64).finish();
+        mixed.new_object().with_field("b", value.clone()).finish();
+        mixed.finish();
+        row.finish();
+    }
+    let input = ArrayRef::from(builder.build());
+    let udf = VariantGetUdf::default();
+    let mut group = c.benchmark_group("variant_get/path_traversal");
+    group.throughput(Throughput::Elements(ROWS as u64));
+    // The three nested paths each take three steps; top_level is a one-step control.
+    for (name, path) in [
+        ("top_level", "top"),
+        ("nested_objects", "obj.b.c"),
+        ("nested_arrays", "arr[1][1]"),
+        ("mixed", "mix[1].b"),
+    ] {
+        let args = make_args(&udf, &input, path, None);
+        check_output(udf.invoke_with_args(args.clone()).unwrap(), values, None);
+        group.bench_function(BenchmarkId::new(name, ROWS), |b| {
+            // Match the other groups: include argument cloning, path parsing,
+            // and output allocation/drop, with preparation outside the timed loop.
             b.iter(|| {
                 drop(black_box(
                     udf.invoke_with_args(black_box(args.clone())).unwrap(),
@@ -225,6 +279,7 @@ fn variant_get(c: &mut Criterion) {
     );
     group.finish();
     bench_storage_layouts(c, &integer_values);
+    bench_path_traversal(c, &integer_values);
 }
 
 criterion_group!(benches, variant_get);
