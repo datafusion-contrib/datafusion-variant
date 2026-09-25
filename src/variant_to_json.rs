@@ -71,9 +71,13 @@ impl ScalarUDFImpl for VariantToJsonUdf {
                 };
 
                 let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-                let v = variant_array.value(0);
+                let json = if variant_array.is_null(0) {
+                    None
+                } else {
+                    Some(variant_array.value(0).to_json_string()?)
+                };
 
-                ColumnarValue::Scalar(ScalarValue::Utf8View(Some(v.to_json_string()?)))
+                ColumnarValue::Scalar(ScalarValue::Utf8View(json))
             }
             ColumnarValue::Array(arr) => match arr.data_type() {
                 DataType::Struct(_) => {

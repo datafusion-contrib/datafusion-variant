@@ -129,7 +129,14 @@ fn variant_to_json(c: &mut Criterion) {
         let value = ScalarValue::try_from_array(input(&expected).as_ref(), 0).unwrap();
         bench_input(&mut scalars, name, ColumnarValue::Scalar(value), &expected);
     }
-    // Scalar SQL NULL currently panics (#71); add its measurement with the fix.
+    let expected = [None];
+    let value = ScalarValue::try_from_array(input(&expected).as_ref(), 0).unwrap();
+    bench_input(
+        &mut scalars,
+        "sql_null",
+        ColumnarValue::Scalar(value),
+        &expected,
+    );
     scalars.finish();
 
     let mut arrays = c.benchmark_group("variant_to_json/array");
