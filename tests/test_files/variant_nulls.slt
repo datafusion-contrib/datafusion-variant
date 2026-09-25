@@ -66,27 +66,18 @@ null
 1
 
 # serialize_sql_null_scalar
-# TODO: Preserve SQL NULL during scalar serialization; currently panics.
-# https://github.com/datafusion-contrib/datafusion-variant/issues/71
-skipif DataFusion
 query T
 SELECT variant_to_json(json_to_variant(CAST(NULL AS VARCHAR)));
 ----
 NULL
 
 # serialize_missing_scalar
-# TODO: Preserve SQL NULL for scalar missing paths; currently returns the text 'null'.
-# https://github.com/datafusion-contrib/datafusion-variant/issues/71
-skipif DataFusion
 query T
 SELECT variant_to_json(variant_get(json_to_variant('{"a":null}'), 'missing'));
 ----
 NULL
 
 # serialize_null_input_scalar
-# TODO: Preserve SQL NULL after scalar extraction; currently returns the text 'null'.
-# https://github.com/datafusion-contrib/datafusion-variant/issues/71
-skipif DataFusion
 query T
 SELECT variant_to_json(variant_get(json_to_variant(CAST(NULL AS VARCHAR)), 'a'));
 ----
