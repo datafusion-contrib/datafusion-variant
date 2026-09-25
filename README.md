@@ -123,19 +123,24 @@ Run the extraction benchmarks:
 cargo bench --bench variant_get
 ```
 
-The suite has two groups, both using 8,192 rows and the literal path `a`:
+The suite has three groups, each using 8,192 rows and literal paths:
 
 - `output_types`: compares Variant output, explicit type hints, and typed helpers
-  for integer, float, boolean, and string values in unshredded objects.
+  for integer, float, boolean, and string values at path `a` in unshredded objects.
 - `storage_layout`: extracts Variant output from identical two-field objects in
   unshredded, fully shredded, and partially shredded layouts. The partial layout
   shreds only sibling field `b`, leaving `a` in binary storage.
+- `path_traversal`: extracts the same integer as Variant from the same unshredded
+  documents via `top`, `obj.b.c`, `arr[1][1]`, and `mix[1].b`. The nested paths each
+  have three steps; `top` is a one-step control. Timing includes parsing the path
+  once per batch, per-row traversal, and output construction.
 
 Run one group by filtering its name:
 
 ```sh
 cargo bench --bench variant_get -- output_types
 cargo bench --bench variant_get -- storage_layout
+cargo bench --bench variant_get -- path_traversal
 ```
 
 See [the benchmark source](benches/variant_get.rs) for the workloads.
