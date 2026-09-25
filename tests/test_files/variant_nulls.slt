@@ -1,0 +1,164 @@
+# Missing paths, SQL NULL, and Variant null (issue #70).
+# Based on the Variant spec's distinction between absent and present-null values,
+# with SQL API checks for NULL propagation and scalar/column consistency.
+
+# root_nulls
+query BBBB
+SELECT
+  json_to_variant(CAST(NULL AS VARCHAR)) IS NULL,
+  json_to_variant('null') IS NULL,
+  is_variant_null(json_to_variant('null')),
+  is_variant_null(json_to_variant('1'));
+----
+true false true false
+
+# present_and_missing_scalar
+# Spec: absent members differ from present nulls. Returning SQL NULL is SQL API behavior.
+# https://github.com/apache/parquet-format/blob/2d7b634c7ddba87bbebb3da18a20978b6db399a3/VariantShredding.md#objects
+query BBB
+SELECT
+  variant_get(json_to_variant('{"a":null}'), 'a') IS NULL,
+  is_variant_null(variant_get(json_to_variant('{"a":null}'), 'a')),
+  variant_get(json_to_variant('{"a":null}'), 'missing') IS NULL;
+----
+false true true
+
+# array_null_and_missing
+# Spec: a null element occupies an array position.
+# https://github.com/apache/parquet-format/blob/2d7b634c7ddba87bbebb3da18a20978b6db399a3/VariantEncoding.md#value-encoding
+query BBB
+SELECT
+  variant_get(json_to_variant('[null]'), '[0]') IS NULL,
+  is_variant_null(variant_get(json_to_variant('[null]'), '[0]')),
+  variant_get(json_to_variant('[null]'), '[1]') IS NULL;
+----
+false true true
+
+# traversal_beyond_null
+query BBB
+SELECT
+  variant_get(json_to_variant('{"a":null}'), 'a.missing') IS NULL,
+  variant_get(json_to_variant('null'), 'a') IS NULL,
+  variant_get(json_to_variant(CAST(NULL AS VARCHAR)), 'a') IS NULL;
+----
+true true true
+
+# serialize_variant_null_scalar
+query TT
+SELECT
+  variant_to_json(json_to_variant('null')),
+  variant_to_json(variant_get(json_to_variant('{"a":null}'), 'a'));
+----
+null null
+
+# serialize_root_column
+query T
+SELECT variant_to_json(json_to_variant(v))
+FROM (VALUES
+  (0, CAST(NULL AS VARCHAR)),
+  (1, 'null'),
+  (2, '1')
+) t(id, v)
+ORDER BY id;
+----
+NULL
+null
+1
+
+# serialize_sql_null_scalar
+# https://github.com/datafusion-contrib/datafusion-variant/issues/71
+query T
+SELECT variant_to_json(json_to_variant(CAST(NULL AS VARCHAR)));
+----
+NULL
+
+# serialize_missing_scalar
+# https://github.com/datafusion-contrib/datafusion-variant/issues/71
+query T
+SELECT variant_to_json(variant_get(json_to_variant('{"a":null}'), 'missing'));
+----
+NULL
+
+# serialize_null_input_scalar
+# https://github.com/datafusion-contrib/datafusion-variant/issues/71
+query T
+SELECT variant_to_json(variant_get(json_to_variant(CAST(NULL AS VARCHAR)), 'a'));
+----
+NULL
+
+# column_value_literal_path
+query BT
+SELECT
+  variant_get(json_to_variant(v), 'a') IS NULL,
+  variant_to_json(variant_get(json_to_variant(v), 'a'))
+FROM (VALUES
+  (0, '{"a":null}'),
+  (1, '{}'),
+  (2, CAST(NULL AS VARCHAR)),
+  (3, '{"a":1}')
+) t(id, v)
+ORDER BY id;
+----
+false null
+true NULL
+true NULL
+false 1
+
+# scalar_value_column_path
+query BT
+SELECT
+  variant_get(json_to_variant('{"a":null}'), p) IS NULL,
+  variant_to_json(variant_get(json_to_variant('{"a":null}'), p))
+FROM (VALUES
+  (0, 'a'),
+  (1, 'missing')
+) t(id, p)
+ORDER BY id;
+----
+false null
+true NULL
+
+# column_value_column_path
+query BT
+SELECT
+  variant_get(json_to_variant(v), p) IS NULL,
+  variant_to_json(variant_get(json_to_variant(v), p))
+FROM (VALUES
+  (0, '{"a":null}', 'a'),
+  (1, '{"a":1}',    'missing'),
+  (2, '{"a":1}',    'a')
+) t(id, v, p)
+ORDER BY id;
+----
+false null
+true NULL
+false 1
+
+# sql_null_scalar_column_path
+query BT
+SELECT
+  variant_get(json_to_variant(CAST(NULL AS VARCHAR)), p) IS NULL,
+  variant_to_json(variant_get(json_to_variant(CAST(NULL AS VARCHAR)), p))
+FROM (VALUES
+  (0, 'a'),
+  (1, 'missing')
+) t(id, p)
+ORDER BY id;
+----
+true NULL
+true NULL
+
+# sql_null_column_column_path
+# https://github.com/datafusion-contrib/datafusion-variant/issues/71
+query BT
+SELECT
+  variant_get(json_to_variant(v), p) IS NULL,
+  variant_to_json(variant_get(json_to_variant(v), p))
+FROM (VALUES
+  (0, CAST(NULL AS VARCHAR), 'a'),
+  (1, '{"a":null}',          'a')
+) t(id, v, p)
+ORDER BY id;
+----
+true NULL
+false null
