@@ -14,7 +14,7 @@ use datafusion::{
     },
     scalar::ScalarValue,
 };
-use parquet_variant::{Variant, VariantPath, VariantPathElement};
+use parquet_variant::{Variant, VariantPath};
 use parquet_variant_compute::{GetOptions, VariantType, variant_get};
 use parquet_variant_json::VariantToJson;
 
@@ -62,35 +62,8 @@ fn build_get_options<'a>(path: VariantPath<'a>, as_type: &Option<FieldRef>) -> G
     }
 }
 
-/// Determines how a string path is converted to a [`VariantPath`].
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum PathMode {
-    /// Splits the path on `.` for dot-notation traversal (e.g., `"a.b.c"` → `["a", "b", "c"]`).
-    DotNotation,
-    /// Treats the entire path string as a single field name (e.g., `"a.b.c"` → `["a.b.c"]`).
-    /// This is critical for keys that contain dots, such as OTEL attribute keys
-    /// like `http.response.status_code`.
-    SingleField,
-}
-
-impl PathMode {
-    pub fn try_build_path<'a>(&self, path: &'a str) -> Result<VariantPath<'a>> {
-        match self {
-            PathMode::DotNotation => VariantPath::try_from(path).map_err(Into::into),
-            PathMode::SingleField => Ok(VariantPath::new(vec![VariantPathElement::field(path)])),
-        }
-    }
-}
-
-/// shared invoke logic for `variant_get`` and `variant_get_field`
-/// the only difference between the 2 udfs is how the path strings are interpreted
-/// - `variant_get` uses [`PathMode::DotNotation`]`
-/// - `variant_get_field` uses [`PathMode::SingleField`] (no splitting)
-fn invoke_variant_get(
-    args: ScalarFunctionArgs,
-    udf_name: &str,
-    path_mode: PathMode,
-) -> Result<ColumnarValue> {
+/// Evaluate `variant_get` using Arrow paths parsed from SQL strings.
+fn invoke_variant_get(args: ScalarFunctionArgs, udf_name: &str) -> Result<ColumnarValue> {
     let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
         [variant_arg, variant_path] => (variant_arg, variant_path, None),
         [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
@@ -116,7 +89,7 @@ fn invoke_variant_get(
 
             let res = variant_get(
                 variant_array,
-                build_get_options(path_mode.try_build_path(variant_path)?, &type_field),
+                build_get_options(VariantPath::try_from(variant_path)?, &type_field),
             )?;
 
             ColumnarValue::Array(res)
@@ -134,7 +107,7 @@ fn invoke_variant_get(
 
             let res = variant_get(
                 &variant_array,
-                build_get_options(path_mode.try_build_path(variant_path)?, &type_field),
+                build_get_options(VariantPath::try_from(variant_path)?, &type_field),
             )?;
 
             let scalar = ScalarValue::try_from_array(res.as_ref(), 0)?;
@@ -156,7 +129,7 @@ fn invoke_variant_get(
                 let res = variant_get(
                     &arr,
                     build_get_options(
-                        path_mode.try_build_path(path.unwrap_or_default())?,
+                        VariantPath::try_from(path.unwrap_or_default())?,
                         &type_field,
                     ),
                 )?;
@@ -181,7 +154,7 @@ fn invoke_variant_get(
                 let path = path.unwrap_or_default();
                 let res = variant_get(
                     &variant_array,
-                    build_get_options(path_mode.try_build_path(path)?, &type_field),
+                    build_get_options(VariantPath::try_from(path)?, &type_field),
                 )?;
 
                 out.push(res);
@@ -351,60 +324,7 @@ impl ScalarUDFImpl for VariantGetUdf {
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        invoke_variant_get(args, self.name(), PathMode::DotNotation)
-    }
-}
-
-/// Like `variant_get`, but treats the path argument as a single field name
-/// without splitting on dots.
-///
-/// This is critical for keys that contain dots, such as OTEL attribute keys
-/// like `http.response.status_code`.
-///
-/// ## Arguments
-/// - expr: a Variant expression
-/// - field: the field name (treated as a single key, not split on `.`)
-/// - type_hint (optional): a type to cast the result to (e.g., `'Int64'`)
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub struct VariantGetFieldUdf {
-    signature: Signature,
-}
-
-impl Default for VariantGetFieldUdf {
-    fn default() -> Self {
-        Self {
-            signature: Signature::new(
-                TypeSignature::OneOf(vec![TypeSignature::Any(2), TypeSignature::Any(3)]),
-                Volatility::Immutable,
-            ),
-        }
-    }
-}
-
-impl ScalarUDFImpl for VariantGetFieldUdf {
-    fn name(&self) -> &str {
-        "variant_get_field"
-    }
-
-    fn signature(&self) -> &Signature {
-        &self.signature
-    }
-
-    fn return_type(&self, _arg_types: &[arrow_schema::DataType]) -> Result<arrow_schema::DataType> {
-        Err(DataFusionError::Internal(
-            "implemented return_field_from_args instead".into(),
-        ))
-    }
-
-    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
-        return_field_for_variant_get(self.name(), args)
-    }
-
-    fn invoke_with_args(
-        &self,
-        args: datafusion::logical_expr::ScalarFunctionArgs,
-    ) -> Result<ColumnarValue> {
-        invoke_variant_get(args, self.name(), PathMode::SingleField)
+        invoke_variant_get(args, self.name())
     }
 }
 
@@ -590,139 +510,6 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert_eq!(values.value(0), 50);
         assert_eq!(values.value(1), 60);
-    }
-
-    #[test]
-    fn test_get_field_with_dotted_key() {
-        // Key contains dots — variant_get would split this, variant_get_field should not
-        let variant_input = variant_scalar_from_json(serde_json::json!({
-            "http.response.status_code": 200
-        }));
-
-        let udf = VariantGetFieldUdf::default();
-        let arg_fields = standard_arg_fields(true);
-        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
-        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
-
-        let args = build_scalar_function_args(
-            ColumnarValue::Scalar(variant_input),
-            "http.response.status_code",
-            arg_fields,
-            return_field,
-            Some(type_hint),
-        );
-
-        let result = udf.invoke_with_args(args).unwrap();
-
-        let ColumnarValue::Scalar(ScalarValue::Int64(Some(value))) = result else {
-            panic!("expected ScalarValue Int64");
-        };
-
-        assert_eq!(value, 200);
-    }
-
-    #[test]
-    fn test_get_field_dotted_key_returns_null_with_variant_get() {
-        // Verify that variant_get with dot-notation CANNOT find keys with dots
-        let variant_input = variant_scalar_from_json(serde_json::json!({
-            "http.response.status_code": 200
-        }));
-
-        let udf = VariantGetUdf::default();
-        let arg_fields = standard_arg_fields(true);
-        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
-        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
-
-        let args = build_scalar_function_args(
-            ColumnarValue::Scalar(variant_input),
-            "http.response.status_code",
-            arg_fields,
-            return_field,
-            Some(type_hint),
-        );
-
-        let result = udf.invoke_with_args(args).unwrap();
-
-        let ColumnarValue::Scalar(ScalarValue::Int64(None)) = result else {
-            panic!("expected NULL Int64 (dot-notation splits the key)");
-        };
-    }
-
-    #[test]
-    fn test_get_field_simple_key() {
-        // Simple keys (no dots) should work the same as variant_get
-        let variant_input = variant_scalar_from_json(serde_json::json!({
-            "name": "norm"
-        }));
-
-        let udf = VariantGetFieldUdf::default();
-        let arg_fields = standard_arg_fields(false);
-        let return_field = get_return_field(&udf, &arg_fields, None);
-
-        let args = build_scalar_function_args(
-            ColumnarValue::Scalar(variant_input),
-            "name",
-            arg_fields,
-            return_field,
-            None,
-        );
-
-        let result = udf.invoke_with_args(args).unwrap();
-
-        let ColumnarValue::Scalar(ScalarValue::Struct(struct_arr)) = result else {
-            panic!("expected ScalarValue struct");
-        };
-
-        let metadata_arr = struct_arr
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryViewArray>()
-            .unwrap();
-        let value_arr = struct_arr
-            .column(1)
-            .as_any()
-            .downcast_ref::<BinaryViewArray>()
-            .unwrap();
-
-        let metadata = metadata_arr.value(0);
-        let value = value_arr.value(0);
-        let v = Variant::try_new(metadata, value).unwrap();
-
-        assert_eq!(v, Variant::from("norm"));
-    }
-
-    #[test]
-    fn test_get_field_array_with_dotted_keys() {
-        let json_rows = vec![
-            serde_json::json!({"http.method": "GET", "http.status": 200}),
-            serde_json::json!({"http.method": "POST", "http.status": 201}),
-        ];
-
-        let variant_array = variant_array_from_json_rows(&json_rows);
-
-        let udf = VariantGetFieldUdf::default();
-        let arg_fields = standard_arg_fields(true);
-        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
-        let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
-
-        let args = build_scalar_function_args(
-            ColumnarValue::Array(variant_array),
-            "http.status",
-            arg_fields,
-            return_field,
-            Some(type_hint),
-        );
-
-        let result = udf.invoke_with_args(args).unwrap();
-
-        let ColumnarValue::Array(array) = result else {
-            panic!("expected array output");
-        };
-
-        let values = array.as_any().downcast_ref::<Int64Array>().unwrap();
-        assert_eq!(values.len(), 2);
-        assert_eq!(values.value(0), 200);
-        assert_eq!(values.value(1), 201);
     }
 
     #[test]

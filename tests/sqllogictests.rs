@@ -3,8 +3,8 @@ use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
     CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantContainsUdf, VariantExprPlanner,
-    VariantGetBoolUdf, VariantGetFieldUdf, VariantGetFloatUdf, VariantGetIntUdf, VariantGetJsonUdf,
-    VariantGetStrUdf, VariantGetUdf, VariantListConstruct, VariantListDelete, VariantListInsert,
+    VariantGetBoolUdf, VariantGetFloatUdf, VariantGetIntUdf, VariantGetJsonUdf, VariantGetStrUdf,
+    VariantGetUdf, VariantListConstruct, VariantListDelete, VariantListInsert,
     VariantObjectConstruct, VariantObjectDelete, VariantObjectInsert, VariantObjectKeys,
     VariantPretty, VariantToJsonUdf,
 };
@@ -60,7 +60,6 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         ctx.register_udf(ScalarUDF::new_from_impl(VariantGetIntUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantGetBoolUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantGetJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetFieldUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));

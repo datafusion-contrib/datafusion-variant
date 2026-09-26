@@ -409,7 +409,8 @@ SELECT variant_to_json(v:`field name`) FROM additional_path_data;
 "space"
 
 # A closing bracket inside a quoted field name is part of the key.
-# TODO: Preserve quoted closing brackets; the getter currently reports a path-parser error.
+# TODO(arrow-rs): parquet-variant's parse_in_bracket must respect quoted closing
+# brackets. SQL parsing succeeds; the Arrow path parser currently rejects this.
 skipif DataFusion
 query T
 SELECT variant_to_json(v:['a]b']) FROM additional_path_data;
