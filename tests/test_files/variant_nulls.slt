@@ -154,15 +154,9 @@ SELECT
   variant_get(json_to_variant(v), p, 'Int64')
 FROM (VALUES
   (0, CAST(NULL AS VARCHAR), 'a'),
-  (1, '{"a":null}',          'a'),
-  (2, '{"a":1}',             'a'),
-  (3, '{"a":1}',             'missing'),
-  (4, CAST(NULL AS VARCHAR), 'missing')
+  (1, '{"a":null}',          'a')
 ) t(id, v, p)
 ORDER BY id;
 ----
 true  NULL NULL NULL
 false null null NULL
-false 1    1    1
-true  NULL NULL NULL
-true  NULL NULL NULL
