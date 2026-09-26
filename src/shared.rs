@@ -261,13 +261,22 @@ pub fn invoke_variant_get_typed<T>(
             let paths = try_parse_string_columnar(paths)?;
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
 
-            let values = (0..variant_array.len())
-                .map(|i| {
-                    let path_str = paths[i].unwrap_or_default();
+            let values = variant_array
+                .iter()
+                .zip(paths)
+                .map(|(variant, path_str)| {
+                    let path_str = path_str.unwrap_or_default();
                     let path =
                         VariantPath::try_from(path_str).map_err(Into::<DataFusionError>::into)?;
 
-                    variant_get_single_value(&variant_array, i, &path, extract)
+                    let Some(variant) = variant else {
+                        return Ok(None);
+                    };
+                    let Some(value) = variant.get_path(&path) else {
+                        return Ok(None);
+                    };
+
+                    extract(value)
                 })
                 .collect::<Result<_>>()?;
 
