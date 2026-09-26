@@ -1,0 +1,50 @@
+# Quoted bracket paths select literal keys; dots select nested fields.
+# Include both in the same object so traversing the wrong path cannot pass.
+statement ok
+CREATE TABLE literal_keys (id INT, json_str TEXT) AS VALUES
+  (1, '{"a.b":1,"a":{"b":2}}'),
+  (2, '{"a.b":3}'),
+  (3, '{}');
+
+query III
+SELECT id,
+       variant_get(json_to_variant(json_str), '["a.b"]', 'Int64'),
+       variant_get(json_to_variant(json_str), 'a.b', 'Int64')
+FROM literal_keys ORDER BY id;
+----
+1 1 2
+2 3 NULL
+3 NULL NULL
+
+# Dollar signs, numeric names and empty names are literal fields when quoted.
+query III
+SELECT
+  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '["$"]', 'Int64'),
+  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '["0"]', 'Int64'),
+  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '[""]', 'Int64');
+----
+3 5 6
+
+# Arrow currently requires escaping a closing bracket even inside quotes.
+query II
+SELECT variant_get(json_to_variant('{"a]b":1}'), '["a\]b"]', 'Int64'),
+       variant_get(json_to_variant('{"[0]":2}'), '["[0\]"]', 'Int64');
+----
+1 2
+
+# TODO(arrow-rs): parquet-variant/src/utils.rs::parse_in_bracket terminates at
+# an unescaped ] before respecting quotes. SQL parsing succeeds. Keep the
+# ordinary quoted spelling and expected values until the upstream fix lands.
+skipif DataFusion
+query II
+SELECT variant_get(json_to_variant('{"a]b":1}'), '["a]b"]', 'Int64'),
+       variant_get(json_to_variant('{"[0]":2}'), '["[0]"]', 'Int64');
+----
+1 2
+
+# Both quote styles should protect a closing bracket in a literal key.
+skipif DataFusion
+query I
+SELECT variant_get(json_to_variant('{"a]b":1}'), '[''a]b'']', 'Int64');
+----
+1
