@@ -146,18 +146,17 @@ true NULL
 true NULL
 
 # sql_null_column_column_path
-# TODO: Handle SQL-null column values with column paths; currently panics.
-# https://github.com/datafusion-contrib/datafusion-variant/issues/71
-skipif DataFusion
-query BT
+query BTTI
 SELECT
   variant_get(json_to_variant(v), p) IS NULL,
-  variant_to_json(variant_get(json_to_variant(v), p))
+  variant_to_json(variant_get(json_to_variant(v), p)),
+  variant_to_json(variant_get_field(json_to_variant(v), p)),
+  variant_get(json_to_variant(v), p, 'Int64')
 FROM (VALUES
   (0, CAST(NULL AS VARCHAR), 'a'),
   (1, '{"a":null}',          'a')
 ) t(id, v, p)
 ORDER BY id;
 ----
-true NULL
-false null
+true  NULL NULL NULL
+false null null NULL

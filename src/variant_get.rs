@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{
-        Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray, StructArray,
-    },
+    array::{Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray},
     compute::concat,
 };
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
@@ -17,7 +15,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use parquet_variant::{Variant, VariantPath, VariantPathElement};
-use parquet_variant_compute::{GetOptions, VariantArray, VariantType, variant_get};
+use parquet_variant_compute::{GetOptions, VariantType, variant_get};
 use parquet_variant_json::VariantToJson;
 
 use crate::impl_variant_get::impl_variant_get_typed;
@@ -148,16 +146,12 @@ fn invoke_variant_get(
             }
 
             let variant_paths = try_parse_string_columnar(variant_paths)?;
-            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
 
             let mut out = Vec::with_capacity(variant_array.len());
 
             for (i, path) in variant_paths.iter().enumerate() {
-                let v = variant_array.value(i);
-                // todo: is there a better way to go from Variant -> VariantArray?
-                let singleton_variant_array: StructArray = VariantArray::from_iter([v]).into();
-
-                let arr = Arc::new(singleton_variant_array) as ArrayRef;
+                // Preserve SQL validity and shredded storage when selecting a row.
+                let arr = variant_array.slice(i, 1);
 
                 let res = variant_get(
                     &arr,
