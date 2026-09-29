@@ -1,3 +1,6 @@
+use arrow::array::{Array, ArrayRef, Int32Array, StringArray};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use datafusion::execution::FunctionRegistry;
 use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
@@ -9,9 +12,36 @@ use datafusion_variant::{
     VariantPretty, VariantToJsonUdf,
 };
 use indicatif::ProgressBar;
+use parquet_variant_compute::{json_to_variant, shred_variant};
 use sqllogictest::strict_column_validator;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+fn register_shredded_null_fixture(
+    ctx: &SessionContext,
+    name: &str,
+    rows: Vec<Option<&str>>,
+    shredding_type: DataType,
+) -> datafusion::error::Result<()> {
+    let json: ArrayRef = Arc::new(StringArray::from(rows));
+    let original = json_to_variant(&json)?;
+    let shredded = shred_variant(&original, &shredding_type)?;
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        original.field("original"),
+        shredded.field("v"),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int32Array::from_iter_values(1..=json.len() as i32)),
+            Arc::new(original.into_inner()),
+            Arc::new(shredded.into_inner()),
+        ],
+    )?;
+    ctx.register_batch(name, batch)?;
+    Ok(())
+}
 
 #[tokio::test]
 async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
@@ -69,6 +99,37 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectDelete::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectKeys::default()));
         ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
+
+        if relative_path == Path::new("is_variant_null.slt") {
+            register_shredded_null_fixture(
+                &ctx,
+                "shredded_null_objects",
+                vec![
+                    None,
+                    Some("null"),
+                    Some("{}"),
+                    Some(r#"{"a":null}"#),
+                    Some(r#"{"a":1}"#),
+                    Some(r#"{"b":2}"#),
+                    Some(r#"{"a":null,"b":2}"#),
+                ],
+                DataType::Struct(vec![Field::new("a", DataType::Int64, true)].into()),
+            )?;
+            register_shredded_null_fixture(
+                &ctx,
+                "shredded_null_lists",
+                vec![
+                    None,
+                    Some("null"),
+                    Some("[]"),
+                    Some("[null]"),
+                    Some("[1]"),
+                    Some("[1,null]"),
+                    Some("[null,2]"),
+                ],
+                DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
+            )?;
+        }
 
         let pb = ProgressBar::new(24);
 
