@@ -1,0 +1,198 @@
+# Ported from Apache Spark at c470f3dce544ad46ffb748949b6476d3cbc8d443:
+# SQL examples: https://github.com/apache/spark/blob/c470f3dce544ad46ffb748949b6476d3cbc8d443/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
+# Value matrix (test "isVariantNull"): https://github.com/apache/spark/blob/c470f3dce544ad46ffb748949b6476d3cbc8d443/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionEvalUtilsSuite.scala
+# Adaptations: parse_json -> json_to_variant; $.field -> field.
+# Expected booleans are unchanged. Extra API checks were verified on Spark 4.2.0.
+
+# Spark's scalar field-extraction examples. The other four examples are covered
+# by the value matrix below.
+query B
+SELECT is_variant_null(variant_get(json_to_variant('{"a":null, "b":"spark"}'), 'c'));
+----
+false
+
+query B
+SELECT is_variant_null(variant_get(json_to_variant('{"a":null, "b":"spark"}'), 'a'));
+----
+true
+
+# Spark's value matrix in a materialized table, exercising column execution.
+# The upstream test repeats false; one identical case is sufficient here.
+statement ok
+CREATE TABLE variant_null_inputs AS
+SELECT id, json_to_variant(json) AS v
+FROM (VALUES
+  (1, 'null'),
+  (2, CAST(NULL AS VARCHAR)),
+  (3, '0'),
+  (4, '13'),
+  (5, '-54'),
+  (6, '2147483647'),
+  (7, '2147483648'),
+  (8, '238457328534848'),
+  (9, '342.769'),
+  (10, 'true'),
+  (11, 'false'),
+  (12, '65.43'),
+  (13, concat('"', repeat('spark', 100), '"')),
+  (14, '""'),
+  (15, '"null"'),
+  (16, '[]'),
+  (17, '[null, null]'),
+  (18, '[{"a" : 13}, "spark"]'),
+  (19, '[{"a" : 13, "b" : null}]')
+) AS inputs(id, json);
+
+# Assert SQL validity alongside the predicate. Every output must be a Boolean,
+# including false for SQL NULL; a NULL result would fail this comparison.
+query IBB
+SELECT id, v IS NULL, is_variant_null(v) FROM variant_null_inputs ORDER BY id;
+----
+1 false true
+2 true false
+3 false false
+4 false false
+5 false false
+6 false false
+7 false false
+8 false false
+9 false false
+10 false false
+11 false false
+12 false false
+13 false false
+14 false false
+15 false false
+16 false false
+17 false false
+18 false false
+19 false false
+
+# The harness registers identical values in unshredded `original` and shredded
+# `v` columns. `v` shreds field a as Int64; b stays in the encoded fallback.
+# Rows: SQL NULL, Variant null, {}, {a:null}, {a:1}, {b:2}, {a:null,b:2}.
+# Whole containers remain non-null regardless of missing/null child fields.
+query IBBB
+SELECT id, v IS NULL, is_variant_null(v), is_variant_null(original)
+FROM shredded_null_objects ORDER BY id;
+----
+1 true false false
+2 false true true
+3 false false false
+4 false false false
+5 false false false
+6 false false false
+7 false false false
+
+# Reuse the unshredded fixture for column extraction. Assert both predicates:
+# explicit null is present, while missing fields and SQL-null parents are absent.
+query IBB
+SELECT id, variant_get(original, 'a') IS NULL,
+       is_variant_null(variant_get(original, 'a'))
+FROM shredded_null_objects ORDER BY id;
+----
+1 true false
+2 true false
+3 true false
+4 false true
+5 false false
+6 true false
+7 false true
+
+# Expect the same extraction results from shredded data.
+# TODO(variant_get): preserve the actual shredded output type in return-field
+# inference. Currently execution returns a struct with typed_value while
+# planning promises only metadata/value, so DataFusion rejects the result.
+skipif DataFusion
+query IBB
+SELECT id, variant_get(v, 'a') IS NULL, is_variant_null(variant_get(v, 'a'))
+FROM shredded_null_objects ORDER BY id;
+----
+1 true false
+2 true false
+3 true false
+4 false true
+5 false false
+6 true false
+7 false true
+
+# The list fixture shreds elements as Int64.
+# Rows: SQL NULL, Variant null, [], [null], [1], [1,null], [null,2].
+query IBBB
+SELECT id, v IS NULL, is_variant_null(v), is_variant_null(original)
+FROM shredded_null_lists ORDER BY id;
+----
+1 true false false
+2 false true true
+3 false false false
+4 false false false
+5 false false false
+6 false false false
+7 false false false
+
+# Missing index versus a present Variant-null element. Index 1 also checks
+# out-of-bounds access on nonempty one-element lists.
+# TODO(variant_get): same shredded return-type mismatch as the object case above.
+skipif DataFusion
+query IBBBB
+SELECT id,
+       variant_get(v, '[0]') IS NULL, is_variant_null(variant_get(v, '[0]')),
+       variant_get(v, '[1]') IS NULL, is_variant_null(variant_get(v, '[1]'))
+FROM shredded_null_lists ORDER BY id;
+----
+1 true false true false
+2 true false true false
+3 true false true false
+4 false true true false
+5 false false true false
+6 false false false true
+7 false true false false
+
+# Keep the unshredded list controls executable while shredded getters are blocked.
+query IBBBB
+SELECT id,
+       variant_get(original, '[0]') IS NULL, is_variant_null(variant_get(original, '[0]')),
+       variant_get(original, '[1]') IS NULL, is_variant_null(variant_get(original, '[1]'))
+FROM shredded_null_lists ORDER BY id;
+----
+1 true false true false
+2 true false true false
+3 true false true false
+4 false true true false
+5 false false true false
+6 false false false true
+7 false true false false
+
+# Untyped NULL is accepted without requiring a Variant constructor.
+query B
+SELECT is_variant_null(NULL);
+----
+false
+
+statement ok
+CREATE TABLE untyped_nulls AS SELECT * FROM (VALUES (1, NULL), (2, NULL)) AS inputs(id, v);
+
+query IB
+SELECT id, is_variant_null(v) FROM untyped_nulls ORDER BY id;
+----
+1 false
+2 false
+
+# Wrong argument types are errors, even when the argument's value is SQL NULL.
+statement error is_variant_null expects a Variant or untyped NULL argument
+SELECT is_variant_null('null');
+
+statement error is_variant_null expects a Variant or untyped NULL argument
+SELECT is_variant_null(1);
+
+statement error is_variant_null expects a Variant or untyped NULL argument
+SELECT is_variant_null(CAST(NULL AS VARCHAR));
+
+statement error is_variant_null expects a Variant or untyped NULL argument
+SELECT is_variant_null(named_struct('a', 1));
+
+statement error is_variant_null
+SELECT is_variant_null();
+
+statement error is_variant_null
+SELECT is_variant_null(json_to_variant('null'), json_to_variant('null'));
