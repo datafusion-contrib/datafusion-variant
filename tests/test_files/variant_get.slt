@@ -18,3 +18,74 @@ NULL
 NULL
 NULL
 NULL
+
+# Strict and try getters share extraction; only conversion failure handling differs.
+# Scalar/scalar conversions are covered by spark_variant_get_casts_primitives.slt.
+statement ok
+CREATE TABLE cast_inputs (id INT, doc TEXT, path TEXT) AS VALUES
+  (1, '{"n":7}', 'n'),
+  (2, '{"n":128}', 'n'),
+  (3, '{"n":"bad"}', 'n');
+
+# Array input, scalar path: preserve successful rows when other rows cannot cast.
+query I
+SELECT try_variant_get(json_to_variant(doc), 'n', 'Int8')
+FROM cast_inputs ORDER BY id;
+----
+7
+NULL
+NULL
+
+statement error (?i)(cast|extract|overflow)
+SELECT variant_get(json_to_variant(doc), 'n', 'Int8') FROM cast_inputs;
+
+# Array input and array paths use the same cast policy.
+query I
+SELECT try_variant_get(json_to_variant(doc), path, 'Int8')
+FROM cast_inputs ORDER BY id;
+----
+7
+NULL
+NULL
+
+statement error (?i)(cast|extract|overflow)
+SELECT variant_get(json_to_variant(doc), path, 'Int8') FROM cast_inputs;
+
+# Scalar input, array paths: a failed cast does not null the entire result.
+query I
+SELECT try_variant_get(json_to_variant('{"ok":7,"large":128,"bad":"bad"}'), path, 'Int8')
+FROM (VALUES (1, 'ok'), (2, 'large'), (3, 'bad')) AS paths(id, path)
+ORDER BY id;
+----
+7
+NULL
+NULL
+
+statement error (?i)(cast|extract|overflow)
+SELECT variant_get(json_to_variant('{"ok":7,"large":128}'), path, 'Int8')
+FROM (VALUES ('ok'), ('large')) AS paths(path);
+
+# Representative shared behavior: both return a usable Variant without a type
+# hint. The full extraction matrix is exercised through variant_get elsewhere.
+query II
+WITH input AS (SELECT json_to_variant('{"user":{"age":7}}') AS v)
+SELECT variant_get(variant_get(v, 'user'), 'age', 'Int64'),
+       variant_get(try_variant_get(v, 'user'), 'age', 'Int64') FROM input;
+----
+7 7
+
+# Try must not suppress malformed path errors, for scalar or column paths.
+statement error (?i)parser error
+SELECT try_variant_get(json_to_variant('{"n":7}'), 'n[', 'Int8');
+
+statement error (?i)parser error
+SELECT variant_get(json_to_variant('{"n":7}'), 'n[', 'Int8');
+
+statement error (?i)parser error
+SELECT try_variant_get(json_to_variant(doc), path || '[', 'Int8') FROM cast_inputs;
+
+statement error (?i)(parse|unsupported|invalid)
+SELECT try_variant_get(json_to_variant('7'), '', 'NotAType');
+
+statement error (?i)(parse|unsupported|invalid)
+SELECT variant_get(json_to_variant('7'), '', 'NotAType');

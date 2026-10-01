@@ -70,15 +70,18 @@ The current API includes:
 | --- | --- |
 | JSON conversion | `json_to_variant`, `variant_to_json` |
 | Type conversion | `cast_to_variant` |
-| Field and path access | `variant_get`, `variant_contains` |
+| Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
 | Typed extraction | `variant_get_int`, `variant_get_float`, `variant_get_bool`, `variant_get_str`, `variant_get_json` |
 | Null inspection | `is_variant_null` |
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
 | Utilities | `variant_normalize`, `variant_pretty` |
 
-`variant_get` accepts an optional result type, currently expressed as an
-Arrow type name such as `Int64` or `Utf8View`. Use quoted bracket paths for
+`variant_get` and `try_variant_get` accept an optional result type, currently
+expressed as an Arrow type name such as `Int64` or `Utf8View`. `variant_get`
+raises an error on failed conversions; `try_variant_get` returns NULL for those
+values. Both return NULL for missing paths; invalid paths and type hints still
+raise errors. Use quoted bracket paths for
 literal field names, such as `variant_get(v, '["http.status"]')` for the
 key `http.status`.
 See [literal-key tests](tests/test_files/variant_get_literal_keys.slt) for
