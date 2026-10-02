@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::{
     array::{Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray},
-    compute::concat,
+    compute::{CastOptions, concat},
 };
 use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
 use datafusion::{
@@ -55,15 +55,22 @@ fn type_hint_from_value(field_name: &str, arg: &ColumnarValue) -> Result<FieldRe
     }
 }
 
-fn build_get_options<'a>(path: VariantPath<'a>, as_type: &Option<FieldRef>) -> GetOptions<'a> {
-    match as_type {
-        Some(field) => GetOptions::new_with_path(path).with_as_type(Some(field.clone())),
-        None => GetOptions::new_with_path(path),
-    }
+fn build_get_options<'a>(
+    path: VariantPath<'a>,
+    as_type: &Option<FieldRef>,
+    cast_options: &CastOptions<'a>,
+) -> GetOptions<'a> {
+    GetOptions::new_with_path(path)
+        .with_as_type(as_type.clone())
+        .with_cast_options(cast_options.clone())
 }
 
-/// Evaluate `variant_get` using Arrow paths parsed from SQL strings.
-fn invoke_variant_get(args: ScalarFunctionArgs, udf_name: &str) -> Result<ColumnarValue> {
+/// Evaluate a Variant getter using Arrow paths and an explicit cast error policy.
+fn invoke_variant_get(
+    args: ScalarFunctionArgs,
+    udf_name: &str,
+    cast_options: CastOptions<'_>,
+) -> Result<ColumnarValue> {
     let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
         [variant_arg, variant_path] => (variant_arg, variant_path, None),
         [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
@@ -89,7 +96,11 @@ fn invoke_variant_get(args: ScalarFunctionArgs, udf_name: &str) -> Result<Column
 
             let res = variant_get(
                 variant_array,
-                build_get_options(VariantPath::try_from(variant_path)?, &type_field),
+                build_get_options(
+                    VariantPath::try_from(variant_path)?,
+                    &type_field,
+                    &cast_options,
+                ),
             )?;
 
             ColumnarValue::Array(res)
@@ -107,7 +118,11 @@ fn invoke_variant_get(args: ScalarFunctionArgs, udf_name: &str) -> Result<Column
 
             let res = variant_get(
                 &variant_array,
-                build_get_options(VariantPath::try_from(variant_path)?, &type_field),
+                build_get_options(
+                    VariantPath::try_from(variant_path)?,
+                    &type_field,
+                    &cast_options,
+                ),
             )?;
 
             let scalar = ScalarValue::try_from_array(res.as_ref(), 0)?;
@@ -131,6 +146,7 @@ fn invoke_variant_get(args: ScalarFunctionArgs, udf_name: &str) -> Result<Column
                     build_get_options(
                         VariantPath::try_from(path.unwrap_or_default())?,
                         &type_field,
+                        &cast_options,
                     ),
                 )?;
 
@@ -154,7 +170,7 @@ fn invoke_variant_get(args: ScalarFunctionArgs, udf_name: &str) -> Result<Column
                 let path = path.unwrap_or_default();
                 let res = variant_get(
                     &variant_array,
-                    build_get_options(VariantPath::try_from(path)?, &type_field),
+                    build_get_options(VariantPath::try_from(path)?, &type_field, &cast_options),
                 )?;
 
                 out.push(res);
@@ -285,6 +301,7 @@ impl_variant_get_typed!(
     },
 );
 
+/// Extracts a Variant value, returning an error for failed result-type conversions.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
@@ -324,7 +341,66 @@ impl ScalarUDFImpl for VariantGetUdf {
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        invoke_variant_get(args, self.name())
+        invoke_variant_get(
+            args,
+            self.name(),
+            CastOptions {
+                safe: false,
+                ..Default::default()
+            },
+        )
+    }
+}
+
+/// Extracts a Variant value, returning NULL for failed result-type conversions.
+/// Invalid paths and type hints still return errors.
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct TryVariantGetUdf {
+    signature: Signature,
+}
+
+impl Default for TryVariantGetUdf {
+    fn default() -> Self {
+        Self {
+            signature: Signature::new(
+                TypeSignature::OneOf(vec![TypeSignature::Any(2), TypeSignature::Any(3)]),
+                Volatility::Immutable,
+            ),
+        }
+    }
+}
+
+impl ScalarUDFImpl for TryVariantGetUdf {
+    fn name(&self) -> &str {
+        "try_variant_get"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[arrow_schema::DataType]) -> Result<arrow_schema::DataType> {
+        Err(DataFusionError::Internal(
+            "implemented return_field_from_args instead".into(),
+        ))
+    }
+
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
+        return_field_for_variant_get(self.name(), args)
+    }
+
+    fn invoke_with_args(
+        &self,
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> Result<ColumnarValue> {
+        invoke_variant_get(
+            args,
+            self.name(),
+            CastOptions {
+                safe: true,
+                ..Default::default()
+            },
+        )
     }
 }
 

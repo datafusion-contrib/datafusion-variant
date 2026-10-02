@@ -6,15 +6,17 @@ CREATE TABLE literal_keys (id INT, json_str TEXT) AS VALUES
   (2, '{"a.b":3}'),
   (3, '{}');
 
-query III
+# One try comparison checks shared path semantics without duplicating the matrix.
+query IIII
 SELECT id,
        variant_get(json_to_variant(json_str), '["a.b"]', 'Int64'),
-       variant_get(json_to_variant(json_str), 'a.b', 'Int64')
+       variant_get(json_to_variant(json_str), 'a.b', 'Int64'),
+       try_variant_get(json_to_variant(json_str), '["a.b"]', 'Int64')
 FROM literal_keys ORDER BY id;
 ----
-1 1 2
-2 3 NULL
-3 NULL NULL
+1 1 2 1
+2 3 NULL 3
+3 NULL NULL NULL
 
 # Dollar signs, numeric names and empty names are literal fields when quoted.
 query III

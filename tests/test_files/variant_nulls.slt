@@ -146,16 +146,23 @@ true NULL
 true NULL
 
 # sql_null_column_column_path
-query BTI
+# Strict and try agree on SQL NULL, Variant null, missing fields and valid values;
+# none of these rows contains a conversion failure.
+query BTII
 SELECT
   variant_get(json_to_variant(v), p) IS NULL,
   variant_to_json(variant_get(json_to_variant(v), p)),
-  variant_get(json_to_variant(v), p, 'Int64')
+  variant_get(json_to_variant(v), p, 'Int64'),
+  try_variant_get(json_to_variant(v), p, 'Int64')
 FROM (VALUES
   (0, CAST(NULL AS VARCHAR), 'a'),
-  (1, '{"a":null}',          'a')
+  (1, '{"a":null}',          'a'),
+  (2, '{}',                  'a'),
+  (3, '{"a":7}',             'a')
 ) t(id, v, p)
 ORDER BY id;
 ----
-true  NULL NULL
-false null NULL
+true  NULL NULL NULL
+false null NULL NULL
+true  NULL NULL NULL
+false 7    7    7
