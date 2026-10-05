@@ -41,15 +41,6 @@ pub fn _try_field_as_binary(field: &Field) -> Result<()> {
     Ok(())
 }
 
-pub fn try_field_as_string(field: &Field) -> Result<()> {
-    match field.data_type() {
-        DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => {}
-        unsupported => return exec_err!("expected string field, got {unsupported} field"),
-    }
-
-    Ok(())
-}
-
 pub fn try_parse_variant_scalar(scalar: &ScalarValue) -> Result<VariantArray> {
     let v = match scalar {
         ScalarValue::Struct(v) => v,
