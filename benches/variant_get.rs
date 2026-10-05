@@ -12,9 +12,7 @@ use datafusion::{
     logical_expr::{ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl},
     scalar::ScalarValue,
 };
-use datafusion_variant::{
-    VariantGetBoolUdf, VariantGetFloatUdf, VariantGetIntUdf, VariantGetStrUdf, VariantGetUdf,
-};
+use datafusion_variant::VariantGetUdf;
 use parquet_variant::{Variant, VariantBuilderExt};
 use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType, shred_variant};
 
@@ -98,7 +96,6 @@ fn bench_values(
     group: &mut BenchmarkGroup<'_, WallTime>,
     values: &[Variant<'_, '_>],
     expected: ArrayRef,
-    helper: &dyn ScalarUDFImpl,
 ) {
     let mut builder = VariantArrayBuilder::new(ROWS);
     for value in values {
@@ -108,10 +105,9 @@ fn bench_values(
     let generic = VariantGetUdf::default();
     let type_hint = expected.data_type().to_string();
     let hinted_name = format!("variant_get_{}", type_hint.to_lowercase());
-    let cases: [(&str, &dyn ScalarUDFImpl, Option<&str>); 3] = [
+    let cases: [(&str, &dyn ScalarUDFImpl, Option<&str>); 2] = [
         ("variant_get", &generic, None),
         (&hinted_name, &generic, Some(&type_hint)),
-        (helper.name(), helper, None),
     ];
 
     for (name, udf, hint) in cases {
@@ -307,7 +303,6 @@ fn variant_get(c: &mut Criterion) {
         &mut group,
         &integer_values,
         Arc::new(Int64Array::from(integers.clone())),
-        &VariantGetIntUdf::default(),
     );
     let floats: Vec<f64> = (0..ROWS)
         .map(|i| (i as f64 - ROWS as f64 / 2.0) / 4.0)
@@ -320,7 +315,6 @@ fn variant_get(c: &mut Criterion) {
             .map(Variant::from)
             .collect::<Vec<_>>(),
         Arc::new(Float64Array::from(floats.clone())),
-        &VariantGetFloatUdf::default(),
     );
     let booleans: Vec<bool> = (0..ROWS).map(|i| i % 2 == 0).collect();
     bench_values(
@@ -331,7 +325,6 @@ fn variant_get(c: &mut Criterion) {
             .map(Variant::from)
             .collect::<Vec<_>>(),
         Arc::new(BooleanArray::from(booleans.clone())),
-        &VariantGetBoolUdf::default(),
     );
     let strings: Vec<String> = (0..ROWS).map(|i| format!("value_{i}")).collect();
     bench_values(
@@ -341,7 +334,6 @@ fn variant_get(c: &mut Criterion) {
             .map(|s| Variant::from(s.as_str()))
             .collect::<Vec<_>>(),
         Arc::new(StringViewArray::from_iter_values(&strings)),
-        &VariantGetStrUdf::default(),
     );
     group.finish();
     bench_storage_layouts(c, &integer_values);

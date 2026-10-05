@@ -71,7 +71,6 @@ The current API includes:
 | JSON conversion | `json_to_variant`, `variant_to_json` |
 | Type conversion | `cast_to_variant` |
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
-| Typed extraction | `variant_get_int`, `variant_get_float`, `variant_get_bool`, `variant_get_str`, `variant_get_json` |
 | Null inspection | `is_variant_null` |
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
@@ -81,7 +80,9 @@ The current API includes:
 expressed as an Arrow type name such as `Int64` or `Utf8View`. `variant_get`
 raises an error on failed conversions; `try_variant_get` returns NULL for those
 values. Both return NULL for missing paths; invalid paths and type hints still
-raise errors. Use quoted bracket paths for
+raise errors. For example, use `variant_get(v, 'a', 'Int64')` for integer
+extraction, or `variant_to_json(variant_get(v, 'a'))` for JSON serialization.
+Use quoted bracket paths for
 literal field names, such as `variant_get(v, '["http.status"]')` for the
 key `http.status`.
 See [literal-key tests](tests/test_files/variant_get_literal_keys.slt) for
@@ -131,7 +132,7 @@ cargo bench --bench variant_get
 
 The suite has four groups, each using 8,192 rows. The first three use literal paths:
 
-- `output_types`: compares Variant output, explicit type hints, and typed helpers
+- `output_types`: compares Variant output and explicit type hints
   for integer, float, boolean, and string values at path `a` in unshredded objects.
 - `storage_layout`: extracts Variant output from identical two-field objects in
   unshredded, fully shredded, and partially shredded layouts. The partial layout

@@ -4,7 +4,6 @@ mod shared;
 
 mod cast_to_variant;
 mod expr_planner;
-mod impl_variant_get;
 mod is_variant_null;
 mod json_to_variant;
 mod variant_contains;
