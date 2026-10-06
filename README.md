@@ -12,8 +12,8 @@ This crate is under active development. The compatibility target is
 **Apache Spark 4.2.0**. Compatibility is incomplete, and function names,
 signatures, and behavior may change.
 
-Basic `:` field access is available. SQL `VARIANT` type integration and
-Variant casts through `::` are planned.
+Basic `:` field access and casts of getters through `CAST`, `TRY_CAST`, and
+`::` are available. SQL `VARIANT` type registration is still planned.
 
 See [#69](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
 for the compatibility roadmap, integration work, and benchmarking plans.
@@ -21,7 +21,8 @@ for the compatibility roadmap, integration work, and benchmarking plans.
 ## Getting started
 
 Register the functions you need with a DataFusion `SessionContext`.
-Register `VariantExprPlanner` to enable `:` field access:
+Use `register_variant_get_functions` for SQL type hints and getter casts, and
+register `VariantExprPlanner` to enable `:` field access:
 
 ```rust
 use std::sync::Arc;
@@ -30,7 +31,9 @@ use datafusion::error::Result;
 use datafusion::execution::FunctionRegistry;
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::SessionContext;
-use datafusion_variant::{JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf};
+use datafusion_variant::{
+    JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf, register_variant_get_functions,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -38,6 +41,7 @@ async fn main() -> Result<()> {
 
     ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
+    register_variant_get_functions(&mut ctx)?;
     ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
 
     ctx.sql(
@@ -77,8 +81,10 @@ The current API includes:
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
 | Utilities | `variant_normalize`, `variant_pretty` |
 
-`variant_get` and `try_variant_get` accept an optional result type, currently
-expressed as an Arrow type name such as `Int64` or `Utf8View`. `variant_get`
+`variant_get` and `try_variant_get` accept an optional **SQL type string literal**,
+such as `BIGINT`, `VARCHAR`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Types follow
+DataFusion SQL semantics exclusively: `INT8` (including `Int8`) means BIGINT;
+Arrow-only names such as `Int64` and `Utf8View` are rejected. `variant_get`
 raises an error on failed conversions; `try_variant_get` returns NULL for those
 values. Both return NULL for missing paths; invalid paths and type hints still
 raise errors. Use quoted bracket paths for
@@ -87,8 +93,23 @@ key `http.status`.
 See [literal-key tests](tests/test_files/variant_get_literal_keys.slt) for
 examples and skipped cases awaiting an upstream Arrow path-parser fix.
 
-The [Spark field-access tests](tests/test_files/spark_variant_field_extractions.slt)
-record known compatibility gaps.
+These expressions share the same extraction/conversion kernel:
+
+```sql
+variant_get(v, 'price', 'DECIMAL(12,2)')
+CAST(variant_get(v, 'price') AS DECIMAL(12,2))
+v:price::DECIMAL(12,2)
+```
+
+`TRY_CAST` uses the try-getter's conversion policy. Casts of already typed getters
+retain the intermediate conversion. With the current parser, group colon access
+on the right of arithmetic: `v:a::INT + (v:b::INT)`.
+
+Type strings use DataFusion's SQL cast planner during planning. The registration
+helper follows session type settings, including `SET` / `RESET`.
+
+See the [Spark field-access tests](tests/test_files/spark_variant_field_extractions.slt)
+for remaining conversion and syntax gaps.
 
 ## Examples
 

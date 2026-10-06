@@ -64,7 +64,7 @@ Query errors stop the run; output is written after all selected cases succeed.
 
 `cargo test --example jsonbench` checks document preservation, all five queries
 across the three layouts, and expected results.
-SQL uses `Utf8View`/`Int64` extraction, UTC hours, and deterministic tie ordering.
+SQL uses `VARCHAR`/`BIGINT` extraction, UTC hours, and deterministic tie ordering.
 Q5 divides each positive epoch-microsecond endpoint by 1,000 before subtraction
 to match ClickHouse's millisecond-boundary `dateDiff` semantics.
 
