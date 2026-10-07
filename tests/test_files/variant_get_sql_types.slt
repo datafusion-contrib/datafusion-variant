@@ -1,0 +1,240 @@
+# SQL type resolution and getter cast rewrites. Existing getter/Spark/null SLTs
+# cover conversion boundaries, paths and null propagation.
+# arrow_typeof checks exact types against DataFusion CAST without value coercion.
+
+# Stored inputs exercise execution as well as planning.
+statement ok
+CREATE TABLE sql_type_inputs AS
+SELECT json_to_variant('{"b":true,"n":7,"wide":2147483648,"f":1.5,"d":12.34,"s":"hello","a":[1,2],"da":[1.25,2.5],"o":{"a":7,"b":"x"},"null":null}') AS v, 'INTEGER' AS type_name;
+
+# SQL aliases, parameters and nested types. INT8 means BIGINT, unlike Arrow Int8.
+query TB rowsort
+SELECT 'BOOLEAN', arrow_typeof(variant_get(v, 'b', 'BOOLEAN')) = arrow_typeof(CAST(NULL AS BOOLEAN)) FROM sql_type_inputs
+UNION ALL
+SELECT 'BOOL', arrow_typeof(variant_get(v, 'b', 'BOOL')) = arrow_typeof(CAST(NULL AS BOOL)) FROM sql_type_inputs
+UNION ALL
+SELECT 'TINYINT', arrow_typeof(variant_get(v, 'n', 'TINYINT')) = arrow_typeof(CAST(NULL AS TINYINT)) FROM sql_type_inputs
+UNION ALL
+SELECT 'SMALLINT', arrow_typeof(variant_get(v, 'n', 'SMALLINT')) = arrow_typeof(CAST(NULL AS SMALLINT)) FROM sql_type_inputs
+UNION ALL
+SELECT 'INT', arrow_typeof(variant_get(v, 'n', 'INT')) = arrow_typeof(CAST(NULL AS INT)) FROM sql_type_inputs
+UNION ALL
+SELECT 'BIGINT', arrow_typeof(variant_get(v, 'n', 'BIGINT')) = arrow_typeof(CAST(NULL AS BIGINT)) FROM sql_type_inputs
+UNION ALL
+SELECT 'REAL', arrow_typeof(variant_get(v, 'f', 'REAL')) = arrow_typeof(CAST(NULL AS REAL)) FROM sql_type_inputs
+UNION ALL
+SELECT 'DOUBLE PRECISION', arrow_typeof(variant_get(v, 'f', 'DOUBLE PRECISION')) = arrow_typeof(CAST(NULL AS DOUBLE PRECISION)) FROM sql_type_inputs
+UNION ALL
+SELECT 'DECIMAL(12, 2)', arrow_typeof(variant_get(v, 'd', 'DECIMAL(12, 2)')) = arrow_typeof(CAST(NULL AS DECIMAL(12, 2))) FROM sql_type_inputs
+UNION ALL
+SELECT 'numeric ( 12 , 2 )', arrow_typeof(variant_get(v, 'd', ' numeric ( 12 , 2 ) ')) = arrow_typeof(CAST(NULL AS NUMERIC(12,2))) FROM sql_type_inputs
+UNION ALL
+SELECT 'TEXT', arrow_typeof(variant_get(v, 's', 'TEXT')) = arrow_typeof(CAST(NULL AS TEXT)) FROM sql_type_inputs
+UNION ALL
+SELECT 'ARRAY<INT>', arrow_typeof(variant_get(v, 'a', 'ARRAY<INT>')) = arrow_typeof(CAST(NULL AS ARRAY<INT>)) FROM sql_type_inputs
+UNION ALL
+SELECT 'INTEGER[]', arrow_typeof(variant_get(v, 'a', 'INTEGER[]')) = arrow_typeof(CAST(NULL AS INTEGER[])) FROM sql_type_inputs
+UNION ALL
+SELECT 'ARRAY<DECIMAL(8,2)>', arrow_typeof(variant_get(v, 'da', 'ARRAY<DECIMAL(8,2)>')) = arrow_typeof(CAST(NULL AS ARRAY<DECIMAL(8,2)>)) FROM sql_type_inputs
+UNION ALL
+SELECT 'STRUCT<a INT, b VARCHAR>', arrow_typeof(variant_get(v, 'o', 'STRUCT<a INT, b VARCHAR>')) = arrow_typeof(CAST(NULL AS STRUCT<a INT, b VARCHAR>)) FROM sql_type_inputs
+UNION ALL
+SELECT 'INT8', arrow_typeof(variant_get(v, 'wide', 'INT8')) = arrow_typeof(CAST(NULL AS INT8)) FROM sql_type_inputs
+UNION ALL
+SELECT 'FLOAT8', arrow_typeof(variant_get(v, 'f', 'FLOAT8')) = arrow_typeof(CAST(NULL AS FLOAT8)) FROM sql_type_inputs;
+----
+ARRAY<DECIMAL(8,2)> true
+ARRAY<INT> true
+BIGINT true
+BOOL true
+BOOLEAN true
+DECIMAL(12, 2) true
+DOUBLE PRECISION true
+FLOAT8 true
+INT true
+INT8 true
+INTEGER[] true
+REAL true
+SMALLINT true
+STRUCT<a INT, b VARCHAR> true
+TEXT true
+TINYINT true
+numeric ( 12 , 2 ) true
+
+# Both getters resolve lowercase INTEGER and remove Variant metadata.
+query IITTBB
+WITH extracted AS (
+  SELECT variant_get(v, 'n', 'integer') AS got,
+         try_variant_get(v, 'n', 'integer') AS tried FROM sql_type_inputs
+)
+SELECT got, tried, arrow_typeof(got), arrow_typeof(tried),
+       arrow_metadata(got, 'ARROW:extension:name') IS NULL,
+       arrow_metadata(tried, 'ARROW:extension:name') IS NULL
+FROM extracted;
+----
+7 7 Int32 Int32 true true
+
+# Explicit casts use the same typed extraction kernel. Include a nested target
+# and a column input so ordinary Arrow casts of Variant storage cannot pass.
+query IBBBB
+WITH extracted AS (
+  SELECT CAST(variant_get(v, 'n') AS INTEGER) AS n,
+         CAST(variant_get(v, 'a') AS ARRAY<INT>) AS a,
+         TRY_CAST(variant_get(v, 'n') AS INTEGER) AS tried
+  FROM sql_type_inputs
+)
+SELECT n, arrow_typeof(a) = arrow_typeof(CAST(NULL AS ARRAY<INT>)),
+       a = [1,2], arrow_metadata(n, 'ARROW:extension:name') IS NULL,
+       arrow_typeof(tried) = 'Int32'
+FROM extracted;
+----
+7 true true true true
+
+# TRY_CAST must still report extraction/path errors.
+statement error (?i)parser error
+SELECT TRY_CAST(variant_get(v, 'n[') AS INTEGER) FROM sql_type_inputs;
+
+# TRY_CAST returns NULL on overflow. Distinct targets must survive optimizer deduplication.
+query IITTT
+SELECT CAST(variant_get(v, 'wide') AS BIGINT) AS wide_int,
+       TRY_CAST(variant_get(v, 'wide') AS INTEGER) AS narrow_int,
+       arrow_typeof(CAST(variant_get(v, 'n') AS SMALLINT)) AS small_type,
+       arrow_typeof(CAST(variant_get(v, 'n') AS BIGINT)) AS big_type,
+       arrow_typeof(CAST(variant_get(v, 'n') AS DOUBLE)) AS float_type
+FROM sql_type_inputs;
+----
+2147483648 NULL Int16 Int64 Float64
+
+# The outer CAST chooses strict conversion even for an untyped try getter.
+statement error (?i)(cast|extract|overflow)
+SELECT CAST(try_variant_get(v, 'wide') AS INTEGER) FROM sql_type_inputs;
+
+# An explicit intermediate conversion must survive both cast syntaxes.
+query RR
+SELECT CAST(variant_get(v, 'f', 'INTEGER') AS DOUBLE),
+       CAST(CAST(variant_get(v, 'f') AS INTEGER) AS DOUBLE)
+FROM sql_type_inputs;
+----
+1 1
+
+statement error (?i)(cast|extract|overflow)
+SELECT TRY_CAST(variant_get(v, 'wide', 'INTEGER') AS BIGINT) FROM sql_type_inputs;
+
+# A nested target verifies try_variant_get also resolves parameterized SQL types.
+query B
+SELECT arrow_typeof(try_variant_get(v, 'o', 'STRUCT<a INT, b VARCHAR>')) =
+       arrow_typeof(CAST(NULL AS STRUCT<a INT, b VARCHAR>))
+FROM sql_type_inputs;
+----
+true
+
+# SQL string type resolution follows the current session.
+statement ok
+SET datafusion.sql_parser.map_string_types_to_utf8view = false;
+
+query TT
+SELECT arrow_typeof(variant_get(v, 's', 'VARCHAR')),
+       arrow_typeof(try_variant_get(v, 's', 'VARCHAR'))
+FROM sql_type_inputs;
+----
+Utf8 Utf8
+
+statement ok
+SET datafusion.sql_parser.map_string_types_to_utf8view = true;
+
+query TT
+SELECT arrow_typeof(variant_get(v, 's', 'VARCHAR')),
+       arrow_typeof(try_variant_get(v, 's', 'VARCHAR'))
+FROM sql_type_inputs;
+----
+Utf8View Utf8View
+
+# Temporal typed NULLs isolate resolution from missing value conversions.
+# Dates and timestamps without timezone are independent of the session zone.
+query BBB
+SELECT arrow_typeof(variant_get(v, 'null', 'DATE')) = arrow_typeof(CAST(NULL AS DATE)),
+       arrow_typeof(variant_get(v, 'null', 'TIMESTAMP')) = arrow_typeof(CAST(NULL AS TIMESTAMP)),
+       arrow_typeof(variant_get(v, 'null', 'TIMESTAMP(3)')) = arrow_typeof(CAST(NULL AS TIMESTAMP(3)))
+FROM sql_type_inputs;
+----
+true true true
+
+statement ok
+SET datafusion.execution.time_zone = 'UTC';
+
+query BB
+SELECT arrow_typeof(variant_get(v, 'null', 'TIMESTAMP(6) WITH TIME ZONE')) = arrow_typeof(CAST(NULL AS TIMESTAMP(6) WITH TIME ZONE)),
+       arrow_typeof(try_variant_get(v, 'null', 'TIMESTAMP(6) WITH TIME ZONE')) = arrow_typeof(CAST(NULL AS TIMESTAMP(6) WITH TIME ZONE))
+FROM sql_type_inputs;
+----
+true true
+
+statement ok
+SET datafusion.execution.time_zone = '+05:30';
+
+query BB
+SELECT arrow_typeof(variant_get(v, 'null', 'TIMESTAMP(6) WITH TIME ZONE')) = arrow_typeof(CAST(NULL AS TIMESTAMP(6) WITH TIME ZONE)),
+       arrow_typeof(try_variant_get(v, 'null', 'TIMESTAMP(6) WITH TIME ZONE')) = arrow_typeof(CAST(NULL AS TIMESTAMP(6) WITH TIME ZONE))
+FROM sql_type_inputs;
+----
+true true
+
+# EXPLAIN verifies these fail during planning, without executing the getter.
+# The generic unknown-type error is already covered by variant_get.slt.
+statement error (?i)(type hint|literal)
+EXPLAIN SELECT variant_get(v, 'n', NULL) FROM sql_type_inputs;
+
+statement error (?i)(type hint|literal)
+EXPLAIN SELECT variant_get(v, 'n', 42) FROM sql_type_inputs;
+
+statement error (?i)(type hint|literal)
+EXPLAIN SELECT variant_get(v, 'n', type_name) FROM sql_type_inputs;
+
+statement error (?i)(type hint|literal)
+EXPLAIN SELECT try_variant_get(v, 'n', type_name) FROM sql_type_inputs;
+
+# SQL syntax errors are diagnosed during planning, even for the try getter.
+statement error (?i)(parse|syntax|expected|precision|scale)
+EXPLAIN SELECT variant_get(json_to_variant('7'), '', '');
+
+statement error (?i)(parse|syntax|expected|precision|scale)
+EXPLAIN SELECT try_variant_get(json_to_variant('7'), '', 'INTEGER trailing');
+
+statement error (?i)(parse|syntax|expected|precision|scale)
+EXPLAIN SELECT variant_get(json_to_variant('7'), '', 'DECIMAL(2,4)');
+
+statement error (?i)(parse|syntax|expected|precision|scale)
+EXPLAIN SELECT variant_get(json_to_variant('7'), '', 'ARRAY<');
+
+# Arrow-only names are not compatibility fallbacks. INT8 above uses SQL meaning.
+statement error (?i)(unsupported|invalid|not implemented)
+EXPLAIN SELECT variant_get(json_to_variant('7'), '', 'Int64');
+
+statement error (?i)(unsupported|invalid|not implemented)
+EXPLAIN SELECT try_variant_get(json_to_variant('"hello"'), '', 'Utf8View');
+
+# Length-qualified VARCHAR uses the same session flag as ordinary CAST.
+statement ok
+SET datafusion.sql_parser.support_varchar_with_length = false;
+
+statement error (?i)(varchar|length)
+EXPLAIN SELECT variant_get(json_to_variant('"hello"'), '', 'VARCHAR(10)');
+
+statement ok
+SET datafusion.sql_parser.support_varchar_with_length = true;
+
+query B
+SELECT arrow_typeof(variant_get(v, 's', 'VARCHAR(10)')) = arrow_typeof(CAST(NULL AS VARCHAR(10)))
+FROM sql_type_inputs;
+----
+true
+
+statement ok
+RESET datafusion.execution.time_zone;
+
+query BB
+SELECT arrow_typeof(variant_get(v, 'null', 'TIMESTAMP WITH TIME ZONE')) = arrow_typeof(CAST(NULL AS TIMESTAMP WITH TIME ZONE)),
+       arrow_typeof(try_variant_get(v, 'null', 'TIMESTAMP WITH TIME ZONE')) = arrow_typeof(CAST(NULL AS TIMESTAMP WITH TIME ZONE))
+FROM sql_type_inputs;
+----
+true true

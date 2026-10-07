@@ -106,11 +106,19 @@ fn bench_values(
     }
     let input = ArrayRef::from(builder.build());
     let generic = VariantGetUdf::default();
-    let type_hint = expected.data_type().to_string();
-    let hinted_name = format!("variant_get_{}", type_hint.to_lowercase());
+    let type_hint = match expected.data_type() {
+        DataType::Int64 => "BIGINT",
+        DataType::Float64 => "DOUBLE",
+        DataType::Boolean => "BOOLEAN",
+        DataType::Utf8View => "VARCHAR",
+        other => panic!("missing benchmark SQL type for {other}"),
+    };
+    // Keep execution benchmark IDs stable across the hint syntax migration.
+    let type_name = expected.data_type().to_string();
+    let hinted_name = format!("variant_get_{}", type_name.to_lowercase());
     let cases: [(&str, &dyn ScalarUDFImpl, Option<&str>); 3] = [
         ("variant_get", &generic, None),
-        (&hinted_name, &generic, Some(&type_hint)),
+        (&hinted_name, &generic, Some(type_hint)),
         (helper.name(), helper, None),
     ];
 
@@ -121,7 +129,7 @@ fn bench_values(
             values,
             (name != "variant_get").then_some(&expected),
         );
-        group.bench_function(BenchmarkId::new(format!("{type_hint}/{name}"), ROWS), |b| {
+        group.bench_function(BenchmarkId::new(format!("{type_name}/{name}"), ROWS), |b| {
             // Invocation consumes its arguments; cloning shares the input buffers.
             // Include argument cloning, path parsing, and output allocation/drop.
             b.iter(|| {

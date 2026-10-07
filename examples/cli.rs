@@ -5,10 +5,9 @@ use datafusion::execution::FunctionRegistry;
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::*;
 use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, TryVariantGetUdf, VariantContainsUdf,
-    VariantExprPlanner, VariantGetUdf, VariantListConstruct, VariantListInsert,
-    VariantObjectConstruct, VariantObjectInsert, VariantObjectKeys, VariantPretty,
-    VariantToJsonUdf,
+    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantContainsUdf, VariantExprPlanner,
+    VariantListConstruct, VariantListInsert, VariantObjectConstruct, VariantObjectInsert,
+    VariantObjectKeys, VariantPretty, VariantToJsonUdf,
 };
 use flate2::read::GzDecoder;
 use rustyline::error::ReadlineError;
@@ -115,8 +114,7 @@ async fn main() -> Result<()> {
         ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantContainsUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(TryVariantGetUdf::default()));
+        datafusion_variant::register_variant_get_functions(&mut ctx)?;
         ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));
@@ -139,7 +137,7 @@ async fn main() -> Result<()> {
     println!("Tip: Press Enter without ';' to continue query on next line\n");
 
     let config = Config::builder().auto_add_history(true).build();
-    let helper = SqlHelper::default();
+    let helper = SqlHelper;
 
     let mut rl = Editor::with_config(config)?;
     rl.set_helper(Some(helper));

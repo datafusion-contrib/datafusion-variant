@@ -1,6 +1,7 @@
 #![warn(clippy::all)]
 
 mod shared;
+mod sql_type;
 
 mod cast_to_variant;
 mod expr_planner;
@@ -9,6 +10,7 @@ mod is_variant_null;
 mod json_to_variant;
 mod variant_contains;
 mod variant_get;
+mod variant_get_rewrite;
 mod variant_list_construct;
 mod variant_list_delete;
 mod variant_list_insert;
@@ -26,6 +28,7 @@ pub use is_variant_null::*;
 pub use json_to_variant::*;
 pub use variant_contains::*;
 pub use variant_get::*;
+pub use variant_get_rewrite::*;
 pub use variant_list_construct::*;
 pub use variant_list_delete::*;
 pub use variant_list_insert::*;
