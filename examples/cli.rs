@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
 use arrow::array::{ArrayRef, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
-use datafusion::execution::FunctionRegistry;
+use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::*;
 use datafusion_variant::{
     CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, VariantContainsUdf, VariantExprPlanner,
     VariantListConstruct, VariantListInsert, VariantObjectConstruct, VariantObjectInsert,
-    VariantObjectKeys, VariantPretty, VariantToJsonUdf,
+    VariantObjectKeys, VariantPretty, VariantToJsonUdf, VariantTypePlanner,
 };
 use flate2::read::GzDecoder;
 use rustyline::error::ReadlineError;
@@ -98,7 +98,11 @@ async fn main() -> Result<()> {
     let ctx = {
         let setup_start = Instant::now();
 
-        let mut ctx = SessionContext::new();
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_type_planner(Arc::new(VariantTypePlanner))
+            .build();
+        let mut ctx = SessionContext::new_with_state(state);
         let schema = Schema::new(vec![Field::new("json_data", DataType::Utf8, false)]);
         let string_array: ArrayRef = Arc::new(StringArray::from(json_strings));
         let batch = RecordBatch::try_new(Arc::new(schema), vec![string_array])?;

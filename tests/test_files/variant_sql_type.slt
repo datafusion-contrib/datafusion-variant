@@ -1,0 +1,146 @@
+# SQL VARIANT has canonical binary-view storage and extension metadata.
+statement ok
+CREATE TABLE sql_variant_inputs AS
+SELECT id, json_to_variant(j) AS v, 'x' AS path
+FROM (VALUES (1, '{"x":7}'), (2, '{"x":{"a":[1,true]}}'),
+             (3, '{"x":[1,"two"]}'), (4, '{"x":null}'),
+             (5, '{}'), (6, NULL)) AS input(id, j);
+
+# Existing Spark/null SLTs cover extraction semantics. Exercise the new target
+# through materialization, with column paths for hints and scalar paths for casts.
+statement ok
+CREATE TABLE sql_variant_results AS
+SELECT id, variant_get(v, path, 'VaRiAnT') AS hinted,
+       TRY_CAST(variant_get(v, 'x') AS VARIANT) AS casted
+FROM sql_variant_inputs;
+
+query ITT rowsort
+SELECT id, variant_to_json(hinted), variant_to_json(casted) FROM sql_variant_results;
+----
+1 7 7
+2 {"a":[1,true]} {"a":[1,true]}
+3 [1,"two"] [1,"two"]
+4 null null
+5 NULL NULL
+6 NULL NULL
+
+query TTBB
+SELECT arrow_metadata(hinted, 'ARROW:extension:name'),
+       arrow_metadata(casted, 'ARROW:extension:name'),
+       arrow_typeof(hinted) = arrow_typeof(CAST(NULL AS VARIANT)),
+       arrow_typeof(casted) = arrow_typeof(json_to_variant('7'))
+FROM sql_variant_results WHERE id = 1;
+----
+arrow.parquet.variant arrow.parquet.variant true true
+
+# SQL declarations retain the extension identity through INSERT and reads.
+statement ok
+CREATE TABLE declared_variant (v VARIANT);
+
+statement ok
+INSERT INTO declared_variant SELECT hinted FROM sql_variant_results WHERE id = 1;
+
+query TT
+SELECT variant_to_json(v), arrow_metadata(v, 'ARROW:extension:name') FROM declared_variant;
+----
+7 arrow.parquet.variant
+
+statement ok
+CREATE TABLE null_variant AS SELECT CAST(NULL AS VARIANT) AS v;
+
+query BT
+SELECT v IS NULL, arrow_metadata(v, 'ARROW:extension:name') FROM null_variant;
+----
+true arrow.parquet.variant
+
+# DataFusion recursively applies the type planner inside composite declarations.
+statement ok
+CREATE TABLE nested_variant (a VARIANT[], o STRUCT<v VARIANT>);
+
+statement ok
+INSERT INTO nested_variant VALUES (NULL, NULL);
+
+query BT
+SELECT arrow_typeof(a) LIKE '%arrow.parquet.variant%',
+       arrow_metadata(o.v, 'ARROW:extension:name') FROM nested_variant;
+----
+true arrow.parquet.variant
+
+# Constant folding and a scalar input with column paths use separate dispatch.
+query TTT
+SELECT variant_to_json(try_variant_get(json_to_variant('{"x":7}'), 'x', 'VARIANT')),
+       variant_to_json(CAST(variant_get(json_to_variant('{"x":7}'), 'x') AS VARIANT)),
+       variant_to_json(variant_get(json_to_variant('{"x":7}'), path, 'VARIANT'))
+FROM sql_variant_inputs WHERE id = 1;
+----
+7 7 7
+
+# A getter explicitly returning VARIANT remains usable in a subsequent cast.
+query II
+SELECT CAST(variant_get(v, 'x', 'VARIANT') AS INT) AS hinted,
+       v:x::VARIANT::INT AS casted
+FROM sql_variant_inputs WHERE id = 1;
+----
+7 7
+
+# The outer cast controls conversion errors even after an explicit VARIANT target.
+query I
+SELECT TRY_CAST(variant_get(v, 'x', 'VARIANT') AS INT)
+FROM sql_variant_inputs WHERE id = 2;
+----
+NULL
+
+statement error (?i)(cast|extract)
+SELECT CAST(try_variant_get(v, 'x', 'VARIANT') AS INT)
+FROM sql_variant_inputs WHERE id = 2;
+
+# Reuse the reference values already asserted in is_variant_null.slt rather
+# than duplicating its null/missing matrices. Materialization also checks storage.
+statement ok
+CREATE TABLE sql_variant_shredded AS
+SELECT id, variant_get(v, 'a', 'VARIANT') AS got FROM shredded_null_objects;
+
+query B
+SELECT bool_and(variant_to_json(got) IS NOT DISTINCT FROM
+                variant_to_json(variant_get(original, 'a')))
+FROM sql_variant_shredded JOIN shredded_null_objects USING (id);
+----
+true
+
+query BB
+SELECT bool_and(variant_to_json(variant_get(v, '[0]', 'VARIANT')) IS NOT DISTINCT FROM
+                variant_to_json(variant_get(original, '[0]'))),
+       bool_and(variant_to_json(variant_get(v, '[1]', 'VARIANT')) IS NOT DISTINCT FROM
+                variant_to_json(variant_get(original, '[1]')))
+FROM shredded_null_lists;
+----
+true true
+
+# Binary and LargeBinary inputs must match the declared BinaryView output schema.
+statement ok
+CREATE TABLE binary_variant_results AS
+SELECT variant_get(b, '', 'VARIANT') AS b,
+       CAST(variant_get(l, '') AS VARIANT) AS l FROM binary_variant_inputs;
+
+query BBTT rowsort
+SELECT arrow_typeof(b) = arrow_typeof(CAST(NULL AS VARIANT)),
+       arrow_typeof(l) = arrow_typeof(CAST(NULL AS VARIANT)),
+       variant_to_json(b), variant_to_json(l) FROM binary_variant_results;
+----
+true true NULL NULL
+true true {"x":7} {"x":7}
+
+# This is type registration, not a new permissive parser for custom type names.
+statement error (?i)VARIANT does not accept type parameters
+SELECT variant_get(json_to_variant('7'), '', 'VARIANT(1)');
+
+statement error (?i)(unsupported|not implemented)
+SELECT variant_get(json_to_variant('7'), '', 'other.VARIANT');
+
+# The planner preserves nested metadata, but the upstream extraction kernel
+# does not yet implement nested Variant targets. Reject rather than miscast.
+statement error (?i)Nested VARIANT getter targets
+SELECT variant_get(json_to_variant('[1,2]'), '', 'ARRAY<VARIANT>');
+
+statement error (?i)Nested VARIANT getter targets
+SELECT CAST(variant_get(json_to_variant('{"a":1}'), '') AS STRUCT<a VARIANT>);

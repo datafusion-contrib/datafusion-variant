@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arrow::{
     array::{Array, ArrayRef, BooleanArray, Float64Array, Int64Array, StringViewArray},
-    compute::{CastOptions, concat},
+    compute::{CastOptions, cast, concat},
 };
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use datafusion::{
@@ -15,7 +15,9 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use parquet_variant::{Variant, VariantPath};
-use parquet_variant_compute::{GetOptions, VariantType, variant_get};
+use parquet_variant_compute::{
+    GetOptions, VariantArray, VariantType, unshred_variant, variant_get,
+};
 use parquet_variant_json::VariantToJson;
 
 use crate::impl_variant_get::impl_variant_get_typed;
@@ -24,6 +26,7 @@ use crate::shared::{
     try_parse_string_scalar,
 };
 use crate::sql_type::SqlTypeConfig;
+use crate::variant_type::{is_variant, validate_getter_target};
 
 fn type_hint_from_scalar(
     field_name: &str,
@@ -42,9 +45,10 @@ fn type_hint_from_scalar(
         }
     };
 
+    let field = config.resolve(type_name)?;
+    validate_getter_target(&field)?;
     Ok(Arc::new(
-        config
-            .resolve(type_name)?
+        field
             .as_ref()
             .clone()
             .with_name(field_name)
@@ -60,6 +64,28 @@ fn build_get_options<'a>(
     GetOptions::new_with_path(path)
         .with_as_type(as_type.clone())
         .with_cast_options(cast_options.clone())
+}
+
+// TODO: After pinning Arrow with native Variant-target support (apache/arrow-rs#9681),
+// replace this adapter once the kernel also preserves missing/null semantics on
+// shredded inputs and matches the target field's storage schema.
+fn get_with_target(input: &ArrayRef, mut options: GetOptions<'_>) -> Result<ArrayRef> {
+    let variant_target = options
+        .as_type
+        .as_ref()
+        .filter(|field| is_variant(field))
+        .cloned();
+    if let Some(target) = variant_target {
+        options.as_type = None;
+        // Unshred before extraction: extracting a shredded field first can lose
+        // the distinction between a missing field and an explicit Variant null.
+        let unshredded = unshred_variant(&VariantArray::try_new(input.as_ref())?)?;
+        let extracted = variant_get(&ArrayRef::from(unshredded), options)?;
+        // Match SQL VARIANT's declared binary widths and child nullability.
+        Ok(cast(extracted.as_ref(), target.data_type())?)
+    } else {
+        Ok(variant_get(input, options)?)
+    }
 }
 
 /// Evaluate a Variant getter using Arrow paths and an explicit cast error policy.
@@ -90,7 +116,7 @@ fn invoke_variant_get(
                 .map(|s| s.as_str())
                 .unwrap_or_default();
 
-            let res = variant_get(
+            let res = get_with_target(
                 variant_array,
                 build_get_options(
                     VariantPath::try_from(variant_path)?,
@@ -112,7 +138,7 @@ fn invoke_variant_get(
                 .map(|s| s.as_str())
                 .unwrap_or_default();
 
-            let res = variant_get(
+            let res = get_with_target(
                 &variant_array,
                 build_get_options(
                     VariantPath::try_from(variant_path)?,
@@ -137,7 +163,7 @@ fn invoke_variant_get(
                 // Preserve SQL validity and shredded storage when selecting a row.
                 let arr = variant_array.slice(i, 1);
 
-                let res = variant_get(
+                let res = get_with_target(
                     &arr,
                     build_get_options(
                         VariantPath::try_from(path.unwrap_or_default())?,
@@ -164,7 +190,7 @@ fn invoke_variant_get(
 
             for path in variant_paths {
                 let path = path.unwrap_or_default();
-                let res = variant_get(
+                let res = get_with_target(
                     &variant_array,
                     build_get_options(VariantPath::try_from(path)?, &type_field, &cast_options),
                 )?;
@@ -192,11 +218,12 @@ fn return_field_for_variant_get(
         return type_hint_from_scalar(name, scalar, config);
     }
 
+    // Untyped extraction can retain nullable value storage. SQL VARIANT targets
+    // instead materialize the canonical unshredded field from VariantArrayBuilder.
     let data_type = DataType::Struct(Fields::from(vec![
         Field::new("metadata", DataType::BinaryView, false),
         Field::new("value", DataType::BinaryView, true),
     ]));
-
     Ok(Arc::new(
         Field::new(name, data_type, true).with_extension_type(VariantType),
     ))

@@ -5,7 +5,9 @@ use std::sync::Arc;
 use arrow_schema::{DataType, FieldRef};
 use datafusion::{
     common::{DFSchema, Result, TableReference, config::ConfigOptions, internal_err, plan_err},
-    logical_expr::{AggregateUDF, Expr, HigherOrderUDF, ScalarUDF, TableSource, WindowUDF},
+    logical_expr::{
+        AggregateUDF, Expr, HigherOrderUDF, ScalarUDF, TableSource, WindowUDF, planner::TypePlanner,
+    },
     sql::{
         planner::{ContextProvider, PlannerContext, SqlToRel},
         sqlparser::{
@@ -17,7 +19,9 @@ use datafusion::{
     },
 };
 
-/// Settings that affect parsing and resolving an ordinary SQL type. Keeping
+use crate::VariantTypePlanner;
+
+/// Settings that affect parsing and resolving a SQL type. Keeping
 /// them in the UDF makes return-type inference stable for an already-built plan.
 /// `with_updated_config` supplies a new instance after SET / RESET.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -84,10 +88,13 @@ impl SqlTypeConfig {
 }
 
 // A cast of NULL needs only configuration, not catalogs or function lookup.
-// Custom SQL extension types are deliberately outside this ordinary-type API.
 struct TypeContext(ConfigOptions);
 
 impl ContextProvider for TypeContext {
+    fn get_type_planner(&self) -> Option<Arc<dyn TypePlanner>> {
+        Some(Arc::new(VariantTypePlanner))
+    }
+
     fn options(&self) -> &ConfigOptions {
         &self.0
     }
