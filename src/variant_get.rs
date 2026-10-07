@@ -66,6 +66,9 @@ fn build_get_options<'a>(
         .with_cast_options(cast_options.clone())
 }
 
+// TODO: After pinning Arrow with native Variant-target support (apache/arrow-rs#9681),
+// replace this adapter once the kernel also preserves missing/null semantics on
+// shredded inputs and matches the target field's storage schema.
 fn get_with_target(input: &ArrayRef, mut options: GetOptions<'_>) -> Result<ArrayRef> {
     let variant_target = options
         .as_type
