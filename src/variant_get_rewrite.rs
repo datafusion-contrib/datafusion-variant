@@ -3,10 +3,13 @@ use std::sync::Arc;
 use datafusion::{
     common::{DFSchema, Result, config::ConfigOptions, tree_node::Transformed},
     execution::FunctionRegistry,
-    logical_expr::{Expr, ScalarUDF, expr::ScalarFunction, expr_rewriter::FunctionRewrite},
+    logical_expr::{
+        Expr, ExprSchemable, ScalarUDF, expr::ScalarFunction, expr_rewriter::FunctionRewrite, lit,
+    },
     prelude::SessionContext,
 };
 
+use crate::variant_type::{is_variant, validate_getter_target};
 use crate::{TryVariantGetUdf, VariantGetUdf};
 
 /// Register both generic getters with the session's configuration, plus the
@@ -22,8 +25,8 @@ pub fn register_variant_get_functions(ctx: &mut SessionContext) -> Result<()> {
     ctx.register_function_rewrite(Arc::new(VariantGetRewrite))
 }
 
-/// Lower a cast of an untyped getter to the existing extraction/conversion
-/// kernel. A getter with an explicit target must retain its intermediate cast.
+/// Lower casts of Variant-returning getters to the extraction/conversion kernel,
+/// retaining any explicit intermediate conversion.
 #[derive(Debug)]
 pub struct VariantGetRewrite;
 
@@ -35,7 +38,7 @@ impl FunctionRewrite for VariantGetRewrite {
     fn rewrite(
         &self,
         expr: Expr,
-        _schema: &DFSchema,
+        schema: &DFSchema,
         _config: &ConfigOptions,
     ) -> Result<Transformed<Expr>> {
         let (input, target, safe) = match &expr {
@@ -50,26 +53,29 @@ impl FunctionRewrite for VariantGetRewrite {
         let Expr::ScalarFunction(function) = input else {
             return Ok(Transformed::no(expr));
         };
-        let untyped = function
-            .func
-            .inner()
-            .downcast_ref::<VariantGetUdf>()
-            .is_some_and(VariantGetUdf::is_untyped)
-            || function
-                .func
-                .inner()
-                .downcast_ref::<TryVariantGetUdf>()
-                .is_some_and(TryVariantGetUdf::is_untyped);
-        if !untyped || function.args.len() != 2 {
+        let getter = function.func.inner().downcast_ref::<VariantGetUdf>();
+        let try_getter = function.func.inner().downcast_ref::<TryVariantGetUdf>();
+        if getter.is_none() && try_getter.is_none() {
             return Ok(Transformed::no(expr));
         }
+        let untyped = getter.is_some_and(VariantGetUdf::is_untyped)
+            || try_getter.is_some_and(TryVariantGetUdf::is_untyped);
+        let args = if untyped && function.args.len() == 2 {
+            function.args.clone()
+        } else if is_variant(&input.to_field(schema)?.1) {
+            // Preserve an explicit VARIANT conversion before casting its result.
+            vec![input.clone(), lit("")]
+        } else {
+            return Ok(Transformed::no(expr));
+        };
+        validate_getter_target(target)?;
         let func = if safe {
             ScalarUDF::new_from_impl(TryVariantGetUdf::with_target(Arc::clone(target)))
         } else {
             ScalarUDF::new_from_impl(VariantGetUdf::with_target(Arc::clone(target)))
         };
         Ok(Transformed::yes(Expr::ScalarFunction(
-            ScalarFunction::new_udf(Arc::new(func), function.args.clone()),
+            ScalarFunction::new_udf(Arc::new(func), args),
         )))
     }
 }

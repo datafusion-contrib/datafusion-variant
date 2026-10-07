@@ -5,6 +5,7 @@
 # - The root path is '' instead of Spark's '$'; type hints use SQL names.
 # - Spark BINARY uses DataFusion's BYTEA spelling.
 # - Successful casts exercise direct, extract-then-cast, and try routes.
+#   The intermediate getter explicitly targets VARIANT, matching Spark's testVariantGet helper.
 # - Failed casts check strict errors and try_variant_get NULL results.
 # Null-safe equality avoids engine-specific display formats.
 # Expected values independently executed on Spark 4.2.0, ANSI enabled, UTC.
@@ -17,7 +18,7 @@ SET datafusion.execution.time_zone = 'UTC';
 query BBB
 WITH input AS (SELECT json_to_variant('"true"') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
-  variant_get(variant_get(v, ''), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
 ----
 true true true
@@ -26,7 +27,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('"false"') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false,
-  variant_get(variant_get(v, ''), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false FROM input;
 ----
 true true true
@@ -35,7 +36,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('" t "') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
-  variant_get(variant_get(v, ''), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
 ----
 true true true
@@ -58,7 +59,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"1"') AS v)
 SELECT variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 1,
-  variant_get(variant_get(v, ''), '', 'INTEGER') IS NOT DISTINCT FROM 1,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'INTEGER') IS NOT DISTINCT FROM 1,
   try_variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 1 FROM input;
 ----
 true true true
@@ -69,7 +70,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"9223372036854775807"') AS v)
 SELECT variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
-  variant_get(variant_get(v, ''), '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
   try_variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807 FROM input;
 ----
 true true true
@@ -80,7 +81,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"-0.0"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE),
-  variant_get(variant_get(v, ''), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE) FROM input;
 ----
 true true true
@@ -91,7 +92,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"inf"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE),
-  variant_get(variant_get(v, ''), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE) FROM input;
 ----
 true true true
@@ -102,7 +103,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"-inf"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE),
-  variant_get(variant_get(v, ''), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE) FROM input;
 ----
 true true true
@@ -113,7 +114,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"nan"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE),
-  variant_get(variant_get(v, ''), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE) FROM input;
 ----
 true true true
@@ -124,7 +125,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"12.34"') AS v)
 SELECT variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('12.34000015258789' AS REAL),
-  variant_get(variant_get(v, ''), '', 'REAL') IS NOT DISTINCT FROM CAST('12.34000015258789' AS REAL),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'REAL') IS NOT DISTINCT FROM CAST('12.34000015258789' AS REAL),
   try_variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('12.34000015258789' AS REAL) FROM input;
 ----
 true true true
@@ -133,7 +134,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('"12.34"') AS v)
 SELECT variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' AS decimal(9,4)),
-  variant_get(variant_get(v, ''), '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' AS decimal(9,4)),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' AS decimal(9,4)),
   try_variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' AS decimal(9,4)) FROM input;
 ----
 true true true
@@ -144,7 +145,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"1970-01-01"') AS v)
 SELECT variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE),
-  variant_get(variant_get(v, ''), '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE),
   try_variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE) FROM input;
 ----
 true true true
@@ -155,7 +156,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"1970-03-01"') AS v)
 SELECT variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-03-01' AS DATE),
-  variant_get(variant_get(v, ''), '', 'DATE') IS NOT DISTINCT FROM CAST('1970-03-01' AS DATE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DATE') IS NOT DISTINCT FROM CAST('1970-03-01' AS DATE),
   try_variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-03-01' AS DATE) FROM input;
 ----
 true true true
@@ -164,7 +165,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('true') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
-  variant_get(variant_get(v, ''), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
 ----
 true true true
@@ -173,7 +174,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('false') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false,
-  variant_get(variant_get(v, ''), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false FROM input;
 ----
 true true true
@@ -182,7 +183,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('true') AS v)
 SELECT variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 1,
-  variant_get(variant_get(v, ''), '', 'TINYINT') IS NOT DISTINCT FROM 1,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'TINYINT') IS NOT DISTINCT FROM 1,
   try_variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 1 FROM input;
 ----
 true true true
@@ -191,7 +192,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('true') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE),
-  variant_get(variant_get(v, ''), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE) FROM input;
 ----
 true true true
@@ -202,7 +203,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('true') AS v)
 SELECT variant_get(v, '', 'DECIMAL(18, 17)') IS NOT DISTINCT FROM CAST('1.00000000000000000' AS decimal(18,17)),
-  variant_get(variant_get(v, ''), '', 'DECIMAL(18, 17)') IS NOT DISTINCT FROM CAST('1.00000000000000000' AS decimal(18,17)),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(18, 17)') IS NOT DISTINCT FROM CAST('1.00000000000000000' AS decimal(18,17)),
   try_variant_get(v, '', 'DECIMAL(18, 17)') IS NOT DISTINCT FROM CAST('1.00000000000000000' AS decimal(18,17)) FROM input;
 ----
 true true true
@@ -225,7 +226,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('false') AS v)
 SELECT variant_get(v, '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000000000000' AS decimal(18,18)),
-  variant_get(variant_get(v, ''), '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000000000000' AS decimal(18,18)),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000000000000' AS decimal(18,18)),
   try_variant_get(v, '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000000000000' AS decimal(18,18)) FROM input;
 ----
 true true true
@@ -234,7 +235,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('1') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
-  variant_get(variant_get(v, ''), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
 ----
 true true true
@@ -243,7 +244,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('0') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false,
-  variant_get(variant_get(v, ''), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false FROM input;
 ----
 true true true
@@ -264,7 +265,7 @@ true
 query BBB
 WITH input AS (SELECT json_to_variant('127') AS v)
 SELECT variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 127,
-  variant_get(variant_get(v, ''), '', 'TINYINT') IS NOT DISTINCT FROM 127,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'TINYINT') IS NOT DISTINCT FROM 127,
   try_variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 127 FROM input;
 ----
 true true true
@@ -285,7 +286,7 @@ true
 query BBB
 WITH input AS (SELECT json_to_variant('-32768') AS v)
 SELECT variant_get(v, '', 'SMALLINT') IS NOT DISTINCT FROM -32768,
-  variant_get(variant_get(v, ''), '', 'SMALLINT') IS NOT DISTINCT FROM -32768,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'SMALLINT') IS NOT DISTINCT FROM -32768,
   try_variant_get(v, '', 'SMALLINT') IS NOT DISTINCT FROM -32768 FROM input;
 ----
 true true true
@@ -306,7 +307,7 @@ true
 query BBB
 WITH input AS (SELECT json_to_variant('2147483647') AS v)
 SELECT variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 2147483647,
-  variant_get(variant_get(v, ''), '', 'INTEGER') IS NOT DISTINCT FROM 2147483647,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'INTEGER') IS NOT DISTINCT FROM 2147483647,
   try_variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 2147483647 FROM input;
 ----
 true true true
@@ -327,7 +328,7 @@ true
 query BBB
 WITH input AS (SELECT json_to_variant('9223372036854775807') AS v)
 SELECT variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
-  variant_get(variant_get(v, ''), '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
   try_variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807 FROM input;
 ----
 true true true
@@ -336,7 +337,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('-9223372036854775808') AS v)
 SELECT variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM -9223372036854775808,
-  variant_get(variant_get(v, ''), '', 'BIGINT') IS NOT DISTINCT FROM -9223372036854775808,
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'BIGINT') IS NOT DISTINCT FROM -9223372036854775808,
   try_variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM -9223372036854775808 FROM input;
 ----
 true true true
@@ -345,7 +346,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('2147483647') AS v)
 SELECT variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('2147483648.0' AS REAL),
-  variant_get(variant_get(v, ''), '', 'REAL') IS NOT DISTINCT FROM CAST('2147483648.0' AS REAL),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'REAL') IS NOT DISTINCT FROM CAST('2147483648.0' AS REAL),
   try_variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('2147483648.0' AS REAL) FROM input;
 ----
 true true true
@@ -354,7 +355,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('2147483647') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('2147483647.0' AS DOUBLE),
-  variant_get(variant_get(v, ''), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('2147483647.0' AS DOUBLE),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('2147483647.0' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('2147483647.0' AS DOUBLE) FROM input;
 ----
 true true true
@@ -363,7 +364,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('1') AS v)
 SELECT variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('1.0000' AS decimal(9,4)),
-  variant_get(variant_get(v, ''), '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('1.0000' AS decimal(9,4)),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('1.0000' AS decimal(9,4)),
   try_variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('1.0000' AS decimal(9,4)) FROM input;
 ----
 true true true
@@ -372,7 +373,7 @@ true true true
 query BBB
 WITH input AS (SELECT json_to_variant('99999999') AS v)
 SELECT variant_get(v, '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM CAST('99999999.000000000000000000000000000000' AS decimal(38,30)),
-  variant_get(variant_get(v, ''), '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM CAST('99999999.000000000000000000000000000000' AS decimal(38,30)),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM CAST('99999999.000000000000000000000000000000' AS decimal(38,30)),
   try_variant_get(v, '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM CAST('99999999.000000000000000000000000000000' AS decimal(38,30)) FROM input;
 ----
 true true true
@@ -407,7 +408,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('-1') AS v)
 SELECT variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(-1000000, 'Timestamp(Microsecond, Some("UTC"))'),
-  variant_get(variant_get(v, ''), '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(-1000000, 'Timestamp(Microsecond, Some("UTC"))'),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(-1000000, 'Timestamp(Microsecond, Some("UTC"))'),
   try_variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(-1000000, 'Timestamp(Microsecond, Some("UTC"))') FROM input;
 ----
 true true true
@@ -418,7 +419,7 @@ skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('9223372036854') AS v)
 SELECT variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(9223372036854000000, 'Timestamp(Microsecond, Some("UTC"))'),
-  variant_get(variant_get(v, ''), '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(9223372036854000000, 'Timestamp(Microsecond, Some("UTC"))'),
+  variant_get(variant_get(v, '', 'VARIANT'), '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(9223372036854000000, 'Timestamp(Microsecond, Some("UTC"))'),
   try_variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(9223372036854000000, 'Timestamp(Microsecond, Some("UTC"))') FROM input;
 ----
 true true true

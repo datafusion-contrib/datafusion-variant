@@ -12,8 +12,8 @@ This crate is under active development. The compatibility target is
 **Apache Spark 4.2.0**. Compatibility is incomplete, and function names,
 signatures, and behavior may change.
 
-Basic `:` field access and casts of getters through `CAST`, `TRY_CAST`, and
-`::` are available. SQL `VARIANT` type registration is still planned.
+SQL `VARIANT` type registration, basic `:` field access, and casts of getters
+through `CAST`, `TRY_CAST`, and `::` are available.
 
 See [#69](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
 for the compatibility roadmap, integration work, and benchmarking plans.
@@ -22,22 +22,28 @@ for the compatibility roadmap, integration work, and benchmarking plans.
 
 Register the functions you need with a DataFusion `SessionContext`.
 Use `register_variant_get_functions` for SQL type hints and getter casts, and
-register `VariantExprPlanner` to enable `:` field access:
+register `VariantExprPlanner` to enable `:` field access. Install
+`VariantTypePlanner` when constructing the session for SQL `VARIANT` syntax:
 
 ```rust
 use std::sync::Arc;
 
 use datafusion::error::Result;
-use datafusion::execution::FunctionRegistry;
+use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::SessionContext;
 use datafusion_variant::{
-    JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf, register_variant_get_functions,
+    JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf, VariantTypePlanner,
+    register_variant_get_functions,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut ctx = SessionContext::new();
+    let state = SessionStateBuilder::new()
+        .with_default_features()
+        .with_type_planner(Arc::new(VariantTypePlanner))
+        .build();
+    let mut ctx = SessionContext::new_with_state(state);
 
     ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
@@ -107,6 +113,14 @@ on the right of arithmetic: `v:a::INT + (v:b::INT)`.
 
 Type strings use DataFusion's SQL cast planner during planning. The registration
 helper follows session type settings, including `SET` / `RESET`.
+
+`VARIANT` resolves to a struct with `metadata` and `value` binary-view fields and
+the `arrow.parquet.variant` extension metadata. Getter hints such as
+`variant_get(v, 'price', 'VARIANT')` and getter casts such as `v:price::VARIANT`
+preserve Variant values, including the distinction between SQL and Variant nulls.
+Use `cast_to_variant` and typed getters to convert to/from Variant columns;
+general SQL casts of those columns are not yet supported. Nested Variant getter
+targets are also unsupported.
 
 See the [Spark field-access tests](tests/test_files/spark_variant_field_extractions.slt)
 for remaining conversion and syntax gaps.
