@@ -1,21 +1,219 @@
+# Exercise each accepted physical string type on a materialized nullable column.
 statement ok
-CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
-  (7, '{"name": "Alice", "age": 30}'),
-  (6, '{"name": "Bob", "age": 25}'),
-  (5, '{"items": [1, 2, 3], "count": 3}'),
-  (4, 'null'),
-  (3, '"simple string"'),
-  (2, '123'),
-  (1, 'true');
+CREATE TABLE json_string_inputs(id INT, json VARCHAR, required_json VARCHAR NOT NULL);
 
-# convert json strings to variant and back to json string (round trip)
-query IT
-SELECT id, variant_to_json(json_to_variant(json_str)) FROM json_data ORDER BY id;
+statement ok
+INSERT INTO json_string_inputs VALUES (1, '123', 'null'), (2, NULL, 'null'), (3, 'null', 'null');
+
+statement ok
+CREATE VIEW parsed_json AS SELECT id,
+  json_to_variant(arrow_cast(json, 'Utf8')) AS utf8,
+  json_to_variant(arrow_cast(json, 'LargeUtf8')) AS large_utf8,
+  json_to_variant(arrow_cast(json, 'Utf8View')) AS utf8_view,
+  json_to_variant(required_json) AS required
+FROM json_string_inputs;
+
+query ITTT
+SELECT id, variant_to_json(utf8), variant_to_json(large_utf8), variant_to_json(utf8_view)
+FROM parsed_json ORDER BY id;
+----
+1 123 123 123
+2 NULL NULL NULL
+3 null null null
+
+# Literal arguments exercise constant evaluation; the ordinary Utf8 SQL/Variant
+# null distinction is already covered in variant_nulls.slt.
+query TBB
+SELECT variant_to_json(json_to_variant(arrow_cast('123', 'LargeUtf8'))),
+  json_to_variant(arrow_cast(NULL, 'Utf8View')) IS NULL,
+  is_variant_null(json_to_variant(arrow_cast('null', 'LargeUtf8')));
+----
+123 true true
+
+# Strict parsing cannot introduce SQL nulls. JSON 'null' remains a present value.
+# Spark reference: SPARK-48150 (VariantExpressionSuite:871-878).
+statement ok
+SET datafusion.catalog.information_schema = true;
+
+query TT
+SELECT column_name, is_nullable FROM information_schema.columns
+WHERE table_name = 'parsed_json' AND column_name <> 'id' ORDER BY column_name;
+----
+large_utf8 YES
+required NO
+utf8 YES
+utf8_view YES
+
+# Preserve the Variant extension annotation used by downstream UDFs.
+query T
+SELECT arrow_metadata(utf8, 'ARROW:extension:name') FROM parsed_json WHERE id = 1;
+----
+arrow.parquet.variant
+
+# A malformed row must fail the whole column evaluation, for each string type.
+statement ok
+INSERT INTO json_string_inputs VALUES (4, '{', 'null');
+
+statement error JSON format error
+SELECT json_to_variant(arrow_cast(json, 'Utf8')) FROM json_string_inputs;
+
+statement error JSON format error
+SELECT json_to_variant(arrow_cast(json, 'LargeUtf8')) FROM json_string_inputs;
+
+statement error JSON format error
+SELECT json_to_variant(arrow_cast(json, 'Utf8View')) FROM json_string_inputs;
+
+# Utf8 literal errors are covered by the Spark-derived cases below.
+statement error JSON format error
+SELECT json_to_variant(arrow_cast('{', 'LargeUtf8'));
+
+statement error JSON format error
+SELECT json_to_variant(arrow_cast('{', 'Utf8View'));
+
+# Adapted from Apache Spark 4.2.0, licensed under Apache-2.0.
+# Pinned commit: 32f7299601108917fb01920a54e084595b7b3bf8
+# Eval source: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionEvalUtilsSuite.scala
+# SQL source: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/core/src/test/scala/org/apache/spark/sql/VariantSuite.scala
+# Parser: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/common/variant/src/main/java/org/apache/spark/types/variant/VariantBuilder.java
+# Adaptations: parse_json -> json_to_variant; to_json -> variant_to_json.
+# Expected JSON/error outcomes were checked with Spark 4.2.0's VariantBuilder,
+# duplicate keys disallowed and Unicode validation enabled; JSON output uses UTC.
+# Compare logical JSON, not object dictionary order or byte-for-byte encoding.
+# All TODOs refer to https://github.com/datafusion-contrib/datafusion-variant/issues/71.
+# This is coverage toward parity, not a claim that the remaining gaps are fixed.
+# Skipped records preserve outstanding precision and duplicate-key expectations.
+
+# Round-trip matrix, including EvalUtilsSuite scalar/container and Unicode cases. Integer encoding widths and
+# short-string thresholds belong to Arrow's parser tests; here values matter.
+# Materialize input so this exercises the column path.
+statement ok
+CREATE TABLE spark_json_inputs(id INT, json VARCHAR, expected VARCHAR);
+
+statement ok
+INSERT INTO spark_json_inputs VALUES
+  (1, 'false', 'false'),
+  (2, '9223372036854775807', '9223372036854775807'),
+  (3, '-9223372036854775808', '-9223372036854775808'),
+  (4, '""', '""'),
+  (5, '{}', '{}'),
+  (6, '[]', '[]'),
+  (7, '[null, true, {"false" : 0}]', '[null,true,{"false":0}]'),
+  (8, '"\uD83D\uDE05"', '"😅"'),
+  (9, '{"\uD83D\uDE05":1}', '{"😅":1}'),
+  (10, '["\uD835\uDC00"]', '["𝐀"]'),
+  (11, '{"b": [{"c": "str2"}]}', '{"b":[{"c":"str2"}]}'),
+  -- Basic round-trip cases from the original local suite.
+  (12, 'true', 'true'),
+  (13, '"simple string"', '"simple string"'),
+  (14, '{"name": "Alice", "age": 30}', '{"age":30,"name":"Alice"}'),
+  (15, '{"items": [1, 2, 3], "count": 3}', '{"count":3,"items":[1,2,3]}');
+
+query IB
+SELECT id, variant_to_json(json_to_variant(json)) IS NOT DISTINCT FROM expected
+FROM spark_json_inputs ORDER BY id;
 ----
 1 true
-2 123
-3 "simple string"
-4 null
-5 {"count":3,"items":[1,2,3]}
-6 {"age":25,"name":"Bob"}
-7 {"age":30,"name":"Alice"}
+2 true
+3 true
+4 true
+5 true
+6 true
+7 true
+8 true
+9 true
+10 true
+11 true
+12 true
+13 true
+14 true
+15 true
+
+# EvalUtilsSuite.scala:132
+statement error (?i)JSON format error
+SELECT json_to_variant('');
+
+# EvalUtilsSuite.scala:132
+statement error (?i)JSON format error
+SELECT json_to_variant('[');
+
+# EvalUtilsSuite.scala:132
+statement error (?i)JSON format error
+SELECT json_to_variant('+1');
+
+# EvalUtilsSuite.scala:132
+statement error (?i)JSON format error
+SELECT json_to_variant('1a');
+
+# EvalUtilsSuite.scala:145
+statement error (?i)JSON format error
+SELECT json_to_variant('"\uD835"');
+
+# EvalUtilsSuite.scala:146
+statement error (?i)JSON format error
+SELECT json_to_variant('"\uDC00"');
+
+# EvalUtilsSuite.scala:147
+statement error (?i)JSON format error
+SELECT json_to_variant('"\uD835x\uDC00"');
+
+# EvalUtilsSuite.scala:148
+statement error (?i)JSON format error
+SELECT json_to_variant('"\uD835\uD835"');
+
+# EvalUtilsSuite.scala:150
+statement error (?i)JSON format error
+SELECT json_to_variant('{"\uD835":1}');
+
+# EvalUtilsSuite.scala:151
+statement error (?i)JSON format error
+SELECT json_to_variant('["ok", "\uDC00"]');
+
+# VariantSuite:66
+statement error (?i)JSON format error
+SELECT json_to_variant('{ a : 1 }');
+
+# Upstream precision issue: https://github.com/apache/arrow-rs/issues/11169
+# Proposed fix (open): https://github.com/apache/arrow-rs/pull/11177
+# TODO #71: i64 overflow, adapted from EvalUtilsSuite:57 using a value not exact in f64.
+skipif DataFusion
+query B
+SELECT variant_to_json(json_to_variant('9223372036854775809')) IS NOT DISTINCT FROM '9223372036854775809';
+----
+true
+
+# TODO #71 (EvalUtilsSuite.scala:68): Arrow 59 parses this exact decimal integer as Double.
+skipif DataFusion
+query B
+SELECT variant_to_json(json_to_variant('99999999999999999999999999999999999999')) IS NOT DISTINCT FROM '99999999999999999999999999999999999999';
+----
+true
+
+# TODO #71 (audit #71): Arrow 59 loses decimal precision.
+skipif DataFusion
+query B
+SELECT variant_to_json(json_to_variant('0.12345678901234567890123456789012345678')) IS NOT DISTINCT FROM '0.12345678901234567890123456789012345678';
+----
+true
+
+# TODO #71: Reject duplicate keys by default (EvalUtilsSuite:132).
+skipif DataFusion
+statement error (?i)(duplicate|JSON|parse)
+SELECT json_to_variant('{"a": 1, "b": 2, "a": "3"}');
+
+# Recursion must apply the same duplicate-key policy.
+skipif DataFusion
+statement error (?i)(duplicate|JSON|parse)
+SELECT json_to_variant('{"nested":{"a":1,"a":2}}');
+
+# Compare decoded key names, including Unicode escapes.
+skipif DataFusion
+statement error (?i)(duplicate|JSON|parse)
+SELECT json_to_variant('{"a":1,"\u0061":2}');
+
+# Other observed Spark differences require compatibility decisions, not encoding fixes:
+# - Spark consumes the first root in '1 2'; Arrow rejects trailing input.
+# - Spark parses '1e309' as Double infinity; Arrow rejects numeric overflow.
+# - Spark imposes a 16 MiB value limit; Arrow does not enforce that engine limit.
+# These are documented rather than asserting Spark policy is an Arrow bug.
+# APIs still outside this port: configurable duplicate-key allowance, legacy
+# Unicode validation, try_parse_json, and Spark's parse_json SQL alias (#71).
