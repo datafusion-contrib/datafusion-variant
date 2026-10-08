@@ -447,3 +447,168 @@ WITH input AS (SELECT json_to_variant('0') AS v)
 SELECT try_variant_get(v, '', 'TIMESTAMP(6)') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
+
+# Additional Spark numeric casts. Construct native Double and Decimal variants
+# explicitly: json_to_variant need not choose the same storage type as Spark.
+# Decimal32/64/128 inputs exercise Decimal4/8/16 conversion branches.
+
+# expr-043: VariantExpressionSuite.scala:342 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(CAST('1' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Boolean') IS NOT DISTINCT FROM true,
+  variant_get(variant_get(v, ''), '', 'Boolean') IS NOT DISTINCT FROM true,
+  try_variant_get(v, '', 'Boolean') IS NOT DISTINCT FROM true FROM input;
+----
+true true true
+
+# expr-044: VariantExpressionSuite.scala:343 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(CAST('0' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Boolean') IS NOT DISTINCT FROM false,
+  variant_get(variant_get(v, ''), '', 'Boolean') IS NOT DISTINCT FROM false,
+  try_variant_get(v, '', 'Boolean') IS NOT DISTINCT FROM false FROM input;
+----
+true true true
+
+# expr-046: VariantExpressionSuite.scala:345 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(CAST('127' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Int8') IS NOT DISTINCT FROM 127,
+  variant_get(variant_get(v, ''), '', 'Int8') IS NOT DISTINCT FROM 127,
+  try_variant_get(v, '', 'Int8') IS NOT DISTINCT FROM 127 FROM input;
+----
+true true true
+
+# expr-047: VariantExpressionSuite.scala:346 — strict/try conversion failure
+statement error (?i)(cast|extract|precision|overflow)
+WITH input AS (SELECT cast_to_variant(CAST('128' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Int8') FROM input;
+
+query B
+WITH input AS (SELECT cast_to_variant(CAST('128' AS DOUBLE)) AS v)
+SELECT try_variant_get(v, '', 'Int8') IS NULL FROM input;
+----
+true
+
+# expr-048: VariantExpressionSuite.scala:352 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(CAST('-9.223372036854776E18' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Int64') IS NOT DISTINCT FROM -9223372036854775808,
+  variant_get(variant_get(v, ''), '', 'Int64') IS NOT DISTINCT FROM -9223372036854775808,
+  try_variant_get(v, '', 'Int64') IS NOT DISTINCT FROM -9223372036854775808 FROM input;
+----
+true true true
+
+# expr-049: VariantExpressionSuite.scala:353 — strict/try conversion failure
+statement error (?i)(cast|extract|precision|overflow)
+WITH input AS (SELECT cast_to_variant(CAST('-9.223372036854778E18' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Int64') FROM input;
+
+query B
+WITH input AS (SELECT cast_to_variant(CAST('-9.223372036854778E18' AS DOUBLE)) AS v)
+SELECT try_variant_get(v, '', 'Int64') IS NULL FROM input;
+----
+true
+
+# expr-050: VariantExpressionSuite.scala:354 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(CAST('1E308' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Float32') IS NOT DISTINCT FROM CAST('inf' AS REAL),
+  variant_get(variant_get(v, ''), '', 'Float32') IS NOT DISTINCT FROM CAST('inf' AS REAL),
+  try_variant_get(v, '', 'Float32') IS NOT DISTINCT FROM CAST('inf' AS REAL) FROM input;
+----
+true true true
+
+# expr-051: VariantExpressionSuite.scala:355 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(CAST('12345E-4' AS DOUBLE)) AS v)
+SELECT variant_get(v, '', 'Decimal128(5, 2)') IS NOT DISTINCT FROM CAST('1.23' AS DECIMAL(5, 2)),
+  variant_get(variant_get(v, ''), '', 'Decimal128(5, 2)') IS NOT DISTINCT FROM CAST('1.23' AS DECIMAL(5, 2)),
+  try_variant_get(v, '', 'Decimal128(5, 2)') IS NOT DISTINCT FROM CAST('1.23' AS DECIMAL(5, 2)) FROM input;
+----
+true true true
+
+# expr-060: VariantExpressionSuite.scala:376 — strict/try conversion failure
+statement error (?i)(cast|extract|precision|overflow)
+WITH input AS (SELECT cast_to_variant(arrow_cast('9223372036854775808', 'Decimal128(19, 0)')) AS v)
+SELECT variant_get(v, '', 'Int64') FROM input;
+
+query B
+WITH input AS (SELECT cast_to_variant(arrow_cast('9223372036854775808', 'Decimal128(19, 0)')) AS v)
+SELECT try_variant_get(v, '', 'Int64') IS NULL FROM input;
+----
+true
+
+# expr-062: VariantExpressionSuite.scala:378 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(arrow_cast('123.0', 'Decimal64(18, 1)')) AS v)
+SELECT variant_get(v, '', 'Decimal128(6, 3)') IS NOT DISTINCT FROM CAST('123.000' AS DECIMAL(6, 3)),
+  variant_get(variant_get(v, ''), '', 'Decimal128(6, 3)') IS NOT DISTINCT FROM CAST('123.000' AS DECIMAL(6, 3)),
+  try_variant_get(v, '', 'Decimal128(6, 3)') IS NOT DISTINCT FROM CAST('123.000' AS DECIMAL(6, 3)) FROM input;
+----
+true true true
+
+# expr-063: VariantExpressionSuite.scala:379 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(arrow_cast('1.14', 'Decimal32(3, 2)')) AS v)
+SELECT variant_get(v, '', 'Decimal128(2, 1)') IS NOT DISTINCT FROM CAST('1.1' AS DECIMAL(2, 1)),
+  variant_get(variant_get(v, ''), '', 'Decimal128(2, 1)') IS NOT DISTINCT FROM CAST('1.1' AS DECIMAL(2, 1)),
+  try_variant_get(v, '', 'Decimal128(2, 1)') IS NOT DISTINCT FROM CAST('1.1' AS DECIMAL(2, 1)) FROM input;
+----
+true true true
+
+# expr-064: VariantExpressionSuite.scala:380 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(arrow_cast('1.15', 'Decimal32(3, 2)')) AS v)
+SELECT variant_get(v, '', 'Decimal128(2, 1)') IS NOT DISTINCT FROM CAST('1.2' AS DECIMAL(2, 1)),
+  variant_get(variant_get(v, ''), '', 'Decimal128(2, 1)') IS NOT DISTINCT FROM CAST('1.2' AS DECIMAL(2, 1)),
+  try_variant_get(v, '', 'Decimal128(2, 1)') IS NOT DISTINCT FROM CAST('1.2' AS DECIMAL(2, 1)) FROM input;
+----
+true true true
+
+# expr-065: VariantExpressionSuite.scala:381 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(arrow_cast('0.0000000009999999994', 'Decimal128(19, 19)')) AS v)
+SELECT variant_get(v, '', 'Decimal128(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000999999999' AS DECIMAL(18, 18)),
+  variant_get(variant_get(v, ''), '', 'Decimal128(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000999999999' AS DECIMAL(18, 18)),
+  try_variant_get(v, '', 'Decimal128(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000999999999' AS DECIMAL(18, 18)) FROM input;
+----
+true true true
+
+# expr-066: VariantExpressionSuite.scala:387 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(arrow_cast('0.0000000009999999995', 'Decimal128(19, 19)')) AS v)
+SELECT variant_get(v, '', 'Decimal128(18, 18)') IS NOT DISTINCT FROM CAST('0.000000001000000000' AS DECIMAL(18, 18)),
+  variant_get(variant_get(v, ''), '', 'Decimal128(18, 18)') IS NOT DISTINCT FROM CAST('0.000000001000000000' AS DECIMAL(18, 18)),
+  try_variant_get(v, '', 'Decimal128(18, 18)') IS NOT DISTINCT FROM CAST('0.000000001000000000' AS DECIMAL(18, 18)) FROM input;
+----
+true true true
+
+# expr-067: VariantExpressionSuite.scala:388 — strict/try conversion failure
+statement error (?i)(cast|extract|precision|overflow)
+WITH input AS (SELECT cast_to_variant(arrow_cast('9.5', 'Decimal32(2, 1)')) AS v)
+SELECT variant_get(v, '', 'Decimal128(1, 0)') FROM input;
+
+query B
+WITH input AS (SELECT cast_to_variant(arrow_cast('9.5', 'Decimal32(2, 1)')) AS v)
+SELECT try_variant_get(v, '', 'Decimal128(1, 0)') IS NULL FROM input;
+----
+true
+
+# expr-072: VariantExpressionSuite.scala:400 — variant_get cast
+query BBB
+WITH input AS (SELECT cast_to_variant(arrow_cast('0.99999999999999999999999999999999999999', 'Decimal128(38, 38)')) AS v)
+SELECT variant_get(v, '', 'Decimal128(38, 38)') IS NOT DISTINCT FROM CAST('0.99999999999999999999999999999999999999' AS DECIMAL(38, 38)),
+  variant_get(variant_get(v, ''), '', 'Decimal128(38, 38)') IS NOT DISTINCT FROM CAST('0.99999999999999999999999999999999999999' AS DECIMAL(38, 38)),
+  try_variant_get(v, '', 'Decimal128(38, 38)') IS NOT DISTINCT FROM CAST('0.99999999999999999999999999999999999999' AS DECIMAL(38, 38)) FROM input;
+----
+true true true
+
+# expr-080: VariantExpressionSuite.scala:421 — variant_get cast
+query BBB
+WITH input AS (SELECT json_to_variant('null') AS v)
+SELECT variant_get(v, '', 'Decimal128(18, 9)') IS NOT DISTINCT FROM NULL,
+  variant_get(variant_get(v, ''), '', 'Decimal128(18, 9)') IS NOT DISTINCT FROM NULL,
+  try_variant_get(v, '', 'Decimal128(18, 9)') IS NOT DISTINCT FROM NULL FROM input;
+----
+true true true
