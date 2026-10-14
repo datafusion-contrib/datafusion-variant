@@ -83,9 +83,17 @@ The current API includes:
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
 | Typed extraction | `variant_get_int`, `variant_get_float`, `variant_get_bool`, `variant_get_str`, `variant_get_json` |
 | Null inspection | `is_variant_null` |
+| Schema inference | `schema_of_variant` |
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
 | Utilities | `variant_normalize`, `variant_pretty` |
+
+`schema_of_variant(v)` returns a SQL schema for each value, for example
+`OBJECT<a: BIGINT, b: ARRAY<STRING>>`. It merges types within arrays, preserves
+SQL NULL, and reports `VOID` for Variant null. It follows Spark's
+`schema_of_variant` inference rules. Arrow 59's JSON parser produces `DOUBLE`
+for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
+decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
 
 `variant_get` and `try_variant_get` accept an optional **SQL type string literal**,
 such as `BIGINT`, `VARCHAR`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Types follow
