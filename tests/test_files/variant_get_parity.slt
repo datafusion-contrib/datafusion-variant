@@ -1,0 +1,74 @@
+# Typed getters must match variant_get with the corresponding Arrow type hint.
+# IS DISTINCT FROM compares SQL NULLs as well as non-null values.
+statement ok
+CREATE TABLE get_parity (json_str TEXT, path TEXT) AS VALUES
+  ('{"v": 42}', 'v'),
+  ('{"v": -1.5}', 'v'),
+  ('{"v": true}', 'v'),
+  ('{"v": false}', 'v'),
+  ('{"v": "true"}', 'v'),
+  ('{"v": "hello"}', 'v'),
+  ('{"v": "a string longer than twelve bytes"}', 'v'),
+  ('{"v": null}', 'v'),
+  ('{"v": [1,2]}', 'v'),
+  ('{"v": {"a": 1}}', 'v'),
+  ('{}', 'v'),
+  ('{"nested": {"v": 42}}', 'nested.v'),
+  ('[42, null, "hello"]', '[0]'),
+  ('[42, null, "hello"]', '[1]'),
+  ('[42, null, "hello"]', '[2]'),
+  ('[]', '[0]'),
+  ('42', NULL),
+  ('null', NULL),
+  (NULL, 'v'),
+  (NULL, NULL);
+
+# Array input, scalar path.
+query IIII
+SELECT
+  count(*) FILTER (WHERE variant_get_int(v, 'v') IS DISTINCT FROM variant_get(v, 'v', 'Int64')),
+  count(*) FILTER (WHERE variant_get_float(v, 'v') IS DISTINCT FROM variant_get(v, 'v', 'Float64')),
+  count(*) FILTER (WHERE variant_get_bool(v, 'v') IS DISTINCT FROM variant_get(v, 'v', 'Boolean')),
+  count(*) FILTER (WHERE variant_get_str(v, 'v') IS DISTINCT FROM variant_get(v, 'v', 'Utf8View'))
+FROM (SELECT json_to_variant(json_str) AS v FROM get_parity);
+----
+0 0 0 0
+
+# Array input, varying paths. A NULL path selects the root.
+query IIII
+SELECT
+  count(*) FILTER (WHERE variant_get_int(v, path) IS DISTINCT FROM variant_get(v, path, 'Int64')),
+  count(*) FILTER (WHERE variant_get_float(v, path) IS DISTINCT FROM variant_get(v, path, 'Float64')),
+  count(*) FILTER (WHERE variant_get_bool(v, path) IS DISTINCT FROM variant_get(v, path, 'Boolean')),
+  count(*) FILTER (WHERE variant_get_str(v, path) IS DISTINCT FROM variant_get(v, path, 'Utf8View'))
+FROM (SELECT json_to_variant(json_str) AS v, path FROM get_parity);
+----
+0 0 0 0
+
+# Scalar input, varying paths.
+statement ok
+CREATE TABLE get_paths (path TEXT) AS VALUES
+  ('a'), ('b'), ('c'), ('nested.x'), ('items[0]'), ('items[1]'), ('items[9]'), ('missing'), (NULL);
+
+query IIII
+SELECT
+  count(*) FILTER (WHERE variant_get_int(v, path) IS DISTINCT FROM variant_get(v, path, 'Int64')),
+  count(*) FILTER (WHERE variant_get_float(v, path) IS DISTINCT FROM variant_get(v, path, 'Float64')),
+  count(*) FILTER (WHERE variant_get_bool(v, path) IS DISTINCT FROM variant_get(v, path, 'Boolean')),
+  count(*) FILTER (WHERE variant_get_str(v, path) IS DISTINCT FROM variant_get(v, path, 'Utf8View'))
+FROM (
+  SELECT json_to_variant('{"a": 42, "b": true, "c": "hello", "nested": {"x": null}, "items": [1.5, "true"]}') AS v, path
+  FROM get_paths
+);
+----
+0 0 0 0
+
+# Scalar input and scalar path, including numeric/boolean conversion and string extraction.
+query BBBB
+SELECT
+  variant_get_int(json_to_variant('{"v": 1.5}'), 'v') IS NOT DISTINCT FROM variant_get(json_to_variant('{"v": 1.5}'), 'v', 'Int64'),
+  variant_get_float(json_to_variant('{"v": true}'), 'v') IS NOT DISTINCT FROM variant_get(json_to_variant('{"v": true}'), 'v', 'Float64'),
+  variant_get_bool(json_to_variant('{"v": "true"}'), 'v') IS NOT DISTINCT FROM variant_get(json_to_variant('{"v": "true"}'), 'v', 'Boolean'),
+  variant_get_str(json_to_variant('{"v": "hello"}'), 'v') IS NOT DISTINCT FROM variant_get(json_to_variant('{"v": "hello"}'), 'v', 'Utf8View');
+----
+true true true true
