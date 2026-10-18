@@ -217,65 +217,7 @@ fn to_owned_path(path: &VariantPath<'_>) -> VariantPath<'static> {
     VariantPath::new(elements)
 }
 
-/// Run typed extraction through Arrow's conversion kernel, including list paths.
-pub fn invoke_variant_get_cast(args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-    let [input, paths] = args.args.as_slice() else {
-        return exec_err!("expected 2 arguments");
-    };
-    let field = args
-        .arg_fields
-        .first()
-        .ok_or_else(|| exec_datafusion_err!("expected argument field"))?;
-    try_field_as_variant_array(field)?;
-    let input_is_scalar = matches!(input, ColumnarValue::Scalar(_));
-    let input = match input {
-        ColumnarValue::Array(array) => Arc::clone(array),
-        ColumnarValue::Scalar(value) => value.to_array_of_size(1)?,
-    };
-    let get = |array: &ArrayRef, path| -> Result<ArrayRef> {
-        Ok(parquet_variant_compute::variant_get(
-            array,
-            parquet_variant_compute::GetOptions::new_with_path(path)
-                .with_as_type(Some(Arc::clone(&args.return_field))),
-        )?)
-    };
-    match paths {
-        ColumnarValue::Scalar(path) => {
-            let output = get(&input, path_from_scalar(path)?)?;
-            if input_is_scalar {
-                Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(
-                    output.as_ref(),
-                    0,
-                )?))
-            } else {
-                Ok(ColumnarValue::Array(output))
-            }
-        }
-        ColumnarValue::Array(paths) => {
-            if !input_is_scalar && input.len() != paths.len() {
-                return exec_err!("expected variant array and paths to be of same length");
-            }
-            let paths = try_parse_string_columnar(paths)?;
-            let output = paths
-                .into_iter()
-                .enumerate()
-                .map(|(i, path)| {
-                    get(
-                        &input.slice(if input_is_scalar { 0 } else { i }, 1),
-                        VariantPath::try_from(path.unwrap_or_default())?,
-                    )
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let arrays: Vec<&dyn Array> = output.iter().map(|a| a.as_ref()).collect();
-            Ok(ColumnarValue::Array(if arrays.is_empty() {
-                arrow::array::new_empty_array(args.return_type())
-            } else {
-                arrow::compute::concat(&arrays)?
-            }))
-        }
-    }
-}
-
+/// Extract values directly and map them to the requested output representation.
 pub fn invoke_variant_get_typed<T>(
     args: ScalarFunctionArgs,
     scalar_from_option: fn(Option<T>) -> ScalarValue,
@@ -413,22 +355,6 @@ pub fn standard_variant_get_arg_fields() -> Vec<Arc<Field>> {
         ),
         Arc::new(Field::new("path", DataType::Utf8, true)),
     ]
-}
-
-#[cfg(test)]
-pub fn build_variant_get_args(
-    variant_input: ColumnarValue,
-    path: ColumnarValue,
-    return_data_type: DataType,
-    arg_fields: Vec<Arc<Field>>,
-) -> ScalarFunctionArgs {
-    ScalarFunctionArgs {
-        args: vec![variant_input, path],
-        return_field: Arc::new(Field::new("result", return_data_type, true)),
-        arg_fields,
-        number_rows: Default::default(),
-        config_options: Default::default(),
-    }
 }
 
 #[cfg(test)]

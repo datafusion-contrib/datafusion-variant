@@ -78,10 +78,9 @@ The current API includes:
 
 | Area | Functions |
 | --- | --- |
-| JSON conversion | `json_to_variant`, `variant_to_json` |
+| JSON conversion | `json_to_variant`, `variant_to_json`, `variant_get_json` |
 | Type conversion | `cast_to_variant` |
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
-| Typed extraction | `variant_get_int`, `variant_get_float`, `variant_get_bool`, `variant_get_str`, `variant_get_json` |
 | Null inspection | `is_variant_null` |
 | Schema inference | `schema_of_variant` |
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
@@ -94,6 +93,10 @@ SQL NULL, and reports `VOID` for Variant null. It follows Spark's
 `schema_of_variant` inference rules. Arrow's JSON parser produces `DOUBLE`
 for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
 decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
+
+`variant_get_json(v, 'a')` extracts a value and serializes it as JSON, including
+quotes around strings. It retains a direct extraction path that avoids the
+intermediate Variant array in `variant_to_json(variant_get(v, 'a'))`.
 
 `variant_get` and `try_variant_get` accept an optional **SQL type string literal**,
 such as `BIGINT`, `VARCHAR`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Types follow
@@ -174,7 +177,7 @@ cargo bench --bench variant_get
 
 The suite has four groups, each using 8,192 rows. The first three use literal paths:
 
-- `output_types`: compares Variant output, explicit type hints, and typed helpers
+- `output_types`: compares Variant output and explicit type hints
   for integer, float, boolean, and string values at path `a` in unshredded objects.
 - `storage_layout`: extracts Variant output from identical two-field objects in
   unshredded, fully shredded, and partially shredded layouts. The partial layout
