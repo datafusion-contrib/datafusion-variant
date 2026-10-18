@@ -175,8 +175,8 @@ WHERE id = 1;
 # one-arg path: struct, map, and dictionary coverage
 query TTT
 SELECT
-  variant_to_json(cast_to_variant(named_struct('a', 1, 'b', 'x'))),
-  variant_to_json(cast_to_variant(MAP {'a': 1, 'b': 2})),
+  to_json(cast_to_variant(named_struct('a', 1, 'b', 'x'))),
+  to_json(cast_to_variant(MAP {'a': 1, 'b': 2})),
   variant_pretty(cast_to_variant(arrow_cast('foo', 'Dictionary(Int32, Utf8)')));
 ----
 {"a":1,"b":"x"} {"a":1,"b":2} ShortString(ShortString("foo"))
@@ -201,7 +201,7 @@ query IT
 WITH input AS (
   SELECT id, json_to_variant(json_str) AS v FROM cast_variant_array_data
 )
-SELECT id, variant_to_json(cast_to_variant(v)) FROM input ORDER BY id;
+SELECT id, to_json(cast_to_variant(v)) FROM input ORDER BY id;
 ----
 1 {"name":"norm"}
 2 NULL
@@ -228,7 +228,7 @@ query IT
 WITH input AS (
   SELECT id, json_to_variant(json_str) AS v FROM cast_json_data
 )
-SELECT id, variant_to_json(cast_to_variant(v.metadata, v.value)) FROM input ORDER BY id;
+SELECT id, to_json(cast_to_variant(v.metadata, v.value)) FROM input ORDER BY id;
 ----
 1 {"name":"norm"}
 2 NULL

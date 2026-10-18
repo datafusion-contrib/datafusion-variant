@@ -40,7 +40,7 @@ impl Default for VariantToJsonUdf {
 
 impl ScalarUDFImpl for VariantToJsonUdf {
     fn name(&self) -> &str {
-        "variant_to_json"
+        "to_json"
     }
 
     fn signature(&self) -> &Signature {
@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn test_variant_to_json_udf_scalar_complex() {
+    fn test_to_json_udf_scalar_complex() {
         let expected_json = serde_json::json!({
             "name": "norm",
             "age": 50,

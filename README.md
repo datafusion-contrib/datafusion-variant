@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
 
     ctx.sql(
         r#"
-        SELECT variant_to_json(
+        SELECT to_json(
             json_to_variant('{"name":"Alice","age":30}'):name
         ) AS name
         "#,
@@ -78,7 +78,7 @@ The current API includes:
 
 | Area | Functions |
 | --- | --- |
-| JSON conversion | `json_to_variant`, `variant_to_json`, `variant_get_json` |
+| JSON conversion | `json_to_variant`, `to_json`, `variant_get_json` |
 | Type conversion | `cast_to_variant` |
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
 | Null inspection | `is_variant_null` |
@@ -86,6 +86,10 @@ The current API includes:
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
 | Utilities | `variant_normalize`, `variant_pretty` |
+
+`to_json` serializes Variant values and is registered with
+`VariantToJsonUdf::default()`. Its SQL name replaces `variant_to_json` to match
+Spark; callers using the old SQL name must update their queries.
 
 `schema_of_variant(v)` returns a SQL schema for each value, for example
 `OBJECT<a: BIGINT, b: ARRAY<STRING>>`. It merges types within arrays, preserves
@@ -96,7 +100,7 @@ decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
 
 `variant_get_json(v, 'a')` extracts a value and serializes it as JSON, including
 quotes around strings. It retains a direct extraction path that avoids the
-intermediate Variant array in `variant_to_json(variant_get(v, 'a'))`.
+intermediate Variant array in `to_json(variant_get(v, 'a'))`.
 
 `variant_get` and `try_variant_get` accept an optional **SQL type string literal**,
 such as `BIGINT`, `VARCHAR`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Types follow
@@ -157,7 +161,7 @@ cargo run --example cli
 Queries must end with a semicolon:
 
 ```sql
-SELECT variant_to_json(json_to_variant(json_data))
+SELECT to_json(json_to_variant(json_data))
 FROM bsky
 LIMIT 5;
 ```
@@ -203,7 +207,7 @@ cargo bench --bench variant_get -- path_columns
 
 See [the benchmark source](benches/variant_get.rs) for the workloads.
 
-Run serialization benchmarks with `cargo bench --bench variant_to_json`.
+Run serialization benchmarks with `cargo bench --bench to_json`.
 They cover scalar SQL NULL, plus scalar inputs and 8,192-row arrays of integers,
 Variant nulls, escaped strings, and nested values, plus arrays with 25% and 100% SQL NULLs.
 The `storage_layout` groups compare identical integers and escaped strings in
@@ -212,7 +216,7 @@ Inputs are constructed before timing; measurements include UDF invocation,
 argument cloning, and output allocation/drop. Shredded objects
 are excluded until their reconstruction issues are fixed
 ([#71](https://github.com/datafusion-contrib/datafusion-variant/issues/71)).
-See [the source](benches/variant_to_json.rs).
+See [the source](benches/to_json.rs).
 
 To compare a change, save a baseline before making it, then rerun afterward:
 

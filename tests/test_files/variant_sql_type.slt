@@ -15,7 +15,7 @@ SELECT id, variant_get(v, path, 'VaRiAnT') AS hinted,
 FROM sql_variant_inputs;
 
 query ITT rowsort
-SELECT id, variant_to_json(hinted), variant_to_json(casted) FROM sql_variant_results;
+SELECT id, to_json(hinted), to_json(casted) FROM sql_variant_results;
 ----
 1 7 7
 2 {"a":[1,true]} {"a":[1,true]}
@@ -41,7 +41,7 @@ statement ok
 INSERT INTO declared_variant SELECT hinted FROM sql_variant_results WHERE id = 1;
 
 query TT
-SELECT variant_to_json(v), arrow_metadata(v, 'ARROW:extension:name') FROM declared_variant;
+SELECT to_json(v), arrow_metadata(v, 'ARROW:extension:name') FROM declared_variant;
 ----
 7 arrow.parquet.variant
 
@@ -68,9 +68,9 @@ true arrow.parquet.variant
 
 # Constant folding and a scalar input with column paths use separate dispatch.
 query TTT
-SELECT variant_to_json(try_variant_get(json_to_variant('{"x":7}'), 'x', 'VARIANT')),
-       variant_to_json(CAST(variant_get(json_to_variant('{"x":7}'), 'x') AS VARIANT)),
-       variant_to_json(variant_get(json_to_variant('{"x":7}'), path, 'VARIANT'))
+SELECT to_json(try_variant_get(json_to_variant('{"x":7}'), 'x', 'VARIANT')),
+       to_json(CAST(variant_get(json_to_variant('{"x":7}'), 'x') AS VARIANT)),
+       to_json(variant_get(json_to_variant('{"x":7}'), path, 'VARIANT'))
 FROM sql_variant_inputs WHERE id = 1;
 ----
 7 7 7
@@ -105,8 +105,8 @@ SELECT id, variant_get(v, 'a', 'VARIANT') AS got FROM shredded_null_objects;
 # an upstream fix; do not normalize the kernel output locally.
 skipif DataFusion
 query B
-SELECT bool_and(variant_to_json(got) IS NOT DISTINCT FROM
-                variant_to_json(variant_get(original, 'a')))
+SELECT bool_and(to_json(got) IS NOT DISTINCT FROM
+                to_json(variant_get(original, 'a')))
 FROM sql_variant_shredded JOIN shredded_null_objects USING (id);
 ----
 true
@@ -116,10 +116,10 @@ true
 # an upstream fix; do not normalize the kernel output locally.
 skipif DataFusion
 query BB
-SELECT bool_and(variant_to_json(variant_get(v, '[0]', 'VARIANT')) IS NOT DISTINCT FROM
-                variant_to_json(variant_get(original, '[0]'))),
-       bool_and(variant_to_json(variant_get(v, '[1]', 'VARIANT')) IS NOT DISTINCT FROM
-                variant_to_json(variant_get(original, '[1]')))
+SELECT bool_and(to_json(variant_get(v, '[0]', 'VARIANT')) IS NOT DISTINCT FROM
+                to_json(variant_get(original, '[0]'))),
+       bool_and(to_json(variant_get(v, '[1]', 'VARIANT')) IS NOT DISTINCT FROM
+                to_json(variant_get(original, '[1]')))
 FROM shredded_null_lists;
 ----
 true true
@@ -138,7 +138,7 @@ skipif DataFusion
 query BBTT rowsort
 SELECT arrow_typeof(b) = arrow_typeof(CAST(NULL AS VARIANT)),
        arrow_typeof(l) = arrow_typeof(CAST(NULL AS VARIANT)),
-       variant_to_json(b), variant_to_json(l) FROM binary_variant_results;
+       to_json(b), to_json(l) FROM binary_variant_results;
 ----
 true true NULL NULL
 true true {"x":7} {"x":7}
