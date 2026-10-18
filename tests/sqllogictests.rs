@@ -1,17 +1,17 @@
 use arrow::array::{Array, ArrayRef, Int32Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use datafusion::execution::FunctionRegistry;
+use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
 use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, TryVariantGetUdf, VariantContainsUdf,
-    VariantExprPlanner, VariantGetUdf, VariantListConstruct, VariantListDelete, VariantListInsert,
-    VariantObjectConstruct, VariantObjectDelete, VariantObjectInsert, VariantObjectKeys,
-    VariantPretty, VariantToJsonUdf,
+    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, SchemaOfVariantUdf, VariantContainsUdf,
+    VariantExprPlanner, VariantGetJsonUdf, VariantListConstruct, VariantListDelete,
+    VariantListInsert, VariantObjectConstruct, VariantObjectDelete, VariantObjectInsert,
+    VariantObjectKeys, VariantPretty, VariantToJsonUdf, VariantTypePlanner,
 };
 use indicatif::ProgressBar;
-use parquet_variant_compute::{json_to_variant, shred_variant};
+use parquet_variant_compute::{VariantType, json_to_variant, shred_variant};
 use sqllogictest::strict_column_validator;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,6 +39,27 @@ fn register_shredded_null_fixture(
         ],
     )?;
     ctx.register_batch(name, batch)?;
+    Ok(())
+}
+
+fn register_binary_variant_fixture(ctx: &SessionContext) -> datafusion::error::Result<()> {
+    let json: ArrayRef = Arc::new(StringArray::from(vec![Some(r#"{"x":7}"#), None]));
+    let original = json_to_variant(&json)?;
+    let mut fields = Vec::new();
+    let mut columns = Vec::new();
+    for (name, binary_type) in [("b", DataType::Binary), ("l", DataType::LargeBinary)] {
+        let storage = DataType::Struct(
+            vec![
+                Field::new("metadata", binary_type.clone(), false),
+                Field::new("value", binary_type, true),
+            ]
+            .into(),
+        );
+        columns.push(arrow::compute::cast(original.inner(), &storage)?);
+        fields.push(Field::new(name, storage, true).with_extension_type(VariantType));
+    }
+    let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)?;
+    ctx.register_batch("binary_variant_inputs", batch)?;
     Ok(())
 }
 
@@ -70,21 +91,26 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(&test_file)
             .to_path_buf();
 
-        let mut ctx =
-            if let Some(test_ctx) = TestContext::try_new_for_test_file(&relative_path).await {
-                test_ctx.session_ctx().clone()
-            } else {
-                SessionContext::new()
-            };
+        let ctx = if let Some(test_ctx) = TestContext::try_new_for_test_file(&relative_path).await {
+            test_ctx.session_ctx().clone()
+        } else {
+            SessionContext::new()
+        };
+
+        let state = SessionStateBuilder::new_from_existing(ctx.state())
+            .with_type_planner(Arc::new(VariantTypePlanner))
+            .build();
+        let mut ctx = SessionContext::new_with_state(state);
 
         // register variant udfs
         ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantContainsUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(TryVariantGetUdf::default()));
+        datafusion_variant::register_variant_get_functions(&mut ctx)?;
+        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetJsonUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));
@@ -95,7 +121,13 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectKeys::default()));
         ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
 
-        if relative_path == Path::new("is_variant_null.slt") {
+        if relative_path == Path::new("variant_sql_type.slt") {
+            register_binary_variant_fixture(&ctx)?;
+        }
+
+        if relative_path == Path::new("is_variant_null.slt")
+            || relative_path == Path::new("variant_sql_type.slt")
+        {
             register_shredded_null_fixture(
                 &ctx,
                 "shredded_null_objects",

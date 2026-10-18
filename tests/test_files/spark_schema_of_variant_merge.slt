@@ -1,0 +1,75 @@
+# Apache Spark VariantExpressionSuite "schema_of_variant - schema merge".
+# https://github.com/apache/spark/blob/4ccf07b6d91e2b126b7001741778ee28f22c6609/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionSuite.scala
+# All 225 ordered pairs, including both orders of every widening/conflict.
+# Build singleton Variant lists before combining rows so SQL cannot coerce their elements.
+# variant_list_construct requires scalar inputs; variant_list_insert supports columns.
+
+statement ok
+SET datafusion.execution.time_zone = 'UTC';
+
+statement ok
+CREATE TABLE schema_merge_inputs AS
+SELECT * FROM (VALUES
+  (0, 'null', variant_list_construct(json_to_variant('null')), 'VOID'),
+  (1, 'boolean', variant_list_construct(cast_to_variant(false)), 'BOOLEAN'),
+  (2, 'long', variant_list_construct(cast_to_variant(0::BIGINT)), 'BIGINT'),
+  (3, 'string', variant_list_construct(cast_to_variant('')), 'STRING'),
+  (4, 'double', variant_list_construct(cast_to_variant(0::DOUBLE)), 'DOUBLE'),
+  (5, 'date', variant_list_construct(cast_to_variant(DATE '1970-01-01')), 'DATE'),
+  (6, 'timestamp', variant_list_construct(cast_to_variant(CAST('1970-01-01' AS TIMESTAMP WITH TIME ZONE))), 'TIMESTAMP'),
+  (7, 'timestamp_ntz', variant_list_construct(cast_to_variant(CAST('1970-01-01' AS TIMESTAMP))), 'TIMESTAMP_NTZ'),
+  (8, 'float', variant_list_construct(cast_to_variant(0::REAL)), 'FLOAT'),
+  (9, 'binary', variant_list_construct(cast_to_variant(X'')), 'BINARY'),
+  (10, 'decimal', variant_list_construct(cast_to_variant(CAST('123.456' AS DECIMAL(6,3)))), 'DECIMAL(6,3)'),
+  (11, 'array_long', variant_list_construct(json_to_variant('[0]')), 'ARRAY<BIGINT>'),
+  (12, 'array_double', variant_list_construct(json_to_variant('[0.0]')), 'ARRAY<DOUBLE>'),
+  (13, 'object_a', variant_list_construct(json_to_variant('{"a":""}')), 'OBJECT<a: STRING>'),
+  (14, 'object_ab', variant_list_construct(json_to_variant('{"a":false,"b":0}')), 'OBJECT<a: BOOLEAN, b: BIGINT>')
+) AS inputs(id, name, singleton, schema);
+
+# Spark's explicit compatible pairs. Null and identical types are handled below;
+# every other combination defaults to VARIANT. Join both orders of each pair.
+statement ok
+CREATE TABLE schema_merge_compatible AS
+SELECT * FROM (VALUES
+  ('long', 'double', 'DOUBLE'),
+  ('long', 'float', 'FLOAT'),
+  ('long', 'decimal', 'DECIMAL(23,3)'),
+  ('double', 'float', 'DOUBLE'),
+  ('double', 'decimal', 'DOUBLE'),
+  ('date', 'timestamp', 'TIMESTAMP'),
+  ('date', 'timestamp_ntz', 'TIMESTAMP_NTZ'),
+  ('timestamp', 'timestamp_ntz', 'TIMESTAMP'),
+  ('float', 'decimal', 'DOUBLE'),
+  ('array_long', 'array_double', 'ARRAY<DOUBLE>'),
+  ('object_a', 'object_ab', 'OBJECT<a: VARIANT, b: BIGINT>')
+) AS compatible(left_name, right_name, schema);
+
+statement ok
+CREATE TABLE schema_merge_results AS
+SELECT a.name AS left_name, b.name AS right_name,
+       schema_of_variant(variant_list_insert(a.singleton, variant_get(b.singleton, '[0]'))) AS actual,
+       'ARRAY<' || CASE
+         WHEN a.name = 'null' THEN b.schema
+         WHEN b.name = 'null' OR a.id = b.id THEN a.schema
+         ELSE coalesce(c.schema, 'VARIANT')
+       END || '>' AS expected
+FROM schema_merge_inputs a
+CROSS JOIN schema_merge_inputs b
+LEFT JOIN schema_merge_compatible c
+  ON (a.name = c.left_name AND b.name = c.right_name)
+  OR (b.name = c.left_name AND a.name = c.right_name);
+
+# Guard against missing or duplicated pairs, even when there are no mismatches.
+query II
+SELECT count(*), count(DISTINCT (left_name, right_name)) FROM schema_merge_results;
+----
+225 225
+
+# Empty on success; failures identify the ordered pair and both schema strings.
+query TTTT
+SELECT left_name, right_name, expected, actual
+FROM schema_merge_results
+WHERE actual IS DISTINCT FROM expected
+ORDER BY left_name, right_name;
+----

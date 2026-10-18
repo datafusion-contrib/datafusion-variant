@@ -1,27 +1,36 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef},
+    array::{Array, ArrayRef, StringViewArray},
     compute::{CastOptions, concat},
 };
-use arrow_schema::{ArrowError, DataType, Field, FieldRef, Fields};
+use arrow_schema::{DataType, Field, FieldRef, Fields};
 use datafusion::{
-    common::{arrow_datafusion_err, exec_datafusion_err, exec_err},
+    common::{config::ConfigOptions, exec_datafusion_err, exec_err},
     error::{DataFusionError, Result},
     logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature,
+        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
         TypeSignature, Volatility,
     },
     scalar::ScalarValue,
 };
-use parquet_variant::VariantPath;
+use parquet_variant::{Variant, VariantPath};
 use parquet_variant_compute::{GetOptions, VariantType, variant_get};
+use parquet_variant_json::VariantToJson;
 
+use crate::impl_variant_get::impl_variant_get_typed;
 use crate::shared::{
-    try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
+    invoke_variant_get_typed, try_field_as_variant_array, try_parse_string_columnar,
+    try_parse_string_scalar,
 };
+use crate::sql_type::SqlTypeConfig;
+use crate::variant_type::validate_getter_target;
 
-fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<FieldRef> {
+fn type_hint_from_scalar(
+    field_name: &str,
+    scalar: &ScalarValue,
+    config: &SqlTypeConfig,
+) -> Result<FieldRef> {
     let type_name = match scalar {
         ScalarValue::Utf8(Some(value))
         | ScalarValue::Utf8View(Some(value))
@@ -34,22 +43,15 @@ fn type_hint_from_scalar(field_name: &str, scalar: &ScalarValue) -> Result<Field
         }
     };
 
-    let casted_type = match type_name.parse::<DataType>() {
-        Ok(data_type) => Ok(data_type),
-        Err(ArrowError::ParseError(e)) => Err(exec_datafusion_err!("{e}")),
-        Err(e) => Err(arrow_datafusion_err!(e)),
-    }?;
-
-    Ok(Arc::new(Field::new(field_name, casted_type, true)))
-}
-
-fn type_hint_from_value(field_name: &str, arg: &ColumnarValue) -> Result<FieldRef> {
-    match arg {
-        ColumnarValue::Scalar(value) => type_hint_from_scalar(field_name, value),
-        ColumnarValue::Array(_) => {
-            exec_err!("type hint argument must be a scalar UTF8 literal")
-        }
-    }
+    let field = config.resolve(type_name)?;
+    validate_getter_target(&field)?;
+    Ok(Arc::new(
+        field
+            .as_ref()
+            .clone()
+            .with_name(field_name)
+            .with_nullable(true),
+    ))
 }
 
 fn build_get_options<'a>(
@@ -65,12 +67,10 @@ fn build_get_options<'a>(
 /// Evaluate a Variant getter using Arrow paths and an explicit cast error policy.
 fn invoke_variant_get(
     args: ScalarFunctionArgs,
-    udf_name: &str,
     cast_options: CastOptions<'_>,
 ) -> Result<ColumnarValue> {
-    let (variant_arg, variant_path, type_arg) = match args.args.as_slice() {
-        [variant_arg, variant_path] => (variant_arg, variant_path, None),
-        [variant_arg, variant_path, type_arg] => (variant_arg, variant_path, Some(type_arg)),
+    let (variant_arg, variant_path) = match args.args.as_slice() {
+        [variant_arg, variant_path] | [variant_arg, variant_path, _] => (variant_arg, variant_path),
         _ => return exec_err!("expected 2 or 3 arguments"),
     };
 
@@ -81,9 +81,11 @@ fn invoke_variant_get(
 
     try_field_as_variant_array(variant_field.as_ref())?;
 
-    let type_field = type_arg
-        .map(|arg| type_hint_from_value(udf_name, arg))
-        .transpose()?;
+    // Type hints are resolved during planning. Both explicit casts and string
+    // hints use this same field; execution never reparses a type name.
+    // Request the planned Variant output explicitly too, so Arrow can produce
+    // its canonical storage schema instead of retaining shredded child types.
+    let type_field = Some(Arc::clone(&args.return_field));
 
     let out = match (variant_arg, variant_path) {
         (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {
@@ -181,38 +183,81 @@ fn invoke_variant_get(
     Ok(out)
 }
 
-fn return_field_for_variant_get(name: &str, args: ReturnFieldArgs) -> Result<Arc<Field>> {
+fn return_field_for_variant_get(
+    name: &str,
+    args: ReturnFieldArgs,
+    config: &SqlTypeConfig,
+) -> Result<Arc<Field>> {
     if let Some(maybe_scalar) = args.scalar_arguments.get(2) {
         let scalar = maybe_scalar.ok_or_else(|| {
             exec_datafusion_err!("type hint argument to {name} must be a literal")
         })?;
-        return type_hint_from_scalar(name, scalar);
+        return type_hint_from_scalar(name, scalar, config);
     }
 
+    // Request canonical Variant storage explicitly, matching Arrow 60 output.
     let data_type = DataType::Struct(Fields::from(vec![
         Field::new("metadata", DataType::BinaryView, false),
-        Field::new("value", DataType::BinaryView, true),
+        Field::new("value", DataType::BinaryView, false),
     ]));
-
     Ok(Arc::new(
         Field::new(name, data_type, true).with_extension_type(VariantType),
     ))
 }
 
+impl_variant_get_typed!(
+    /// Extracts a value as JSON, including quotes around string values.
+    VariantGetJsonUdf, "variant_get_json", DataType::Utf8View,
+    |args| invoke_variant_get_typed(args, ScalarValue::Utf8View,
+        |values: Vec<Option<String>>| -> ArrayRef {
+            Arc::new(values.into_iter().collect::<StringViewArray>())
+        },
+        |value: Variant<'_, '_>| -> Result<Option<String>> {
+            Ok(Some(value.to_json_string()?))
+        }),
+);
+
 /// Extracts a Variant value, returning an error for failed result-type conversions.
+///
+/// `variant_get(value, path[, type])` accepts a SQL type string literal, such as
+/// `BIGINT` or `DECIMAL(12,2)`. Use [`crate::register_variant_get_functions`] to
+/// register with session settings and enable explicit casts of getters.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
+    config: SqlTypeConfig,
+    target: Option<FieldRef>,
 }
 
 impl Default for VariantGetUdf {
     fn default() -> Self {
+        Self::new_with_config(&ConfigOptions::default())
+    }
+}
+
+impl VariantGetUdf {
+    /// Create a getter using the session's SQL type-resolution settings.
+    pub fn new_with_config(config: &ConfigOptions) -> Self {
         Self {
+            config: config.into(),
+            target: None,
             signature: Signature::new(
                 TypeSignature::OneOf(vec![TypeSignature::Any(2), TypeSignature::Any(3)]),
                 Volatility::Immutable,
             ),
         }
+    }
+
+    pub(crate) fn with_target(target: FieldRef) -> Self {
+        Self {
+            signature: Signature::any(2, Volatility::Immutable),
+            target: Some(Arc::new(target.as_ref().clone().with_nullable(true))),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn is_untyped(&self) -> bool {
+        self.target.is_none()
     }
 }
 
@@ -231,8 +276,18 @@ impl ScalarUDFImpl for VariantGetUdf {
         ))
     }
 
+    fn with_updated_config(&self, config: &ConfigOptions) -> Option<ScalarUDF> {
+        let mut updated = Self::new_with_config(config);
+        updated.target = self.target.clone();
+        updated.signature = self.signature.clone();
+        Some(ScalarUDF::new_from_impl(updated))
+    }
+
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
-        return_field_for_variant_get(self.name(), args)
+        if let Some(target) = &self.target {
+            return Ok(Arc::clone(target));
+        }
+        return_field_for_variant_get(self.name(), args, &self.config)
     }
 
     fn invoke_with_args(
@@ -241,7 +296,6 @@ impl ScalarUDFImpl for VariantGetUdf {
     ) -> Result<ColumnarValue> {
         invoke_variant_get(
             args,
-            self.name(),
             CastOptions {
                 safe: false,
                 ..Default::default()
@@ -252,19 +306,45 @@ impl ScalarUDFImpl for VariantGetUdf {
 
 /// Extracts a Variant value, returning NULL for failed result-type conversions.
 /// Invalid paths and type hints still return errors.
+///
+/// `try_variant_get(value, path[, type])` accepts the same SQL type strings as
+/// [`VariantGetUdf`].
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct TryVariantGetUdf {
     signature: Signature,
+    config: SqlTypeConfig,
+    target: Option<FieldRef>,
 }
 
 impl Default for TryVariantGetUdf {
     fn default() -> Self {
+        Self::new_with_config(&ConfigOptions::default())
+    }
+}
+
+impl TryVariantGetUdf {
+    /// Create a getter using the session's SQL type-resolution settings.
+    pub fn new_with_config(config: &ConfigOptions) -> Self {
         Self {
+            config: config.into(),
+            target: None,
             signature: Signature::new(
                 TypeSignature::OneOf(vec![TypeSignature::Any(2), TypeSignature::Any(3)]),
                 Volatility::Immutable,
             ),
         }
+    }
+
+    pub(crate) fn with_target(target: FieldRef) -> Self {
+        Self {
+            signature: Signature::any(2, Volatility::Immutable),
+            target: Some(Arc::new(target.as_ref().clone().with_nullable(true))),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn is_untyped(&self) -> bool {
+        self.target.is_none()
     }
 }
 
@@ -283,8 +363,18 @@ impl ScalarUDFImpl for TryVariantGetUdf {
         ))
     }
 
+    fn with_updated_config(&self, config: &ConfigOptions) -> Option<ScalarUDF> {
+        let mut updated = Self::new_with_config(config);
+        updated.target = self.target.clone();
+        updated.signature = self.signature.clone();
+        Some(ScalarUDF::new_from_impl(updated))
+    }
+
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
-        return_field_for_variant_get(self.name(), args)
+        if let Some(target) = &self.target {
+            return Ok(Arc::clone(target));
+        }
+        return_field_for_variant_get(self.name(), args, &self.config)
     }
 
     fn invoke_with_args(
@@ -293,7 +383,6 @@ impl ScalarUDFImpl for TryVariantGetUdf {
     ) -> Result<ColumnarValue> {
         invoke_variant_get(
             args,
-            self.name(),
             CastOptions {
                 safe: true,
                 ..Default::default()
@@ -413,7 +502,7 @@ mod tests {
     fn test_return_field_with_type_hint() {
         let udf = VariantGetUdf::default();
         let arg_fields = standard_arg_fields(true);
-        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let type_hint = ScalarValue::Utf8(Some("BIGINT".to_string()));
         let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
 
         assert_eq!(return_field.data_type(), &DataType::Int64);
@@ -428,7 +517,7 @@ mod tests {
 
         let udf = VariantGetUdf::default();
         let arg_fields = standard_arg_fields(true);
-        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let type_hint = ScalarValue::Utf8(Some("BIGINT".to_string()));
         let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
 
         let args = build_scalar_function_args(
@@ -459,7 +548,7 @@ mod tests {
 
         let udf = VariantGetUdf::default();
         let arg_fields = standard_arg_fields(true);
-        let type_hint = ScalarValue::Utf8(Some("Int64".to_string()));
+        let type_hint = ScalarValue::Utf8(Some("BIGINT".to_string()));
         let return_field = get_return_field(&udf, &arg_fields, Some(&type_hint));
 
         let args = build_scalar_function_args(
