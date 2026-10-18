@@ -179,8 +179,8 @@ fn bench_storage_layouts(c: &mut Criterion, values: &[Variant<'_, '_>]) {
         ("partially_shredded", partially_shredded, 0),
     ] {
         // Verify storage layouts as well as the extracted values before timing.
-        assert_eq!(input.typed_value_field().is_some(), name != "unshredded");
-        assert_eq!(input.value_field().unwrap().null_count(), residual_nulls);
+        assert_eq!(input.typed_value_column().is_some(), name != "unshredded");
+        assert_eq!(input.value_column().null_count(), residual_nulls);
         let args = make_args(&udf, &ArrayRef::from(input), "a", None);
         check_output(udf.invoke_with_args(args.clone()).unwrap(), values, None);
         group.bench_function(BenchmarkId::new(name, ROWS), |b| {

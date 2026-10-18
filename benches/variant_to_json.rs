@@ -90,15 +90,11 @@ fn bench_storage_layouts(c: &mut Criterion) {
             // Build both representations before timing and verify that shredding
             // moved every value into the typed column, without binary fallback.
             let shredded = shred_variant(&unshredded, data_type).unwrap();
-            assert!(unshredded.typed_value_field().is_none());
-            let typed = shredded.typed_value_field().unwrap();
+            assert!(unshredded.typed_value_column().is_none());
+            let typed = shredded.typed_value_column().unwrap();
             assert_eq!(typed.data_type(), data_type);
             assert_eq!(typed.null_count(), 0);
-            assert!(
-                shredded
-                    .value_field()
-                    .is_none_or(|value| value.null_count() == rows)
-            );
+            assert_eq!(shredded.value_column().null_count(), rows);
 
             for (layout, input) in [("unshredded", unshredded), ("shredded", shredded)] {
                 let input = ArrayRef::from(input);

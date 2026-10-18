@@ -54,7 +54,7 @@ SELECT try_variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM NULL FROM input;
 true
 
 # expr-005: VariantExpressionSuite.scala:298 — variant_get cast
-# TODO #71: Arrow 59 does not parse numeric strings in this cast (including nested values).
+# TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"1"') AS v)
@@ -65,7 +65,7 @@ SELECT variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 1,
 true true true
 
 # expr-006: VariantExpressionSuite.scala:299 — variant_get cast
-# TODO #71: Arrow 59 does not parse numeric strings in this cast (including nested values).
+# TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"9223372036854775807"') AS v)
@@ -76,7 +76,7 @@ SELECT variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
 true true true
 
 # expr-007: VariantExpressionSuite.scala:300 — variant_get cast
-# TODO #71: Arrow 59 does not parse numeric strings in this cast (including nested values).
+# TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"-0.0"') AS v)
@@ -87,7 +87,7 @@ SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE),
 true true true
 
 # expr-008: VariantExpressionSuite.scala:301 — variant_get cast
-# TODO #71: Arrow 59 does not parse numeric strings in this cast (including nested values).
+# TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"inf"') AS v)
@@ -98,7 +98,7 @@ SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE),
 true true true
 
 # expr-009: VariantExpressionSuite.scala:302 — variant_get cast
-# TODO #71: Arrow 59 does not parse numeric strings in this cast (including nested values).
+# TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"-inf"') AS v)
@@ -109,7 +109,7 @@ SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE),
 true true true
 
 # expr-010: VariantExpressionSuite.scala:303 — variant_get cast
-# TODO #71: Arrow 59 does not parse numeric strings in this cast (including nested values).
+# TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"nan"') AS v)
@@ -120,7 +120,7 @@ SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE),
 true true true
 
 # expr-011: VariantExpressionSuite.scala:304 — variant_get cast
-# TODO #71: Arrow 59 does not parse numeric strings in this cast (including nested values).
+# TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"12.34"') AS v)
@@ -140,7 +140,7 @@ SELECT variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' A
 true true true
 
 # expr-013: VariantExpressionSuite.scala:306 — variant_get cast
-# TODO #71: Arrow 59 lacks this string/numeric temporal conversion.
+# TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"1970-01-01"') AS v)
@@ -151,7 +151,7 @@ SELECT variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE
 true true true
 
 # expr-014: VariantExpressionSuite.scala:307 — variant_get cast
-# TODO #71: Arrow 59 lacks this string/numeric temporal conversion.
+# TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('"1970-03-01"') AS v)
@@ -198,7 +198,7 @@ SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE),
 true true true
 
 # expr-019: VariantExpressionSuite.scala:314 — variant_get cast
-# TODO #71: Arrow 59 lacks Boolean-to-decimal conversion.
+# TODO #71: Arrow lacks Boolean-to-decimal conversion.
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('true') AS v)
@@ -221,7 +221,7 @@ SELECT try_variant_get(v, '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM NULL FROM 
 true
 
 # expr-021: VariantExpressionSuite.scala:316 — variant_get cast
-# TODO #71: Arrow 59 lacks Boolean-to-decimal conversion.
+# TODO #71: Arrow lacks Boolean-to-decimal conversion.
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('false') AS v)
@@ -403,7 +403,7 @@ SELECT try_variant_get(v, '', 'DECIMAL(6, 3)') IS NOT DISTINCT FROM NULL FROM in
 true
 
 # expr-039: VariantExpressionSuite.scala:336 — variant_get cast
-# TODO #71: Arrow 59 lacks this string/numeric temporal conversion.
+# TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('-1') AS v)
@@ -414,7 +414,7 @@ SELECT variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM ar
 true true true
 
 # expr-040: VariantExpressionSuite.scala:337 — variant_get cast
-# TODO #71: Arrow 59 lacks this string/numeric temporal conversion.
+# TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
 WITH input AS (SELECT json_to_variant('9223372036854') AS v)

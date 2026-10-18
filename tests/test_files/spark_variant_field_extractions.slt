@@ -34,7 +34,7 @@ FROM (
 query R
 select int_price_variant:price::decimal(5, 2) from variant_test_data;
 ----
-30
+30.00
 
 # Spark case 03
 # Spark schema: struct<price:string>
