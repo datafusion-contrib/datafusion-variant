@@ -12,7 +12,7 @@ use datafusion::{
     },
     scalar::ScalarValue,
 };
-use parquet_variant_compute::VariantArray;
+use parquet_variant_compute::{VariantArray, variant_to_json};
 use parquet_variant_json::VariantToJson;
 
 use crate::shared::try_field_as_variant_array;
@@ -79,20 +79,12 @@ impl ScalarUDFImpl for VariantToJsonUdf {
 
                 ColumnarValue::Scalar(ScalarValue::Utf8View(json))
             }
-            ColumnarValue::Array(arr) => match arr.data_type() {
-                DataType::Struct(_) => {
-                    let variant_array = VariantArray::try_new(arr.as_ref())?;
-
-                    let out: StringViewArray = variant_array
-                        .iter()
-                        .map(|v| v.map(|v| v.to_json_string()).transpose())
-                        .collect::<Result<Vec<_>, _>>()?
-                        .into();
-
-                    ColumnarValue::Array(Arc::new(out))
-                }
-                unsupported => return exec_err!("Invalid data type: {unsupported}"),
-            },
+            ColumnarValue::Array(input) => {
+                let json = variant_to_json(input)?;
+                // Preserve the UDF's Utf8View output while sharing Arrow's JSON
+                // buffer for non-inline strings.
+                ColumnarValue::Array(Arc::new(StringViewArray::from(&json)))
+            }
         };
 
         Ok(out)
