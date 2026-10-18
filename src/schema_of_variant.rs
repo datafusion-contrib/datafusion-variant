@@ -84,11 +84,8 @@ fn schema_array(input: &dyn Array) -> Result<ArrayRef> {
     let variants = unshred_variant(&VariantArray::try_new(input)?)?;
     // try_value uses the panicking Variant::new for binary values. Use the
     // fully validating decoder until Arrow provides a fallible equivalent.
-    let metadata = try_parse_binary_columnar(variants.metadata_field())?;
-    let encoded = variants
-        .value_field()
-        .map(try_parse_binary_columnar)
-        .transpose()?;
+    let metadata = try_parse_binary_columnar(variants.metadata_column())?;
+    let encoded = try_parse_binary_columnar(variants.value_column())?;
     let mut output = StringViewBuilder::with_capacity(variants.len());
     for (i, metadata) in metadata.into_iter().enumerate() {
         if variants.is_null(i) {
@@ -96,7 +93,7 @@ fn schema_array(input: &dyn Array) -> Result<ArrayRef> {
             continue;
         }
 
-        let value = match encoded.as_ref().and_then(|values| values[i]) {
+        let value = match encoded[i] {
             Some(bytes) => Variant::try_new(
                 metadata.ok_or_else(|| {
                     exec_datafusion_err!("schema_of_variant received missing metadata")

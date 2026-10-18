@@ -44,17 +44,18 @@ fn is_variant_null_at(array: &VariantArray, index: usize) -> Result<bool> {
     // Avoid materializing it: borrowed Variant access does not support all containers.
     // NullArray has no physical validity bitmap, so is_valid alone is insufficient.
     if array
-        .typed_value_field()
+        .typed_value_column()
         .is_some_and(|v| v.data_type() != &DataType::Null && v.is_valid(index))
     {
         return Ok(false);
     }
-    let Some(value) = array.value_field().filter(|v| v.is_valid(index)) else {
+    let value = array.value_column();
+    if value.is_null(index) {
         // A present top-level Variant with neither representation populated
         // falls back to Variant null. Missing extracted fields must instead
         // be marked SQL NULL in the outer validity bitmap.
         return Ok(true);
-    };
+    }
     let bytes = match value.data_type() {
         DataType::Binary => value.as_binary::<i32>().value(index),
         DataType::LargeBinary => value.as_binary::<i64>().value(index),

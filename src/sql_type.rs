@@ -38,11 +38,11 @@ impl From<&ConfigOptions> for SqlTypeConfig {
     fn from(config: &ConfigOptions) -> Self {
         Self {
             dialect: config.sql_parser.dialect.to_string(),
-            recursion_limit: config.sql_parser.recursion_limit,
+            recursion_limit: config.sql_parser.recursion_limit.into(),
             normalize_identifiers: config.sql_parser.enable_ident_normalization,
             varchar_lengths: config.sql_parser.support_varchar_with_length,
             string_views: config.sql_parser.map_string_types_to_utf8view,
-            time_zone: config.execution.time_zone.clone(),
+            time_zone: config.execution.time_zone.as_ref().map(ToString::to_string),
         }
     }
 }
@@ -67,13 +67,12 @@ impl SqlTypeConfig {
             expr: Box::new(SqlExpr::Value(Value::Null.into())),
             data_type,
             format: None,
-            array: false,
         };
         let mut config = ConfigOptions::default();
         config.sql_parser.enable_ident_normalization = self.normalize_identifiers;
         config.sql_parser.support_varchar_with_length = self.varchar_lengths;
         config.sql_parser.map_string_types_to_utf8view = self.string_views;
-        config.execution.time_zone = self.time_zone.clone();
+        config.execution.time_zone = self.time_zone.as_deref().map(str::parse).transpose()?;
         let provider = TypeContext(config);
         let expr = SqlToRel::new(&provider).sql_to_expr(
             cast,

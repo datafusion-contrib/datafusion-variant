@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
 This returns the JSON string `"Alice"`.
 
 Use compatible DataFusion and Arrow dependencies when embedding the crate.
-See [Cargo.toml](Cargo.toml) for the current versions and dependency patches.
+See [Cargo.toml](Cargo.toml) for the current versions and DataFusion revision.
 The example also requires Tokio with its `macros` and `rt-multi-thread`
 features.
 
@@ -91,7 +91,7 @@ The current API includes:
 `schema_of_variant(v)` returns a SQL schema for each value, for example
 `OBJECT<a: BIGINT, b: ARRAY<STRING>>`. It merges types within arrays, preserves
 SQL NULL, and reports `VOID` for Variant null. It follows Spark's
-`schema_of_variant` inference rules. Arrow 59's JSON parser produces `DOUBLE`
+`schema_of_variant` inference rules. Arrow's JSON parser produces `DOUBLE`
 for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
 decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
 
@@ -125,7 +125,7 @@ helper follows session type settings, including `SET` / `RESET`.
 `VARIANT` resolves to a struct with `metadata` and `value` binary-view fields and
 the `arrow.parquet.variant` extension metadata. Getter hints such as
 `variant_get(v, 'price', 'VARIANT')` and getter casts such as `v:price::VARIANT`
-preserve Variant values, including the distinction between SQL and Variant nulls.
+use Arrow's native Variant target conversion.
 Use `cast_to_variant` and typed getters to convert to/from Variant columns;
 general SQL casts of those columns are not yet supported. Nested Variant getter
 targets are also unsupported.
