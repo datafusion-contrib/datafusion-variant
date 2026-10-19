@@ -5,7 +5,7 @@
 # Stored inputs exercise execution as well as planning.
 statement ok
 CREATE TABLE sql_type_inputs AS
-SELECT json_to_variant('{"b":true,"n":7,"wide":2147483648,"f":1.5,"d":12.34,"s":"hello","a":[1,2],"da":[1.25,2.5],"o":{"a":7,"b":"x"},"null":null}') AS v, 'INTEGER' AS type_name;
+SELECT parse_json('{"b":true,"n":7,"wide":2147483648,"f":1.5,"d":12.34,"s":"hello","a":[1,2],"da":[1.25,2.5],"o":{"a":7,"b":"x"},"null":null}') AS v, 'INTEGER' AS type_name;
 
 # SQL aliases, parameters and nested types. INT8 means BIGINT, unlike Arrow Int8.
 query TB rowsort
@@ -195,30 +195,30 @@ EXPLAIN SELECT try_variant_get(v, 'n', type_name) FROM sql_type_inputs;
 
 # SQL syntax errors are diagnosed during planning, even for the try getter.
 statement error (?i)(parse|syntax|expected|precision|scale)
-EXPLAIN SELECT variant_get(json_to_variant('7'), '', '');
+EXPLAIN SELECT variant_get(parse_json('7'), '', '');
 
 statement error (?i)(parse|syntax|expected|precision|scale)
-EXPLAIN SELECT try_variant_get(json_to_variant('7'), '', 'INTEGER trailing');
+EXPLAIN SELECT try_variant_get(parse_json('7'), '', 'INTEGER trailing');
 
 statement error (?i)(parse|syntax|expected|precision|scale)
-EXPLAIN SELECT variant_get(json_to_variant('7'), '', 'DECIMAL(2,4)');
+EXPLAIN SELECT variant_get(parse_json('7'), '', 'DECIMAL(2,4)');
 
 statement error (?i)(parse|syntax|expected|precision|scale)
-EXPLAIN SELECT variant_get(json_to_variant('7'), '', 'ARRAY<');
+EXPLAIN SELECT variant_get(parse_json('7'), '', 'ARRAY<');
 
 # Arrow-only names are not compatibility fallbacks. INT8 above uses SQL meaning.
 statement error (?i)(unsupported|invalid|not implemented)
-EXPLAIN SELECT variant_get(json_to_variant('7'), '', 'Int64');
+EXPLAIN SELECT variant_get(parse_json('7'), '', 'Int64');
 
 statement error (?i)(unsupported|invalid|not implemented)
-EXPLAIN SELECT try_variant_get(json_to_variant('"hello"'), '', 'Utf8View');
+EXPLAIN SELECT try_variant_get(parse_json('"hello"'), '', 'Utf8View');
 
 # Length-qualified VARCHAR uses the same session flag as ordinary CAST.
 statement ok
 SET datafusion.sql_parser.support_varchar_with_length = false;
 
 statement error (?i)(varchar|length)
-EXPLAIN SELECT variant_get(json_to_variant('"hello"'), '', 'VARCHAR(10)');
+EXPLAIN SELECT variant_get(parse_json('"hello"'), '', 'VARCHAR(10)');
 
 statement ok
 SET datafusion.sql_parser.support_varchar_with_length = true;

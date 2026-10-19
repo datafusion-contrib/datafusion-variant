@@ -16,7 +16,7 @@ SET datafusion.execution.time_zone = 'UTC';
 
 # expr-001: VariantExpressionSuite.scala:294 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('"true"') AS v)
+WITH input AS (SELECT parse_json('"true"') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
@@ -25,7 +25,7 @@ true true true
 
 # expr-002: VariantExpressionSuite.scala:295 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('"false"') AS v)
+WITH input AS (SELECT parse_json('"false"') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false FROM input;
@@ -34,7 +34,7 @@ true true true
 
 # expr-003: VariantExpressionSuite.scala:296 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('" t "') AS v)
+WITH input AS (SELECT parse_json('" t "') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
@@ -43,12 +43,12 @@ true true true
 
 # expr-004-strict: VariantExpressionSuite.scala:297 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('"true"') AS v)
+WITH input AS (SELECT parse_json('"true"') AS v)
 SELECT variant_get(v, '', 'INTEGER') FROM input;
 
 # expr-004-try: VariantExpressionSuite.scala:297 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('"true"') AS v)
+WITH input AS (SELECT parse_json('"true"') AS v)
 SELECT try_variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
@@ -57,7 +57,7 @@ true
 # TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"1"') AS v)
+WITH input AS (SELECT parse_json('"1"') AS v)
 SELECT variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 1,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'INTEGER') IS NOT DISTINCT FROM 1,
   try_variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 1 FROM input;
@@ -68,7 +68,7 @@ true true true
 # TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"9223372036854775807"') AS v)
+WITH input AS (SELECT parse_json('"9223372036854775807"') AS v)
 SELECT variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
   try_variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807 FROM input;
@@ -79,7 +79,7 @@ true true true
 # TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"-0.0"') AS v)
+WITH input AS (SELECT parse_json('"-0.0"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-0.0' AS DOUBLE) FROM input;
@@ -90,7 +90,7 @@ true true true
 # TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"inf"') AS v)
+WITH input AS (SELECT parse_json('"inf"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('inf' AS DOUBLE) FROM input;
@@ -101,7 +101,7 @@ true true true
 # TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"-inf"') AS v)
+WITH input AS (SELECT parse_json('"-inf"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('-inf' AS DOUBLE) FROM input;
@@ -112,7 +112,7 @@ true true true
 # TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"nan"') AS v)
+WITH input AS (SELECT parse_json('"nan"') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('nan' AS DOUBLE) FROM input;
@@ -123,7 +123,7 @@ true true true
 # TODO #71: Arrow does not parse numeric strings in this cast (including nested values).
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"12.34"') AS v)
+WITH input AS (SELECT parse_json('"12.34"') AS v)
 SELECT variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('12.34000015258789' AS REAL),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'REAL') IS NOT DISTINCT FROM CAST('12.34000015258789' AS REAL),
   try_variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('12.34000015258789' AS REAL) FROM input;
@@ -132,7 +132,7 @@ true true true
 
 # expr-012: VariantExpressionSuite.scala:305 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('"12.34"') AS v)
+WITH input AS (SELECT parse_json('"12.34"') AS v)
 SELECT variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' AS decimal(9,4)),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' AS decimal(9,4)),
   try_variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('12.3400' AS decimal(9,4)) FROM input;
@@ -143,7 +143,7 @@ true true true
 # TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"1970-01-01"') AS v)
+WITH input AS (SELECT parse_json('"1970-01-01"') AS v)
 SELECT variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE),
   try_variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-01-01' AS DATE) FROM input;
@@ -154,7 +154,7 @@ true true true
 # TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('"1970-03-01"') AS v)
+WITH input AS (SELECT parse_json('"1970-03-01"') AS v)
 SELECT variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-03-01' AS DATE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DATE') IS NOT DISTINCT FROM CAST('1970-03-01' AS DATE),
   try_variant_get(v, '', 'DATE') IS NOT DISTINCT FROM CAST('1970-03-01' AS DATE) FROM input;
@@ -163,7 +163,7 @@ true true true
 
 # expr-015: VariantExpressionSuite.scala:310 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('true') AS v)
+WITH input AS (SELECT parse_json('true') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
@@ -172,7 +172,7 @@ true true true
 
 # expr-016: VariantExpressionSuite.scala:311 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('false') AS v)
+WITH input AS (SELECT parse_json('false') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false FROM input;
@@ -181,7 +181,7 @@ true true true
 
 # expr-017: VariantExpressionSuite.scala:312 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('true') AS v)
+WITH input AS (SELECT parse_json('true') AS v)
 SELECT variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 1,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'TINYINT') IS NOT DISTINCT FROM 1,
   try_variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 1 FROM input;
@@ -190,7 +190,7 @@ true true true
 
 # expr-018: VariantExpressionSuite.scala:313 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('true') AS v)
+WITH input AS (SELECT parse_json('true') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('1.0' AS DOUBLE) FROM input;
@@ -201,7 +201,7 @@ true true true
 # TODO #71: Arrow lacks Boolean-to-decimal conversion.
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('true') AS v)
+WITH input AS (SELECT parse_json('true') AS v)
 SELECT variant_get(v, '', 'DECIMAL(18, 17)') IS NOT DISTINCT FROM CAST('1.00000000000000000' AS decimal(18,17)),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(18, 17)') IS NOT DISTINCT FROM CAST('1.00000000000000000' AS decimal(18,17)),
   try_variant_get(v, '', 'DECIMAL(18, 17)') IS NOT DISTINCT FROM CAST('1.00000000000000000' AS decimal(18,17)) FROM input;
@@ -210,12 +210,12 @@ true true true
 
 # expr-020-strict: VariantExpressionSuite.scala:315 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('true') AS v)
+WITH input AS (SELECT parse_json('true') AS v)
 SELECT variant_get(v, '', 'DECIMAL(18, 18)') FROM input;
 
 # expr-020-try: VariantExpressionSuite.scala:315 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('true') AS v)
+WITH input AS (SELECT parse_json('true') AS v)
 SELECT try_variant_get(v, '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
@@ -224,7 +224,7 @@ true
 # TODO #71: Arrow lacks Boolean-to-decimal conversion.
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('false') AS v)
+WITH input AS (SELECT parse_json('false') AS v)
 SELECT variant_get(v, '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000000000000' AS decimal(18,18)),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000000000000' AS decimal(18,18)),
   try_variant_get(v, '', 'DECIMAL(18, 18)') IS NOT DISTINCT FROM CAST('0.000000000000000000' AS decimal(18,18)) FROM input;
@@ -233,7 +233,7 @@ true true true
 
 # expr-022: VariantExpressionSuite.scala:319 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('1') AS v)
+WITH input AS (SELECT parse_json('1') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM true,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM true FROM input;
@@ -242,7 +242,7 @@ true true true
 
 # expr-023: VariantExpressionSuite.scala:320 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('0') AS v)
+WITH input AS (SELECT parse_json('0') AS v)
 SELECT variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BOOLEAN') IS NOT DISTINCT FROM false,
   try_variant_get(v, '', 'BOOLEAN') IS NOT DISTINCT FROM false FROM input;
@@ -251,19 +251,19 @@ true true true
 
 # expr-024-strict: VariantExpressionSuite.scala:321 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('1') AS v)
+WITH input AS (SELECT parse_json('1') AS v)
 SELECT variant_get(v, '', 'BYTEA') FROM input;
 
 # expr-024-try: VariantExpressionSuite.scala:321 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('1') AS v)
+WITH input AS (SELECT parse_json('1') AS v)
 SELECT try_variant_get(v, '', 'BYTEA') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
 
 # expr-025: VariantExpressionSuite.scala:322 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('127') AS v)
+WITH input AS (SELECT parse_json('127') AS v)
 SELECT variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 127,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'TINYINT') IS NOT DISTINCT FROM 127,
   try_variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM 127 FROM input;
@@ -272,19 +272,19 @@ true true true
 
 # expr-026-strict: VariantExpressionSuite.scala:323 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('128') AS v)
+WITH input AS (SELECT parse_json('128') AS v)
 SELECT variant_get(v, '', 'TINYINT') FROM input;
 
 # expr-026-try: VariantExpressionSuite.scala:323 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('128') AS v)
+WITH input AS (SELECT parse_json('128') AS v)
 SELECT try_variant_get(v, '', 'TINYINT') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
 
 # expr-027: VariantExpressionSuite.scala:324 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('-32768') AS v)
+WITH input AS (SELECT parse_json('-32768') AS v)
 SELECT variant_get(v, '', 'SMALLINT') IS NOT DISTINCT FROM -32768,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'SMALLINT') IS NOT DISTINCT FROM -32768,
   try_variant_get(v, '', 'SMALLINT') IS NOT DISTINCT FROM -32768 FROM input;
@@ -293,19 +293,19 @@ true true true
 
 # expr-028-strict: VariantExpressionSuite.scala:325 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('-32769') AS v)
+WITH input AS (SELECT parse_json('-32769') AS v)
 SELECT variant_get(v, '', 'SMALLINT') FROM input;
 
 # expr-028-try: VariantExpressionSuite.scala:325 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('-32769') AS v)
+WITH input AS (SELECT parse_json('-32769') AS v)
 SELECT try_variant_get(v, '', 'SMALLINT') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
 
 # expr-029: VariantExpressionSuite.scala:326 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('2147483647') AS v)
+WITH input AS (SELECT parse_json('2147483647') AS v)
 SELECT variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 2147483647,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'INTEGER') IS NOT DISTINCT FROM 2147483647,
   try_variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM 2147483647 FROM input;
@@ -314,19 +314,19 @@ true true true
 
 # expr-030-strict: VariantExpressionSuite.scala:327 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('2147483648') AS v)
+WITH input AS (SELECT parse_json('2147483648') AS v)
 SELECT variant_get(v, '', 'INTEGER') FROM input;
 
 # expr-030-try: VariantExpressionSuite.scala:327 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('2147483648') AS v)
+WITH input AS (SELECT parse_json('2147483648') AS v)
 SELECT try_variant_get(v, '', 'INTEGER') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
 
 # expr-031: VariantExpressionSuite.scala:328 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('9223372036854775807') AS v)
+WITH input AS (SELECT parse_json('9223372036854775807') AS v)
 SELECT variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807,
   try_variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM 9223372036854775807 FROM input;
@@ -335,7 +335,7 @@ true true true
 
 # expr-032: VariantExpressionSuite.scala:329 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('-9223372036854775808') AS v)
+WITH input AS (SELECT parse_json('-9223372036854775808') AS v)
 SELECT variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM -9223372036854775808,
   variant_get(variant_get(v, '', 'VARIANT'), '', 'BIGINT') IS NOT DISTINCT FROM -9223372036854775808,
   try_variant_get(v, '', 'BIGINT') IS NOT DISTINCT FROM -9223372036854775808 FROM input;
@@ -344,7 +344,7 @@ true true true
 
 # expr-033: VariantExpressionSuite.scala:330 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('2147483647') AS v)
+WITH input AS (SELECT parse_json('2147483647') AS v)
 SELECT variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('2147483648.0' AS REAL),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'REAL') IS NOT DISTINCT FROM CAST('2147483648.0' AS REAL),
   try_variant_get(v, '', 'REAL') IS NOT DISTINCT FROM CAST('2147483648.0' AS REAL) FROM input;
@@ -353,7 +353,7 @@ true true true
 
 # expr-034: VariantExpressionSuite.scala:331 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('2147483647') AS v)
+WITH input AS (SELECT parse_json('2147483647') AS v)
 SELECT variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('2147483647.0' AS DOUBLE),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DOUBLE') IS NOT DISTINCT FROM CAST('2147483647.0' AS DOUBLE),
   try_variant_get(v, '', 'DOUBLE') IS NOT DISTINCT FROM CAST('2147483647.0' AS DOUBLE) FROM input;
@@ -362,7 +362,7 @@ true true true
 
 # expr-035: VariantExpressionSuite.scala:332 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('1') AS v)
+WITH input AS (SELECT parse_json('1') AS v)
 SELECT variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('1.0000' AS decimal(9,4)),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('1.0000' AS decimal(9,4)),
   try_variant_get(v, '', 'DECIMAL(9, 4)') IS NOT DISTINCT FROM CAST('1.0000' AS decimal(9,4)) FROM input;
@@ -371,7 +371,7 @@ true true true
 
 # expr-036: VariantExpressionSuite.scala:333 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('99999999') AS v)
+WITH input AS (SELECT parse_json('99999999') AS v)
 SELECT variant_get(v, '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM CAST('99999999.000000000000000000000000000000' AS decimal(38,30)),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM CAST('99999999.000000000000000000000000000000' AS decimal(38,30)),
   try_variant_get(v, '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM CAST('99999999.000000000000000000000000000000' AS decimal(38,30)) FROM input;
@@ -380,24 +380,24 @@ true true true
 
 # expr-037-strict: VariantExpressionSuite.scala:334 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('100000000') AS v)
+WITH input AS (SELECT parse_json('100000000') AS v)
 SELECT variant_get(v, '', 'DECIMAL(38, 30)') FROM input;
 
 # expr-037-try: VariantExpressionSuite.scala:334 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('100000000') AS v)
+WITH input AS (SELECT parse_json('100000000') AS v)
 SELECT try_variant_get(v, '', 'DECIMAL(38, 30)') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
 
 # expr-038-strict: VariantExpressionSuite.scala:335 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('12345') AS v)
+WITH input AS (SELECT parse_json('12345') AS v)
 SELECT variant_get(v, '', 'DECIMAL(6, 3)') FROM input;
 
 # expr-038-try: VariantExpressionSuite.scala:335 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('12345') AS v)
+WITH input AS (SELECT parse_json('12345') AS v)
 SELECT try_variant_get(v, '', 'DECIMAL(6, 3)') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
@@ -406,7 +406,7 @@ true
 # TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('-1') AS v)
+WITH input AS (SELECT parse_json('-1') AS v)
 SELECT variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(-1000000, 'Timestamp(Microsecond, Some("UTC"))'),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(-1000000, 'Timestamp(Microsecond, Some("UTC"))'),
   try_variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(-1000000, 'Timestamp(Microsecond, Some("UTC"))') FROM input;
@@ -417,7 +417,7 @@ true true true
 # TODO #71: Arrow lacks this string/numeric temporal conversion.
 skipif DataFusion
 query BBB
-WITH input AS (SELECT json_to_variant('9223372036854') AS v)
+WITH input AS (SELECT parse_json('9223372036854') AS v)
 SELECT variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(9223372036854000000, 'Timestamp(Microsecond, Some("UTC"))'),
   variant_get(variant_get(v, '', 'VARIANT'), '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(9223372036854000000, 'Timestamp(Microsecond, Some("UTC"))'),
   try_variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM arrow_cast(9223372036854000000, 'Timestamp(Microsecond, Some("UTC"))') FROM input;
@@ -426,30 +426,30 @@ true true true
 
 # expr-041-strict: VariantExpressionSuite.scala:338 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('9223372036855') AS v)
+WITH input AS (SELECT parse_json('9223372036855') AS v)
 SELECT variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') FROM input;
 
 # expr-041-try: VariantExpressionSuite.scala:338 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('9223372036855') AS v)
+WITH input AS (SELECT parse_json('9223372036855') AS v)
 SELECT try_variant_get(v, '', 'TIMESTAMP(6) WITH TIME ZONE') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
 
 # expr-042-strict: VariantExpressionSuite.scala:339 — variant_get cast
 statement error (?i)(cast|extract|precision|overflow)
-WITH input AS (SELECT json_to_variant('0') AS v)
+WITH input AS (SELECT parse_json('0') AS v)
 SELECT variant_get(v, '', 'TIMESTAMP(6)') FROM input;
 
 # expr-042-try: VariantExpressionSuite.scala:339 — variant_get cast
 query B
-WITH input AS (SELECT json_to_variant('0') AS v)
+WITH input AS (SELECT parse_json('0') AS v)
 SELECT try_variant_get(v, '', 'TIMESTAMP(6)') IS NOT DISTINCT FROM NULL FROM input;
 ----
 true
 
 # Additional Spark numeric casts. Construct native Double and Decimal variants
-# explicitly: json_to_variant need not choose the same storage type as Spark.
+# explicitly: parse_json need not choose the same storage type as Spark.
 # Decimal32/64/128 inputs exercise Decimal4/8/16 conversion branches.
 
 # expr-043: VariantExpressionSuite.scala:342 — variant_get cast
@@ -606,7 +606,7 @@ true true true
 
 # expr-080: VariantExpressionSuite.scala:421 — variant_get cast
 query BBB
-WITH input AS (SELECT json_to_variant('null') AS v)
+WITH input AS (SELECT parse_json('null') AS v)
 SELECT variant_get(v, '', 'DECIMAL(18, 9)') IS NOT DISTINCT FROM NULL,
   variant_get(variant_get(v, ''), '', 'DECIMAL(18, 9)') IS NOT DISTINCT FROM NULL,
   try_variant_get(v, '', 'DECIMAL(18, 9)') IS NOT DISTINCT FROM NULL FROM input;

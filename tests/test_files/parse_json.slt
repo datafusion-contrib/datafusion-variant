@@ -7,10 +7,10 @@ INSERT INTO json_string_inputs VALUES (1, '123', 'null'), (2, NULL, 'null'), (3,
 
 statement ok
 CREATE VIEW parsed_json AS SELECT id,
-  json_to_variant(arrow_cast(json, 'Utf8')) AS utf8,
-  json_to_variant(arrow_cast(json, 'LargeUtf8')) AS large_utf8,
-  json_to_variant(arrow_cast(json, 'Utf8View')) AS utf8_view,
-  json_to_variant(required_json) AS required
+  parse_json(arrow_cast(json, 'Utf8')) AS utf8,
+  parse_json(arrow_cast(json, 'LargeUtf8')) AS large_utf8,
+  parse_json(arrow_cast(json, 'Utf8View')) AS utf8_view,
+  parse_json(required_json) AS required
 FROM json_string_inputs;
 
 query ITTT
@@ -24,9 +24,9 @@ FROM parsed_json ORDER BY id;
 # Literal arguments exercise constant evaluation; the ordinary Utf8 SQL/Variant
 # null distinction is already covered in variant_nulls.slt.
 query TBB
-SELECT to_json(json_to_variant(arrow_cast('123', 'LargeUtf8'))),
-  json_to_variant(arrow_cast(NULL, 'Utf8View')) IS NULL,
-  is_variant_null(json_to_variant(arrow_cast('null', 'LargeUtf8')));
+SELECT to_json(parse_json(arrow_cast('123', 'LargeUtf8'))),
+  parse_json(arrow_cast(NULL, 'Utf8View')) IS NULL,
+  is_variant_null(parse_json(arrow_cast('null', 'LargeUtf8')));
 ----
 123 true true
 
@@ -55,27 +55,26 @@ statement ok
 INSERT INTO json_string_inputs VALUES (4, '{', 'null');
 
 statement error JSON format error
-SELECT json_to_variant(arrow_cast(json, 'Utf8')) FROM json_string_inputs;
+SELECT parse_json(arrow_cast(json, 'Utf8')) FROM json_string_inputs;
 
 statement error JSON format error
-SELECT json_to_variant(arrow_cast(json, 'LargeUtf8')) FROM json_string_inputs;
+SELECT parse_json(arrow_cast(json, 'LargeUtf8')) FROM json_string_inputs;
 
 statement error JSON format error
-SELECT json_to_variant(arrow_cast(json, 'Utf8View')) FROM json_string_inputs;
+SELECT parse_json(arrow_cast(json, 'Utf8View')) FROM json_string_inputs;
 
 # Utf8 literal errors are covered by the Spark-derived cases below.
 statement error JSON format error
-SELECT json_to_variant(arrow_cast('{', 'LargeUtf8'));
+SELECT parse_json(arrow_cast('{', 'LargeUtf8'));
 
 statement error JSON format error
-SELECT json_to_variant(arrow_cast('{', 'Utf8View'));
+SELECT parse_json(arrow_cast('{', 'Utf8View'));
 
 # Adapted from Apache Spark 4.2.0, licensed under Apache-2.0.
 # Pinned commit: 32f7299601108917fb01920a54e084595b7b3bf8
 # Eval source: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionEvalUtilsSuite.scala
 # SQL source: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/core/src/test/scala/org/apache/spark/sql/VariantSuite.scala
 # Parser: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/common/variant/src/main/java/org/apache/spark/types/variant/VariantBuilder.java
-# Adaptations: parse_json -> json_to_variant; to_json -> to_json.
 # Expected JSON/error outcomes were checked with Spark 4.2.0's VariantBuilder,
 # duplicate keys disallowed and Unicode validation enabled; JSON output uses UTC.
 # Compare logical JSON, not object dictionary order or byte-for-byte encoding.
@@ -109,7 +108,7 @@ INSERT INTO spark_json_inputs VALUES
   (15, '{"items": [1, 2, 3], "count": 3}', '{"count":3,"items":[1,2,3]}');
 
 query IB
-SELECT id, to_json(json_to_variant(json)) IS NOT DISTINCT FROM expected
+SELECT id, to_json(parse_json(json)) IS NOT DISTINCT FROM expected
 FROM spark_json_inputs ORDER BY id;
 ----
 1 true
@@ -130,85 +129,85 @@ FROM spark_json_inputs ORDER BY id;
 
 # EvalUtilsSuite.scala:132
 statement error (?i)JSON format error
-SELECT json_to_variant('');
+SELECT parse_json('');
 
 # EvalUtilsSuite.scala:132
 statement error (?i)JSON format error
-SELECT json_to_variant('[');
+SELECT parse_json('[');
 
 # EvalUtilsSuite.scala:132
 statement error (?i)JSON format error
-SELECT json_to_variant('+1');
+SELECT parse_json('+1');
 
 # EvalUtilsSuite.scala:132
 statement error (?i)JSON format error
-SELECT json_to_variant('1a');
+SELECT parse_json('1a');
 
 # EvalUtilsSuite.scala:145
 statement error (?i)JSON format error
-SELECT json_to_variant('"\uD835"');
+SELECT parse_json('"\uD835"');
 
 # EvalUtilsSuite.scala:146
 statement error (?i)JSON format error
-SELECT json_to_variant('"\uDC00"');
+SELECT parse_json('"\uDC00"');
 
 # EvalUtilsSuite.scala:147
 statement error (?i)JSON format error
-SELECT json_to_variant('"\uD835x\uDC00"');
+SELECT parse_json('"\uD835x\uDC00"');
 
 # EvalUtilsSuite.scala:148
 statement error (?i)JSON format error
-SELECT json_to_variant('"\uD835\uD835"');
+SELECT parse_json('"\uD835\uD835"');
 
 # EvalUtilsSuite.scala:150
 statement error (?i)JSON format error
-SELECT json_to_variant('{"\uD835":1}');
+SELECT parse_json('{"\uD835":1}');
 
 # EvalUtilsSuite.scala:151
 statement error (?i)JSON format error
-SELECT json_to_variant('["ok", "\uDC00"]');
+SELECT parse_json('["ok", "\uDC00"]');
 
 # VariantSuite:66
 statement error (?i)JSON format error
-SELECT json_to_variant('{ a : 1 }');
+SELECT parse_json('{ a : 1 }');
 
 # Upstream precision issue: https://github.com/apache/arrow-rs/issues/11169
 # Proposed fix (open): https://github.com/apache/arrow-rs/pull/11177
 # TODO #71: i64 overflow, adapted from EvalUtilsSuite:57 using a value not exact in f64.
 skipif DataFusion
 query B
-SELECT to_json(json_to_variant('9223372036854775809')) IS NOT DISTINCT FROM '9223372036854775809';
+SELECT to_json(parse_json('9223372036854775809')) IS NOT DISTINCT FROM '9223372036854775809';
 ----
 true
 
 # TODO #71 (EvalUtilsSuite.scala:68): Arrow 59 parses this exact decimal integer as Double.
 skipif DataFusion
 query B
-SELECT to_json(json_to_variant('99999999999999999999999999999999999999')) IS NOT DISTINCT FROM '99999999999999999999999999999999999999';
+SELECT to_json(parse_json('99999999999999999999999999999999999999')) IS NOT DISTINCT FROM '99999999999999999999999999999999999999';
 ----
 true
 
 # TODO #71 (audit #71): Arrow 59 loses decimal precision.
 skipif DataFusion
 query B
-SELECT to_json(json_to_variant('0.12345678901234567890123456789012345678')) IS NOT DISTINCT FROM '0.12345678901234567890123456789012345678';
+SELECT to_json(parse_json('0.12345678901234567890123456789012345678')) IS NOT DISTINCT FROM '0.12345678901234567890123456789012345678';
 ----
 true
 
 # TODO #71: Reject duplicate keys by default (EvalUtilsSuite:132).
 skipif DataFusion
 statement error (?i)(duplicate|JSON|parse)
-SELECT json_to_variant('{"a": 1, "b": 2, "a": "3"}');
+SELECT parse_json('{"a": 1, "b": 2, "a": "3"}');
 
 # Recursion must apply the same duplicate-key policy.
 skipif DataFusion
 statement error (?i)(duplicate|JSON|parse)
-SELECT json_to_variant('{"nested":{"a":1,"a":2}}');
+SELECT parse_json('{"nested":{"a":1,"a":2}}');
 
 # Compare decoded key names, including Unicode escapes.
 skipif DataFusion
 statement error (?i)(duplicate|JSON|parse)
-SELECT json_to_variant('{"a":1,"\u0061":2}');
+SELECT parse_json('{"a":1,"\u0061":2}');
 
 # Other observed Spark differences require compatibility decisions, not encoding fixes:
 # - Spark consumes the first root in '1 2'; Arrow rejects trailing input.
@@ -216,4 +215,4 @@ SELECT json_to_variant('{"a":1,"\u0061":2}');
 # - Spark imposes a 16 MiB value limit; Arrow does not enforce that engine limit.
 # These are documented rather than asserting Spark policy is an Arrow bug.
 # APIs still outside this port: configurable duplicate-key allowance, legacy
-# Unicode validation, try_parse_json, and Spark's parse_json SQL alias (#71).
+# Unicode validation and try_parse_json (#71).

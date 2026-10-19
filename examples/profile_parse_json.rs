@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader};
 use arrow::array::{ArrayRef, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use datafusion::logical_expr::ScalarUDF;
-use datafusion_variant::{JsonToVariantUdf, VariantGetUdf};
+use datafusion_variant::{ParseJsonUdf, VariantGetUdf};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -45,13 +45,13 @@ async fn main() {
     ctx.register_table("bsky", Arc::new(provider)).unwrap();
 
     // register variant udfs
-    ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
+    ctx.register_udf(ScalarUDF::new_from_impl(ParseJsonUdf::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(VariantGetUdf::default()));
 
     let _df = ctx
         .sql(
             r"
-        select json_to_variant(bsky.json_data) from bsky
+        select parse_json(bsky.json_data) from bsky
     ",
         )
         .await

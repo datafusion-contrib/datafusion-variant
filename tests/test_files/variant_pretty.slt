@@ -10,7 +10,7 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
 
 # convert json strings to variant and back to json string (round trip)
 query IT
-SELECT id, variant_pretty(json_to_variant(json_str)) FROM json_data ORDER BY id;
+SELECT id, variant_pretty(parse_json(json_str)) FROM json_data ORDER BY id;
 ----
 1 BooleanTrue
 2 Int8(123)

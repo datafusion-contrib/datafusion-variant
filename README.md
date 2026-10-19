@@ -33,7 +33,7 @@ use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::SessionContext;
 use datafusion_variant::{
-    JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf, VariantTypePlanner,
+    ParseJsonUdf, VariantExprPlanner, VariantToJsonUdf, VariantTypePlanner,
     register_variant_get_functions,
 };
 
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
         .build();
     let mut ctx = SessionContext::new_with_state(state);
 
-    ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
+    ctx.register_udf(ScalarUDF::new_from_impl(ParseJsonUdf::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
     register_variant_get_functions(&mut ctx)?;
     ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
     ctx.sql(
         r#"
         SELECT to_json(
-            json_to_variant('{"name":"Alice","age":30}'):name
+            parse_json('{"name":"Alice","age":30}'):name
         ) AS name
         "#,
     )
@@ -78,7 +78,7 @@ The current API includes:
 
 | Area | Functions |
 | --- | --- |
-| JSON conversion | `json_to_variant`, `to_json`, `variant_get_json` |
+| JSON conversion | `parse_json`, `to_json`, `variant_get_json` |
 | Type conversion | `cast_to_variant` |
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
 | Null inspection | `is_variant_null` |
@@ -161,7 +161,7 @@ cargo run --example cli
 Queries must end with a semicolon:
 
 ```sql
-SELECT to_json(json_to_variant(json_data))
+SELECT to_json(parse_json(json_data))
 FROM bsky
 LIMIT 5;
 ```

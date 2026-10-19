@@ -4,49 +4,49 @@
 
 # Test 1: Get keys from a simple object
 query ?
-SELECT variant_object_keys(json_to_variant('{"a": 1, "b": 2, "c": 3}'));
+SELECT variant_object_keys(parse_json('{"a": 1, "b": 2, "c": 3}'));
 ----
 [a, b, c]
 
 # Test 2: Get keys from an empty object
 query ?
-SELECT variant_object_keys(json_to_variant('{}'));
+SELECT variant_object_keys(parse_json('{}'));
 ----
 []
 
 # Test 3: Get keys from a single-key object
 query ?
-SELECT variant_object_keys(json_to_variant('{"name": "Alice"}'));
+SELECT variant_object_keys(parse_json('{"name": "Alice"}'));
 ----
 [name]
 
 # Test 4: Non-object variant returns null (array)
 query ?
-SELECT variant_object_keys(json_to_variant('[1, 2, 3]'));
+SELECT variant_object_keys(parse_json('[1, 2, 3]'));
 ----
 NULL
 
 # Test 5: Non-object variant returns null (string)
 query ?
-SELECT variant_object_keys(json_to_variant('"hello"'));
+SELECT variant_object_keys(parse_json('"hello"'));
 ----
 NULL
 
 # Test 6: Non-object variant returns null (number)
 query ?
-SELECT variant_object_keys(json_to_variant('42'));
+SELECT variant_object_keys(parse_json('42'));
 ----
 NULL
 
 # Test 7: Nested object - only top-level keys returned
 query ?
-SELECT variant_object_keys(json_to_variant('{"name": "Alice", "address": {"city": "NYC"}}'));
+SELECT variant_object_keys(parse_json('{"name": "Alice", "address": {"city": "NYC"}}'));
 ----
 [address, name]
 
 # Test 8: Object with numeric string keys
 query ?
-SELECT variant_object_keys(json_to_variant('{"0": "zero", "1": "one"}'));
+SELECT variant_object_keys(parse_json('{"0": "zero", "1": "one"}'));
 ----
 [0, 1]
 
@@ -54,8 +54,8 @@ SELECT variant_object_keys(json_to_variant('{"0": "zero", "1": "one"}'));
 query ?
 SELECT variant_object_keys(
   variant_object_construct(
-    'x', json_to_variant('1'),
-    'y', json_to_variant('2')
+    'x', parse_json('1'),
+    'y', parse_json('2')
   )
 );
 ----
@@ -65,9 +65,9 @@ SELECT variant_object_keys(
 query ?
 SELECT variant_object_keys(
   variant_object_insert(
-    json_to_variant('{"a": 1}'),
+    parse_json('{"a": 1}'),
     'b',
-    json_to_variant('2')
+    parse_json('2')
   )
 );
 ----
@@ -77,7 +77,7 @@ SELECT variant_object_keys(
 query ?
 SELECT variant_object_keys(
   variant_object_delete(
-    json_to_variant('{"a": 1, "b": 2, "c": 3}'),
+    parse_json('{"a": 1, "b": 2, "c": 3}'),
     'b'
   )
 );
@@ -86,14 +86,14 @@ SELECT variant_object_keys(
 
 # Test 12: Variant null returns null
 query ?
-SELECT variant_object_keys(json_to_variant('null'));
+SELECT variant_object_keys(parse_json('null'));
 ----
 NULL
 
 # Test 13: With path - get keys of nested object
 query ?
 SELECT variant_object_keys(
-  json_to_variant('{"user": {"name": "Alice", "age": 30}}'),
+  parse_json('{"user": {"name": "Alice", "age": 30}}'),
   'user'
 );
 ----
@@ -102,7 +102,7 @@ SELECT variant_object_keys(
 # Test 14: With path - target is not an object
 query ?
 SELECT variant_object_keys(
-  json_to_variant('{"items": [1, 2, 3]}'),
+  parse_json('{"items": [1, 2, 3]}'),
   'items'
 );
 ----
@@ -111,7 +111,7 @@ NULL
 # Test 15: With path - path does not exist
 query ?
 SELECT variant_object_keys(
-  json_to_variant('{"a": 1}'),
+  parse_json('{"a": 1}'),
   'nonexistent'
 );
 ----
@@ -120,7 +120,7 @@ NULL
 # Test 16: With path - deeply nested
 query ?
 SELECT variant_object_keys(
-  json_to_variant('{"a": {"b": {"x": 1, "y": 2}}}'),
+  parse_json('{"a": {"b": {"x": 1, "y": 2}}}'),
   'a.b'
 );
 ----

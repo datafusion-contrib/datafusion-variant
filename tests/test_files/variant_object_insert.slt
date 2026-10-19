@@ -13,9 +13,9 @@ CREATE TABLE test_data (id INT, name TEXT, age INT, active BOOL) AS VALUES
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    json_to_variant('{}'),
+    parse_json('{}'),
     'name',
-    json_to_variant('"Alice"')
+    parse_json('"Alice"')
   )
 );
 ----
@@ -25,9 +25,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('name', json_to_variant('"Bob"')),
+    variant_object_construct('name', parse_json('"Bob"')),
     'age',
-    json_to_variant('25')
+    parse_json('25')
   )
 );
 ----
@@ -38,11 +38,11 @@ query T
 SELECT variant_pretty(
   variant_object_insert(
     variant_object_construct(
-      'name', json_to_variant('"Charlie"'),
-      'age', json_to_variant('30')
+      'name', parse_json('"Charlie"'),
+      'age', parse_json('30')
     ),
     'age',
-    json_to_variant('31')
+    parse_json('31')
   )
 );
 ----
@@ -52,9 +52,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('name', json_to_variant('"David"')),
+    variant_object_construct('name', parse_json('"David"')),
     'active',
-    json_to_variant('true')
+    parse_json('true')
   )
 );
 ----
@@ -64,9 +64,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('name', json_to_variant('"Eve"')),
+    variant_object_construct('name', parse_json('"Eve"')),
     'middle_name',
-    json_to_variant('null')
+    parse_json('null')
   )
 );
 ----
@@ -76,9 +76,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('name', json_to_variant('"Frank"')),
+    variant_object_construct('name', parse_json('"Frank"')),
     'address',
-    json_to_variant('{"city": "NYC", "zip": 10001}')
+    parse_json('{"city": "NYC", "zip": 10001}')
   )
 );
 ----
@@ -88,9 +88,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('name', json_to_variant('"Grace"')),
+    variant_object_construct('name', parse_json('"Grace"')),
     'scores',
-    json_to_variant('[95, 87, 92]')
+    parse_json('[95, 87, 92]')
   )
 );
 ----
@@ -100,9 +100,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    json_to_variant('{"0": "zero"}'),
+    parse_json('{"0": "zero"}'),
     '1',
-    json_to_variant('"one"')
+    parse_json('"one"')
   )
 );
 ----
@@ -113,12 +113,12 @@ query T
 SELECT variant_pretty(
   variant_object_insert(
     variant_object_insert(
-      variant_object_construct('a', json_to_variant('1')),
+      variant_object_construct('a', parse_json('1')),
       'b',
-      json_to_variant('2')
+      parse_json('2')
     ),
     'c',
-    json_to_variant('3')
+    parse_json('3')
   )
 );
 ----
@@ -128,9 +128,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('user', json_to_variant('"Henry"')),
+    variant_object_construct('user', parse_json('"Henry"')),
     'metadata',
-    json_to_variant('{"tags": ["admin", "user"], "count": 42}')
+    parse_json('{"tags": ["admin", "user"], "count": 42}')
   )
 );
 ----
@@ -140,9 +140,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    json_to_variant('{}'),
+    parse_json('{}'),
     'user_name',
-    json_to_variant('"test_user"')
+    parse_json('"test_user"')
   )
 );
 ----
@@ -152,9 +152,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    json_to_variant('{}'),
+    parse_json('{}'),
     'message',
-    json_to_variant('"hello\nworld"')
+    parse_json('"hello\nworld"')
   )
 );
 ----
@@ -165,12 +165,12 @@ query T
 SELECT variant_pretty(
   variant_object_insert(
     variant_object_construct(
-      'a', json_to_variant('1'),
-      'b', json_to_variant('2'),
-      'c', json_to_variant('3')
+      'a', parse_json('1'),
+      'b', parse_json('2'),
+      'c', parse_json('3')
     ),
     'd',
-    json_to_variant('4')
+    parse_json('4')
   )
 );
 ----
@@ -180,9 +180,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('value', json_to_variant('42')),
+    variant_object_construct('value', parse_json('42')),
     'value',
-    json_to_variant('"forty-two"')
+    parse_json('"forty-two"')
   )
 );
 ----
@@ -192,9 +192,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    json_to_variant('{}'),
+    parse_json('{}'),
     'temperature',
-    json_to_variant('-10')
+    parse_json('-10')
   )
 );
 ----
@@ -204,9 +204,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    json_to_variant('{}'),
+    parse_json('{}'),
     'price',
-    json_to_variant('19.99')
+    parse_json('19.99')
   )
 );
 ----
@@ -216,9 +216,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('a', json_to_variant('null')),
+    variant_object_construct('a', parse_json('null')),
     'b',
-    json_to_variant('"value"')
+    parse_json('"value"')
   )
 );
 ----
@@ -228,9 +228,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    json_to_variant('{}'),
+    parse_json('{}'),
     'items',
-    json_to_variant('[]')
+    parse_json('[]')
   )
 );
 ----
@@ -240,9 +240,9 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_insert(
-    variant_object_construct('name', json_to_variant('"test"')),
+    variant_object_construct('name', parse_json('"test"')),
     'config',
-    json_to_variant('{}')
+    parse_json('{}')
   )
 );
 ----
@@ -253,12 +253,12 @@ query T
 SELECT variant_pretty(
   variant_object_insert(
     variant_object_insert(
-      variant_object_construct('x', json_to_variant('1')),
+      variant_object_construct('x', parse_json('1')),
       'x',
-      json_to_variant('2')
+      parse_json('2')
     ),
     'x',
-    json_to_variant('3')
+    parse_json('3')
   )
 );
 ----

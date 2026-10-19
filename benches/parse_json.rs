@@ -10,7 +10,7 @@ use datafusion::{
     logical_expr::{ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl},
     scalar::ScalarValue,
 };
-use datafusion_variant::JsonToVariantUdf;
+use datafusion_variant::ParseJsonUdf;
 use parquet_variant_compute::VariantArray;
 use parquet_variant_json::VariantToJson;
 
@@ -24,7 +24,7 @@ fn bench_input(
     value: ColumnarValue,
     expected: &[Option<&str>],
 ) {
-    let udf = JsonToVariantUdf::default();
+    let udf = ParseJsonUdf::default();
     let arg_fields = vec![Arc::new(Field::new("json", value.data_type(), true))];
     let scalar_arguments = vec![match &value {
         ColumnarValue::Scalar(value) => Some(value),
@@ -69,14 +69,14 @@ fn bench_input(
     });
 }
 
-fn json_to_variant(c: &mut Criterion) {
+fn parse_json(c: &mut Criterion) {
     let cases = [
         ("integer", "42"),
         ("json_null", "null"),
         ("escaped_string", ESCAPED_STRING),
         ("nested", NESTED),
     ];
-    let mut scalars = c.benchmark_group("json_to_variant/scalar");
+    let mut scalars = c.benchmark_group("parse_json/scalar");
     for (name, json) in cases {
         let expected = [Some(json)];
         let value = ScalarValue::Utf8(Some(json.into()));
@@ -92,7 +92,7 @@ fn json_to_variant(c: &mut Criterion) {
     );
     scalars.finish();
 
-    let mut arrays = c.benchmark_group("json_to_variant/array");
+    let mut arrays = c.benchmark_group("parse_json/array");
     for (name, json) in cases {
         let expected = vec![Some(json); ROWS];
         let value = ColumnarValue::Array(Arc::new(StringArray::from(expected.clone())));
@@ -111,5 +111,5 @@ fn json_to_variant(c: &mut Criterion) {
     arrays.finish();
 }
 
-criterion_group!(benches, json_to_variant);
+criterion_group!(benches, parse_json);
 criterion_main!(benches);

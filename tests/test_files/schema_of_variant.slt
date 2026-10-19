@@ -2,20 +2,20 @@
 # 4ccf07b6d91e2b126b7001741778ee28f22c6609.
 # https://github.com/apache/spark/blob/4ccf07b6d91e2b126b7001741778ee28f22c6609/sql/core/src/test/scala/org/apache/spark/sql/VariantEndToEndSuite.scala
 # test("schema_of_variant"): all 31 cases, in upstream order.
-# Function mapping: parse_json -> json_to_variant.
+# Function mapping: parse_json -> parse_json.
 # Arrow 59 JSON parsing produces DOUBLE instead of DECIMAL. For those cases,
 # construct Spark's parsed decimal values explicitly; retain original JSON below.
 # Decimal precision/scale are inferred from values, not the declared input precision.
 
 # Spark JSON: null
 query T
-SELECT schema_of_variant(json_to_variant('null'));
+SELECT schema_of_variant(parse_json('null'));
 ----
 VOID
 
 # Spark JSON: 1
 query T
-SELECT schema_of_variant(json_to_variant('1'));
+SELECT schema_of_variant(parse_json('1'));
 ----
 BIGINT
 
@@ -23,7 +23,7 @@ BIGINT
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('1.0'));
+SELECT schema_of_variant(parse_json('1.0'));
 ----
 DECIMAL(1,0)
 
@@ -37,7 +37,7 @@ DECIMAL(1,0)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('0.01'));
+SELECT schema_of_variant(parse_json('0.01'));
 ----
 DECIMAL(2,2)
 
@@ -51,7 +51,7 @@ DECIMAL(2,2)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('1.00'));
+SELECT schema_of_variant(parse_json('1.00'));
 ----
 DECIMAL(1,0)
 
@@ -65,7 +65,7 @@ DECIMAL(1,0)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('10.00'));
+SELECT schema_of_variant(parse_json('10.00'));
 ----
 DECIMAL(2,0)
 
@@ -79,7 +79,7 @@ DECIMAL(2,0)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('10.10'));
+SELECT schema_of_variant(parse_json('10.10'));
 ----
 DECIMAL(3,1)
 
@@ -93,7 +93,7 @@ DECIMAL(3,1)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('0.0'));
+SELECT schema_of_variant(parse_json('0.0'));
 ----
 DECIMAL(1,0)
 
@@ -107,7 +107,7 @@ DECIMAL(1,0)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('-0.0'));
+SELECT schema_of_variant(parse_json('-0.0'));
 ----
 DECIMAL(1,0)
 
@@ -121,7 +121,7 @@ DECIMAL(1,0)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('2147483647.999'));
+SELECT schema_of_variant(parse_json('2147483647.999'));
 ----
 DECIMAL(13,3)
 
@@ -135,7 +135,7 @@ DECIMAL(13,3)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('9223372036854775808'));
+SELECT schema_of_variant(parse_json('9223372036854775808'));
 ----
 DECIMAL(19,0)
 
@@ -149,7 +149,7 @@ DECIMAL(19,0)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('-9223372036854775808.0'));
+SELECT schema_of_variant(parse_json('-9223372036854775808.0'));
 ----
 DECIMAL(19,0)
 
@@ -163,7 +163,7 @@ DECIMAL(19,0)
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('9999999999999999999.9999999999999999999'));
+SELECT schema_of_variant(parse_json('9999999999999999999.9999999999999999999'));
 ----
 DECIMAL(38,19)
 
@@ -175,49 +175,49 @@ DECIMAL(38,19)
 
 # Spark JSON: 9999999999999999999.99999999999999999999
 query T
-SELECT schema_of_variant(json_to_variant('9999999999999999999.99999999999999999999'));
+SELECT schema_of_variant(parse_json('9999999999999999999.99999999999999999999'));
 ----
 DOUBLE
 
 # Spark JSON: 1E0
 query T
-SELECT schema_of_variant(json_to_variant('1E0'));
+SELECT schema_of_variant(parse_json('1E0'));
 ----
 DOUBLE
 
 # Spark JSON: true
 query T
-SELECT schema_of_variant(json_to_variant('true'));
+SELECT schema_of_variant(parse_json('true'));
 ----
 BOOLEAN
 
 # Spark JSON: "2000-01-01"
 query T
-SELECT schema_of_variant(json_to_variant('"2000-01-01"'));
+SELECT schema_of_variant(parse_json('"2000-01-01"'));
 ----
 STRING
 
 # Spark JSON: {"a":0}
 query T
-SELECT schema_of_variant(json_to_variant('{"a":0}'));
+SELECT schema_of_variant(parse_json('{"a":0}'));
 ----
 OBJECT<a: BIGINT>
 
 # Spark JSON: {"b": {"c": "c"}, "a":["a"]}
 query T
-SELECT schema_of_variant(json_to_variant('{"b": {"c": "c"}, "a":["a"]}'));
+SELECT schema_of_variant(parse_json('{"b": {"c": "c"}, "a":["a"]}'));
 ----
 OBJECT<a: ARRAY<STRING>, b: OBJECT<c: STRING>>
 
 # Spark JSON: []
 query T
-SELECT schema_of_variant(json_to_variant('[]'));
+SELECT schema_of_variant(parse_json('[]'));
 ----
 ARRAY<VOID>
 
 # Spark JSON: [false]
 query T
-SELECT schema_of_variant(json_to_variant('[false]'));
+SELECT schema_of_variant(parse_json('[false]'));
 ----
 ARRAY<BOOLEAN>
 
@@ -225,13 +225,13 @@ ARRAY<BOOLEAN>
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('[null, 1, 1.0]'));
+SELECT schema_of_variant(parse_json('[null, 1, 1.0]'));
 ----
 ARRAY<DECIMAL(20,0)>
 
 # Same schema inference over explicitly constructed Spark input values.
 query T
-SELECT schema_of_variant(variant_list_construct(json_to_variant('null'), cast_to_variant(1), cast_to_variant(CAST('1' AS DECIMAL(1,0)))));
+SELECT schema_of_variant(variant_list_construct(parse_json('null'), cast_to_variant(1), cast_to_variant(CAST('1' AS DECIMAL(1,0)))));
 ----
 ARRAY<DECIMAL(20,0)>
 
@@ -239,13 +239,13 @@ ARRAY<DECIMAL(20,0)>
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('[null, 1, 1.1]'));
+SELECT schema_of_variant(parse_json('[null, 1, 1.1]'));
 ----
 ARRAY<DECIMAL(21,1)>
 
 # Same schema inference over explicitly constructed Spark input values.
 query T
-SELECT schema_of_variant(variant_list_construct(json_to_variant('null'), cast_to_variant(1), cast_to_variant(CAST('1.1' AS DECIMAL(2,1)))));
+SELECT schema_of_variant(variant_list_construct(parse_json('null'), cast_to_variant(1), cast_to_variant(CAST('1.1' AS DECIMAL(2,1)))));
 ----
 ARRAY<DECIMAL(21,1)>
 
@@ -253,7 +253,7 @@ ARRAY<DECIMAL(21,1)>
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('[123456.789, 123.456789]'));
+SELECT schema_of_variant(parse_json('[123456.789, 123.456789]'));
 ----
 ARRAY<DECIMAL(12,6)>
 
@@ -267,7 +267,7 @@ ARRAY<DECIMAL(12,6)>
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('[1, 11111111111111111111111111111111111111]'));
+SELECT schema_of_variant(parse_json('[1, 11111111111111111111111111111111111111]'));
 ----
 ARRAY<DECIMAL(38,0)>
 
@@ -281,7 +281,7 @@ ARRAY<DECIMAL(38,0)>
 # TODO: Arrow 59 JSON parsing does not preserve Spark decimal encodings.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('[1.1, 11111111111111111111111111111111111111]'));
+SELECT schema_of_variant(parse_json('[1.1, 11111111111111111111111111111111111111]'));
 ----
 ARRAY<DOUBLE>
 
@@ -293,37 +293,37 @@ ARRAY<DOUBLE>
 
 # Spark JSON: [1, "1"]
 query T
-SELECT schema_of_variant(json_to_variant('[1, "1"]'));
+SELECT schema_of_variant(parse_json('[1, "1"]'));
 ----
 ARRAY<VARIANT>
 
 # Spark JSON: [{}, true]
 query T
-SELECT schema_of_variant(json_to_variant('[{}, true]'));
+SELECT schema_of_variant(parse_json('[{}, true]'));
 ----
 ARRAY<VARIANT>
 
 # Spark JSON: [{"c": ""}, {"a": null}, {"b": 1}]
 query T
-SELECT schema_of_variant(json_to_variant('[{"c": ""}, {"a": null}, {"b": 1}]'));
+SELECT schema_of_variant(parse_json('[{"c": ""}, {"a": null}, {"b": 1}]'));
 ----
 ARRAY<OBJECT<a: VOID, b: BIGINT, c: STRING>>
 
 # Spark JSON: [{"a": ""}, {"a": null}, {"b": 1}]
 query T
-SELECT schema_of_variant(json_to_variant('[{"a": ""}, {"a": null}, {"b": 1}]'));
+SELECT schema_of_variant(parse_json('[{"a": ""}, {"a": null}, {"b": 1}]'));
 ----
 ARRAY<OBJECT<a: STRING, b: BIGINT>>
 
 # Spark JSON: [{"a": 1, "b": null}, {"b": true, "a": 1E0}]
 query T
-SELECT schema_of_variant(json_to_variant('[{"a": 1, "b": null}, {"b": true, "a": 1E0}]'));
+SELECT schema_of_variant(parse_json('[{"a": 1, "b": null}, {"b": true, "a": 1E0}]'));
 ----
 ARRAY<OBJECT<a: DOUBLE, b: BOOLEAN>>
 
 # VariantSuite: schema_of_variant(object), including keyword and special key.
 query T
-SELECT schema_of_variant(json_to_variant('{"STRUCT": {"!special!": true}}'));
+SELECT schema_of_variant(parse_json('{"STRUCT": {"!special!": true}}'));
 ----
 OBJECT<STRUCT: OBJECT<`!special!`: BOOLEAN>>
 
@@ -334,7 +334,7 @@ SELECT schema_of_variant(NULL);
 NULL
 
 query T
-SELECT schema_of_variant(json_to_variant(NULL));
+SELECT schema_of_variant(parse_json(NULL));
 ----
 NULL
 
@@ -344,7 +344,7 @@ CREATE TABLE schema_rows AS SELECT * FROM (VALUES
 ) AS t(id, j);
 
 query IT
-SELECT id, schema_of_variant(json_to_variant(j)) FROM schema_rows ORDER BY id;
+SELECT id, schema_of_variant(parse_json(j)) FROM schema_rows ORDER BY id;
 ----
 1 NULL
 2 VOID
@@ -360,7 +360,7 @@ statement error schema_of_variant expects a Variant or untyped NULL argument
 SELECT schema_of_variant(named_struct('a', 1));
 
 query T
-SELECT schema_of_variant(json_to_variant('{"a`b": 1, "1a": true, "a_b": 1, "😀": 2, "￿": 3}'));
+SELECT schema_of_variant(parse_json('{"a`b": 1, "1a": true, "a_b": 1, "😀": 2, "￿": 3}'));
 ----
 OBJECT<`1a`: BOOLEAN, a_b: BIGINT, `a``b`: BIGINT, `￿`: BIGINT, `😀`: BIGINT>
 
@@ -372,7 +372,7 @@ UUID
 
 query T
 SELECT schema_of_variant(variant_list_construct(
-  cast_to_variant(X'010000', X'5001010101010101010101010101010101'), json_to_variant('null')));
+  cast_to_variant(X'010000', X'5001010101010101010101010101010101'), parse_json('null')));
 ----
 ARRAY<UUID>
 
@@ -388,7 +388,7 @@ SELECT schema_of_variant(cast_to_variant(1::TINYINT)),
        schema_of_variant(cast_to_variant(128::SMALLINT)),
        schema_of_variant(cast_to_variant(32768::INT)),
        schema_of_variant(cast_to_variant(2147483648::BIGINT)),
-       schema_of_variant(json_to_variant('[1,128,32768,2147483648]'));
+       schema_of_variant(parse_json('[1,128,32768,2147483648]'));
 ----
 BIGINT BIGINT BIGINT BIGINT ARRAY<BIGINT>
 
@@ -412,6 +412,6 @@ TIME TIMESTAMP TIMESTAMP_NTZ
 # empty key. Keep the desired behavior until parquet-variant accepts this input.
 skipif DataFusion
 query T
-SELECT schema_of_variant(json_to_variant('{"": null}'));
+SELECT schema_of_variant(parse_json('{"": null}'));
 ----
 OBJECT<``: VOID>

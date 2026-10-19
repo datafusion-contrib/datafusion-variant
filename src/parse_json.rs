@@ -15,11 +15,11 @@ use parquet_variant_compute::{VariantType, json_to_variant};
 
 /// Returns a Variant from a JSON string
 #[derive(Debug, Hash, PartialEq, Eq)]
-pub struct JsonToVariantUdf {
+pub struct ParseJsonUdf {
     signature: Signature,
 }
 
-impl Default for JsonToVariantUdf {
+impl Default for ParseJsonUdf {
     fn default() -> Self {
         Self {
             signature: Signature::new(
@@ -33,9 +33,9 @@ impl Default for JsonToVariantUdf {
     }
 }
 
-impl ScalarUDFImpl for JsonToVariantUdf {
+impl ScalarUDFImpl for ParseJsonUdf {
     fn name(&self) -> &str {
-        "json_to_variant"
+        "parse_json"
     }
 
     fn signature(&self) -> &Signature {

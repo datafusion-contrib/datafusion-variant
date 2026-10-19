@@ -43,5 +43,5 @@ name = "to_json"
 harness = false
 
 [[bench]]
-name = "json_to_variant"
+name = "parse_json"
 harness = false

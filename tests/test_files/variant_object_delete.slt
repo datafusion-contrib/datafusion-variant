@@ -6,7 +6,7 @@
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{"a": 1, "b": 2, "c": 3}'),
+    parse_json('{"a": 1, "b": 2, "c": 3}'),
     'b'
   )
 );
@@ -17,7 +17,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{"a": 1}'),
+    parse_json('{"a": 1}'),
     'a'
   )
 );
@@ -28,7 +28,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{"a": 1, "b": 2}'),
+    parse_json('{"a": 1, "b": 2}'),
     'c'
   )
 );
@@ -39,7 +39,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{}'),
+    parse_json('{}'),
     'a'
   )
 );
@@ -50,7 +50,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{"name": "Alice", "address": {"city": "NYC"}}'),
+    parse_json('{"name": "Alice", "address": {"city": "NYC"}}'),
     'address'
   )
 );
@@ -61,7 +61,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{"name": "Bob", "scores": [95, 87]}'),
+    parse_json('{"name": "Bob", "scores": [95, 87]}'),
     'scores'
   )
 );
@@ -72,7 +72,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{"a": null, "b": 2}'),
+    parse_json('{"a": null, "b": 2}'),
     'a'
   )
 );
@@ -84,7 +84,7 @@ query T
 SELECT variant_pretty(
   variant_object_delete(
     variant_object_delete(
-      json_to_variant('{"a": 1, "b": 2, "c": 3}'),
+      parse_json('{"a": 1, "b": 2, "c": 3}'),
       'a'
     ),
     'c'
@@ -98,11 +98,11 @@ query T
 SELECT variant_pretty(
   variant_object_insert(
     variant_object_delete(
-      json_to_variant('{"a": 1, "b": 2}'),
+      parse_json('{"a": 1, "b": 2}'),
       'a'
     ),
     'c',
-    json_to_variant('3')
+    parse_json('3')
   )
 );
 ----
@@ -113,9 +113,9 @@ query T
 SELECT variant_pretty(
   variant_object_delete(
     variant_object_insert(
-      json_to_variant('{"a": 1}'),
+      parse_json('{"a": 1}'),
       'b',
-      json_to_variant('2')
+      parse_json('2')
     ),
     'b'
   )
@@ -127,7 +127,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_delete(
-    json_to_variant('{"0": "zero", "1": "one"}'),
+    parse_json('{"0": "zero", "1": "one"}'),
     '0'
   )
 );
@@ -139,8 +139,8 @@ query T
 SELECT variant_pretty(
   variant_object_delete(
     variant_object_construct(
-      'name', json_to_variant('"Alice"'),
-      'age', json_to_variant('30')
+      'name', parse_json('"Alice"'),
+      'age', parse_json('30')
     ),
     'age'
   )
@@ -153,7 +153,7 @@ query T
 SELECT variant_pretty(
   variant_object_delete(
     variant_object_delete(
-      json_to_variant('{"a": 1, "b": 2}'),
+      parse_json('{"a": 1, "b": 2}'),
       'a'
     ),
     'b'
