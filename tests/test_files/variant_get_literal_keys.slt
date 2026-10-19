@@ -9,9 +9,9 @@ CREATE TABLE literal_keys (id INT, json_str TEXT) AS VALUES
 # One try comparison checks shared path semantics without duplicating the matrix.
 query IIII
 SELECT id,
-       variant_get(json_to_variant(json_str), '["a.b"]', 'Int64'),
-       variant_get(json_to_variant(json_str), 'a.b', 'Int64'),
-       try_variant_get(json_to_variant(json_str), '["a.b"]', 'Int64')
+       variant_get(json_to_variant(json_str), '["a.b"]', 'BIGINT'),
+       variant_get(json_to_variant(json_str), 'a.b', 'BIGINT'),
+       try_variant_get(json_to_variant(json_str), '["a.b"]', 'BIGINT')
 FROM literal_keys ORDER BY id;
 ----
 1 1 2 1
@@ -21,16 +21,16 @@ FROM literal_keys ORDER BY id;
 # Dollar signs, numeric names and empty names are literal fields when quoted.
 query III
 SELECT
-  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '["$"]', 'Int64'),
-  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '["0"]', 'Int64'),
-  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '[""]', 'Int64');
+  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '["$"]', 'BIGINT'),
+  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '["0"]', 'BIGINT'),
+  variant_get(json_to_variant('{"$":3,"0":5,"":6}'), '[""]', 'BIGINT');
 ----
 3 5 6
 
 # Arrow currently requires escaping a closing bracket even inside quotes.
 query II
-SELECT variant_get(json_to_variant('{"a]b":1}'), '["a\]b"]', 'Int64'),
-       variant_get(json_to_variant('{"[0]":2}'), '["[0\]"]', 'Int64');
+SELECT variant_get(json_to_variant('{"a]b":1}'), '["a\]b"]', 'BIGINT'),
+       variant_get(json_to_variant('{"[0]":2}'), '["[0\]"]', 'BIGINT');
 ----
 1 2
 
@@ -39,14 +39,14 @@ SELECT variant_get(json_to_variant('{"a]b":1}'), '["a\]b"]', 'Int64'),
 # ordinary quoted spelling and expected values until the upstream fix lands.
 skipif DataFusion
 query II
-SELECT variant_get(json_to_variant('{"a]b":1}'), '["a]b"]', 'Int64'),
-       variant_get(json_to_variant('{"[0]":2}'), '["[0]"]', 'Int64');
+SELECT variant_get(json_to_variant('{"a]b":1}'), '["a]b"]', 'BIGINT'),
+       variant_get(json_to_variant('{"[0]":2}'), '["[0]"]', 'BIGINT');
 ----
 1 2
 
 # Both quote styles should protect a closing bracket in a literal key.
 skipif DataFusion
 query I
-SELECT variant_get(json_to_variant('{"a]b":1}'), '[''a]b'']', 'Int64');
+SELECT variant_get(json_to_variant('{"a]b":1}'), '[''a]b'']', 'BIGINT');
 ----
 1

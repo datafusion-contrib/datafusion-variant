@@ -8,9 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, ensure};
 use arrow::array::RecordBatch;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion_variant::VariantGetUdf;
+use datafusion_variant::register_variant_get_functions;
 use serde::Serialize;
 
 use super::prepare::has_rows;
@@ -63,8 +62,8 @@ pub(super) async fn context(options: &Run, paths: &[PathBuf]) -> Result<SessionC
     let runtime = RuntimeEnvBuilder::new()
         .with_memory_limit(memory_bytes, 1.0)
         .build_arc()?;
-    let ctx = SessionContext::new_with_config_rt(config, runtime);
-    ctx.register_udf(ScalarUDF::new_from_impl(VariantGetUdf::default()));
+    let mut ctx = SessionContext::new_with_config_rt(config, runtime);
+    register_variant_get_functions(&mut ctx)?;
     let paths: Vec<String> = paths
         .iter()
         .map(|p| p.to_string_lossy().into_owned())

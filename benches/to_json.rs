@@ -83,22 +83,18 @@ fn bench_storage_layouts(c: &mut Criterion) {
         ("escaped_string", ESCAPED_STRING, DataType::Utf8View),
     ];
     for (shape, rows) in [("scalar", 1), ("array", ROWS)] {
-        let mut group = c.benchmark_group(format!("variant_to_json/storage_layout/{shape}"));
+        let mut group = c.benchmark_group(format!("to_json/storage_layout/{shape}"));
         for (name, json, data_type) in &cases {
             let expected = vec![Some(*json); rows];
             let unshredded = VariantArray::try_new(input(&expected).as_ref()).unwrap();
             // Build both representations before timing and verify that shredding
             // moved every value into the typed column, without binary fallback.
             let shredded = shred_variant(&unshredded, data_type).unwrap();
-            assert!(unshredded.typed_value_field().is_none());
-            let typed = shredded.typed_value_field().unwrap();
+            assert!(unshredded.typed_value_column().is_none());
+            let typed = shredded.typed_value_column().unwrap();
             assert_eq!(typed.data_type(), data_type);
             assert_eq!(typed.null_count(), 0);
-            assert!(
-                shredded
-                    .value_field()
-                    .is_none_or(|value| value.null_count() == rows)
-            );
+            assert_eq!(shredded.value_column().null_count(), rows);
 
             for (layout, input) in [("unshredded", unshredded), ("shredded", shredded)] {
                 let input = ArrayRef::from(input);
@@ -116,14 +112,14 @@ fn bench_storage_layouts(c: &mut Criterion) {
     }
 }
 
-fn variant_to_json(c: &mut Criterion) {
+fn to_json(c: &mut Criterion) {
     let cases = [
         ("integer", "42"),
         ("variant_null", "null"),
         ("escaped_string", ESCAPED_STRING),
         ("nested", NESTED),
     ];
-    let mut scalars = c.benchmark_group("variant_to_json/scalar");
+    let mut scalars = c.benchmark_group("to_json/scalar");
     for (name, json) in cases {
         let expected = [Some(json)];
         let value = ScalarValue::try_from_array(input(&expected).as_ref(), 0).unwrap();
@@ -139,7 +135,7 @@ fn variant_to_json(c: &mut Criterion) {
     );
     scalars.finish();
 
-    let mut arrays = c.benchmark_group("variant_to_json/array");
+    let mut arrays = c.benchmark_group("to_json/array");
     for (name, json) in cases {
         let expected = vec![Some(json); ROWS];
         let value = ColumnarValue::Array(input(&expected));
@@ -159,5 +155,5 @@ fn variant_to_json(c: &mut Criterion) {
     bench_storage_layouts(c);
 }
 
-criterion_group!(benches, variant_to_json);
+criterion_group!(benches, to_json);
 criterion_main!(benches);

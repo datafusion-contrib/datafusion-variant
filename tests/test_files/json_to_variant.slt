@@ -14,7 +14,7 @@ CREATE VIEW parsed_json AS SELECT id,
 FROM json_string_inputs;
 
 query ITTT
-SELECT id, variant_to_json(utf8), variant_to_json(large_utf8), variant_to_json(utf8_view)
+SELECT id, to_json(utf8), to_json(large_utf8), to_json(utf8_view)
 FROM parsed_json ORDER BY id;
 ----
 1 123 123 123
@@ -24,7 +24,7 @@ FROM parsed_json ORDER BY id;
 # Literal arguments exercise constant evaluation; the ordinary Utf8 SQL/Variant
 # null distinction is already covered in variant_nulls.slt.
 query TBB
-SELECT variant_to_json(json_to_variant(arrow_cast('123', 'LargeUtf8'))),
+SELECT to_json(json_to_variant(arrow_cast('123', 'LargeUtf8'))),
   json_to_variant(arrow_cast(NULL, 'Utf8View')) IS NULL,
   is_variant_null(json_to_variant(arrow_cast('null', 'LargeUtf8')));
 ----
@@ -75,7 +75,7 @@ SELECT json_to_variant(arrow_cast('{', 'Utf8View'));
 # Eval source: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionEvalUtilsSuite.scala
 # SQL source: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/core/src/test/scala/org/apache/spark/sql/VariantSuite.scala
 # Parser: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/common/variant/src/main/java/org/apache/spark/types/variant/VariantBuilder.java
-# Adaptations: parse_json -> json_to_variant; to_json -> variant_to_json.
+# Adaptations: parse_json -> json_to_variant; to_json -> to_json.
 # Expected JSON/error outcomes were checked with Spark 4.2.0's VariantBuilder,
 # duplicate keys disallowed and Unicode validation enabled; JSON output uses UTC.
 # Compare logical JSON, not object dictionary order or byte-for-byte encoding.
@@ -109,7 +109,7 @@ INSERT INTO spark_json_inputs VALUES
   (15, '{"items": [1, 2, 3], "count": 3}', '{"count":3,"items":[1,2,3]}');
 
 query IB
-SELECT id, variant_to_json(json_to_variant(json)) IS NOT DISTINCT FROM expected
+SELECT id, to_json(json_to_variant(json)) IS NOT DISTINCT FROM expected
 FROM spark_json_inputs ORDER BY id;
 ----
 1 true
@@ -177,21 +177,21 @@ SELECT json_to_variant('{ a : 1 }');
 # TODO #71: i64 overflow, adapted from EvalUtilsSuite:57 using a value not exact in f64.
 skipif DataFusion
 query B
-SELECT variant_to_json(json_to_variant('9223372036854775809')) IS NOT DISTINCT FROM '9223372036854775809';
+SELECT to_json(json_to_variant('9223372036854775809')) IS NOT DISTINCT FROM '9223372036854775809';
 ----
 true
 
 # TODO #71 (EvalUtilsSuite.scala:68): Arrow 59 parses this exact decimal integer as Double.
 skipif DataFusion
 query B
-SELECT variant_to_json(json_to_variant('99999999999999999999999999999999999999')) IS NOT DISTINCT FROM '99999999999999999999999999999999999999';
+SELECT to_json(json_to_variant('99999999999999999999999999999999999999')) IS NOT DISTINCT FROM '99999999999999999999999999999999999999';
 ----
 true
 
 # TODO #71 (audit #71): Arrow 59 loses decimal precision.
 skipif DataFusion
 query B
-SELECT variant_to_json(json_to_variant('0.12345678901234567890123456789012345678')) IS NOT DISTINCT FROM '0.12345678901234567890123456789012345678';
+SELECT to_json(json_to_variant('0.12345678901234567890123456789012345678')) IS NOT DISTINCT FROM '0.12345678901234567890123456789012345678';
 ----
 true
 

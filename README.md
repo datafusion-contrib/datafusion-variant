@@ -12,8 +12,8 @@ This crate is under active development. The compatibility target is
 **Apache Spark 4.2.0**. Compatibility is incomplete, and function names,
 signatures, and behavior may change.
 
-Basic `:` field access is available. SQL `VARIANT` type integration and
-Variant casts through `::` are planned.
+SQL `VARIANT` type registration, basic `:` field access, and casts of getters
+through `CAST`, `TRY_CAST`, and `::` are available.
 
 See [#69](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
 for the compatibility roadmap, integration work, and benchmarking plans.
@@ -21,28 +21,38 @@ for the compatibility roadmap, integration work, and benchmarking plans.
 ## Getting started
 
 Register the functions you need with a DataFusion `SessionContext`.
-Register `VariantExprPlanner` to enable `:` field access:
+Use `register_variant_get_functions` for SQL type hints and getter casts, and
+register `VariantExprPlanner` to enable `:` field access. Install
+`VariantTypePlanner` when constructing the session for SQL `VARIANT` syntax:
 
 ```rust
 use std::sync::Arc;
 
 use datafusion::error::Result;
-use datafusion::execution::FunctionRegistry;
+use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
 use datafusion::logical_expr::ScalarUDF;
 use datafusion::prelude::SessionContext;
-use datafusion_variant::{JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf};
+use datafusion_variant::{
+    JsonToVariantUdf, VariantExprPlanner, VariantToJsonUdf, VariantTypePlanner,
+    register_variant_get_functions,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut ctx = SessionContext::new();
+    let state = SessionStateBuilder::new()
+        .with_default_features()
+        .with_type_planner(Arc::new(VariantTypePlanner))
+        .build();
+    let mut ctx = SessionContext::new_with_state(state);
 
     ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
     ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
+    register_variant_get_functions(&mut ctx)?;
     ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
 
     ctx.sql(
         r#"
-        SELECT variant_to_json(
+        SELECT to_json(
             json_to_variant('{"name":"Alice","age":30}'):name
         ) AS name
         "#,
@@ -58,7 +68,7 @@ async fn main() -> Result<()> {
 This returns the JSON string `"Alice"`.
 
 Use compatible DataFusion and Arrow dependencies when embedding the crate.
-See [Cargo.toml](Cargo.toml) for the current versions and dependency patches.
+See [Cargo.toml](Cargo.toml) for the current versions and DataFusion revision.
 The example also requires Tokio with its `macros` and `rt-multi-thread`
 features.
 
@@ -68,17 +78,34 @@ The current API includes:
 
 | Area | Functions |
 | --- | --- |
-| JSON conversion | `json_to_variant`, `variant_to_json` |
+| JSON conversion | `json_to_variant`, `to_json`, `variant_get_json` |
 | Type conversion | `cast_to_variant` |
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
-| Typed extraction | `variant_get_int`, `variant_get_float`, `variant_get_bool`, `variant_get_str`, `variant_get_json` |
 | Null inspection | `is_variant_null` |
+| Schema inference | `schema_of_variant` |
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
 | Utilities | `variant_normalize`, `variant_pretty` |
 
-`variant_get` and `try_variant_get` accept an optional result type, currently
-expressed as an Arrow type name such as `Int64` or `Utf8View`. `variant_get`
+`to_json` serializes Variant values and is registered with
+`VariantToJsonUdf::default()`. Its SQL name replaces `variant_to_json` to match
+Spark; callers using the old SQL name must update their queries.
+
+`schema_of_variant(v)` returns a SQL schema for each value, for example
+`OBJECT<a: BIGINT, b: ARRAY<STRING>>`. It merges types within arrays, preserves
+SQL NULL, and reports `VOID` for Variant null. It follows Spark's
+`schema_of_variant` inference rules. Arrow's JSON parser produces `DOUBLE`
+for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
+decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
+
+`variant_get_json(v, 'a')` extracts a value and serializes it as JSON, including
+quotes around strings. It retains a direct extraction path that avoids the
+intermediate Variant array in `to_json(variant_get(v, 'a'))`.
+
+`variant_get` and `try_variant_get` accept an optional **SQL type string literal**,
+such as `BIGINT`, `VARCHAR`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Types follow
+DataFusion SQL semantics exclusively: `INT8` (including `Int8`) means BIGINT;
+Arrow-only names such as `Int64` and `Utf8View` are rejected. `variant_get`
 raises an error on failed conversions; `try_variant_get` returns NULL for those
 values. Both return NULL for missing paths; invalid paths and type hints still
 raise errors. Use quoted bracket paths for
@@ -87,8 +114,31 @@ key `http.status`.
 See [literal-key tests](tests/test_files/variant_get_literal_keys.slt) for
 examples and skipped cases awaiting an upstream Arrow path-parser fix.
 
-The [Spark field-access tests](tests/test_files/spark_variant_field_extractions.slt)
-record known compatibility gaps.
+These expressions share the same extraction/conversion kernel:
+
+```sql
+variant_get(v, 'price', 'DECIMAL(12,2)')
+CAST(variant_get(v, 'price') AS DECIMAL(12,2))
+v:price::DECIMAL(12,2)
+```
+
+`TRY_CAST` uses the try-getter's conversion policy. Casts of already typed getters
+retain the intermediate conversion. With the current parser, group colon access
+on the right of arithmetic: `v:a::INT + (v:b::INT)`.
+
+Type strings use DataFusion's SQL cast planner during planning. The registration
+helper follows session type settings, including `SET` / `RESET`.
+
+`VARIANT` resolves to a struct with `metadata` and `value` binary-view fields and
+the `arrow.parquet.variant` extension metadata. Getter hints such as
+`variant_get(v, 'price', 'VARIANT')` and getter casts such as `v:price::VARIANT`
+use Arrow's native Variant target conversion.
+Use `cast_to_variant` and typed getters to convert to/from Variant columns;
+general SQL casts of those columns are not yet supported. Nested Variant getter
+targets are also unsupported.
+
+See the [Spark field-access tests](tests/test_files/spark_variant_field_extractions.slt)
+for remaining conversion and syntax gaps.
 
 ## Examples
 
@@ -111,7 +161,7 @@ cargo run --example cli
 Queries must end with a semicolon:
 
 ```sql
-SELECT variant_to_json(json_to_variant(json_data))
+SELECT to_json(json_to_variant(json_data))
 FROM bsky
 LIMIT 5;
 ```
@@ -131,7 +181,7 @@ cargo bench --bench variant_get
 
 The suite has four groups, each using 8,192 rows. The first three use literal paths:
 
-- `output_types`: compares Variant output, explicit type hints, and typed helpers
+- `output_types`: compares Variant output and explicit type hints
   for integer, float, boolean, and string values at path `a` in unshredded objects.
 - `storage_layout`: extracts Variant output from identical two-field objects in
   unshredded, fully shredded, and partially shredded layouts. The partial layout
@@ -157,7 +207,7 @@ cargo bench --bench variant_get -- path_columns
 
 See [the benchmark source](benches/variant_get.rs) for the workloads.
 
-Run serialization benchmarks with `cargo bench --bench variant_to_json`.
+Run serialization benchmarks with `cargo bench --bench to_json`.
 They cover scalar SQL NULL, plus scalar inputs and 8,192-row arrays of integers,
 Variant nulls, escaped strings, and nested values, plus arrays with 25% and 100% SQL NULLs.
 The `storage_layout` groups compare identical integers and escaped strings in
@@ -166,7 +216,7 @@ Inputs are constructed before timing; measurements include UDF invocation,
 argument cloning, and output allocation/drop. Shredded objects
 are excluded until their reconstruction issues are fixed
 ([#71](https://github.com/datafusion-contrib/datafusion-variant/issues/71)).
-See [the source](benches/variant_to_json.rs).
+See [the source](benches/to_json.rs).
 
 To compare a change, save a baseline before making it, then rerun afterward:
 

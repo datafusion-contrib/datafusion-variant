@@ -1,14 +1,18 @@
 #![warn(clippy::all)]
 
 mod shared;
+mod sql_type;
 
 mod cast_to_variant;
 mod expr_planner;
 mod impl_variant_get;
 mod is_variant_null;
 mod json_to_variant;
+mod schema_of_variant;
+mod to_json;
 mod variant_contains;
 mod variant_get;
+mod variant_get_rewrite;
 mod variant_list_construct;
 mod variant_list_delete;
 mod variant_list_insert;
@@ -18,14 +22,17 @@ mod variant_object_delete;
 mod variant_object_insert;
 mod variant_object_keys;
 mod variant_pretty;
-mod variant_to_json;
+mod variant_type;
 
 pub use cast_to_variant::*;
 pub use expr_planner::*;
 pub use is_variant_null::*;
 pub use json_to_variant::*;
+pub use schema_of_variant::*;
+pub use to_json::*;
 pub use variant_contains::*;
 pub use variant_get::*;
+pub use variant_get_rewrite::*;
 pub use variant_list_construct::*;
 pub use variant_list_delete::*;
 pub use variant_list_insert::*;
@@ -35,4 +42,4 @@ pub use variant_object_delete::*;
 pub use variant_object_insert::*;
 pub use variant_object_keys::*;
 pub use variant_pretty::*;
-pub use variant_to_json::*;
+pub use variant_type::*;

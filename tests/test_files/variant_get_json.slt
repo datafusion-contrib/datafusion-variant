@@ -9,7 +9,7 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
   (7, 'true'),
   (8, '{"pi": 3.14, "active": true}');
 
-# string values are returned with json quotes (unlike variant_get_str)
+# string values are returned with json quotes (unlike variant_get with a VARCHAR target)
 query T
 select variant_get_json(json_to_variant(json_str), 'name') from json_data;
 ----

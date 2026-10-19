@@ -4,9 +4,7 @@ macro_rules! impl_variant_get_typed {
         $struct_name:ident,
         $func_name:expr,
         $return_type:expr,
-        $scalar_from:expr,
-        $array_from:expr,
-        $extract:expr $(,)?
+        $invoke:expr $(,)?
     ) => {
         $(#[$meta])*
         #[derive(Debug, Hash, PartialEq, Eq)]
@@ -37,7 +35,7 @@ macro_rules! impl_variant_get_typed {
             }
 
             fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-                invoke_variant_get_typed(args, $scalar_from, $array_from, $extract)
+                ($invoke)(args)
             }
         }
     };

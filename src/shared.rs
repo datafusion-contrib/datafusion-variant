@@ -208,6 +208,7 @@ fn to_owned_path(path: &VariantPath<'_>) -> VariantPath<'static> {
     VariantPath::new(elements)
 }
 
+/// Extract values directly and map them to the requested output representation.
 pub fn invoke_variant_get_typed<T>(
     args: ScalarFunctionArgs,
     scalar_from_option: fn(Option<T>) -> ScalarValue,
@@ -345,22 +346,6 @@ pub fn standard_variant_get_arg_fields() -> Vec<Arc<Field>> {
         ),
         Arc::new(Field::new("path", DataType::Utf8, true)),
     ]
-}
-
-#[cfg(test)]
-pub fn build_variant_get_args(
-    variant_input: ColumnarValue,
-    path: ColumnarValue,
-    return_data_type: DataType,
-    arg_fields: Vec<Arc<Field>>,
-) -> ScalarFunctionArgs {
-    ScalarFunctionArgs {
-        args: vec![variant_input, path],
-        return_field: Arc::new(Field::new("result", return_data_type, true)),
-        arg_fields,
-        number_rows: Default::default(),
-        config_options: Default::default(),
-    }
 }
 
 #[cfg(test)]
