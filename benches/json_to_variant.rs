@@ -1,6 +1,6 @@
 use std::{hint::black_box, sync::Arc};
 
-use arrow::array::{ArrayRef, StringArray};
+use arrow::array::StringArray;
 use arrow_schema::Field;
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
@@ -17,10 +17,6 @@ use parquet_variant_json::VariantToJson;
 const ROWS: usize = 8192;
 const ESCAPED_STRING: &str = r#""line\n\"quoted\"\\tail""#;
 const NESTED: &str = r#"{"a":[1,null,true],"b":{"c":"value"}}"#;
-
-fn input(rows: &[Option<&str>]) -> ArrayRef {
-    Arc::new(StringArray::from(rows.to_vec()))
-}
 
 fn bench_input(
     group: &mut BenchmarkGroup<'_, WallTime>,
@@ -99,7 +95,7 @@ fn json_to_variant(c: &mut Criterion) {
     let mut arrays = c.benchmark_group("json_to_variant/array");
     for (name, json) in cases {
         let expected = vec![Some(json); ROWS];
-        let value = ColumnarValue::Array(input(&expected));
+        let value = ColumnarValue::Array(Arc::new(StringArray::from(expected.clone())));
         bench_input(&mut arrays, name, value, &expected);
     }
     for (name, expected) in [
@@ -109,7 +105,7 @@ fn json_to_variant(c: &mut Criterion) {
         ),
         ("sql_nulls_100pct", vec![None; ROWS]),
     ] {
-        let value = ColumnarValue::Array(input(&expected));
+        let value = ColumnarValue::Array(Arc::new(StringArray::from(expected.clone())));
         bench_input(&mut arrays, name, value, &expected);
     }
     arrays.finish();
