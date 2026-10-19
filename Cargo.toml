@@ -39,5 +39,5 @@ name = "variant_get"
 harness = false
 
 [[bench]]
-name = "variant_to_json"
+name = "to_json"
 harness = false

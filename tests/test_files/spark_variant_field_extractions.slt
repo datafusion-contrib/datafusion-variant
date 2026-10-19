@@ -22,7 +22,7 @@ SELECT
 # Spark case 01
 # Spark schema: struct<price:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select int_price_variant:price from variant_test_data
 ) AS spark_result(c1);
@@ -59,7 +59,7 @@ select double_price_variant:price::decimal(3, 2) from variant_test_data;
 # Spark case 05
 # Spark schema: struct<name:variant,age:variant,city:variant>
 query TTT
-SELECT variant_to_json(c1), variant_to_json(c2), variant_to_json(c3)
+SELECT to_json(c1), to_json(c2), to_json(c3)
 FROM (
   select multi_field_variant:name, multi_field_variant:age, multi_field_variant:city from variant_test_data
 ) AS spark_result(c1, c2, c3);
@@ -76,7 +76,7 @@ John 30 true
 # Spark case 07
 # Spark schema: struct<name:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select multi_field_variant:['name'] from variant_test_data
 ) AS spark_result(c1);
@@ -86,7 +86,7 @@ FROM (
 # Spark case 08
 # Spark schema: struct<age:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select multi_field_variant:['age'] from variant_test_data
 ) AS spark_result(c1);
@@ -97,7 +97,7 @@ FROM (
 # Spark case 09
 # Spark schema: struct<model:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_value_variant:item[0].model from variant_test_data
 ) AS spark_result(c1);
@@ -107,7 +107,7 @@ FROM (
 # Spark case 10
 # Spark schema: struct<price:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_value_variant:item[0].price from variant_test_data
 ) AS spark_result(c1);
@@ -117,7 +117,7 @@ FROM (
 # Spark case 11
 # Spark schema: struct<model:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_value_variant:item[1].model from variant_test_data
 ) AS spark_result(c1);
@@ -127,7 +127,7 @@ FROM (
 # Spark case 12
 # Spark schema: struct<price:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_value_variant:item[1].price from variant_test_data
 ) AS spark_result(c1);
@@ -138,7 +138,7 @@ FROM (
 # Spark case 13
 # Spark schema: struct<id:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_variant:[0].id from variant_test_data
 ) AS spark_result(c1);
@@ -148,7 +148,7 @@ FROM (
 # Spark case 14
 # Spark schema: struct<name:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_variant:[0].name from variant_test_data
 ) AS spark_result(c1);
@@ -158,7 +158,7 @@ FROM (
 # Spark case 15
 # Spark schema: struct<id:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_variant:[1].id from variant_test_data
 ) AS spark_result(c1);
@@ -168,7 +168,7 @@ FROM (
 # Spark case 16
 # Spark schema: struct<name:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select array_variant:[1].name from variant_test_data
 ) AS spark_result(c1);
@@ -179,7 +179,7 @@ FROM (
 # Spark case 17
 # Spark schema: struct<version:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select nested_variant:metadata.version from variant_test_data
 ) AS spark_result(c1);
@@ -189,7 +189,7 @@ FROM (
 # Spark case 18
 # Spark schema: struct<tags:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select nested_variant:metadata.tags[0] from variant_test_data
 ) AS spark_result(c1);
@@ -199,7 +199,7 @@ FROM (
 # Spark case 19
 # Spark schema: struct<level:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select nested_variant:metadata.nested.level from variant_test_data
 ) AS spark_result(c1);
@@ -209,7 +209,7 @@ FROM (
 # Spark case 20
 # Spark schema: struct<value:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select nested_variant:metadata.nested.value from variant_test_data
 ) AS spark_result(c1);
@@ -219,7 +219,7 @@ FROM (
 # Spark case 21
 # Spark schema: struct<version:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select nested_variant:metadata['version'] from variant_test_data
 ) AS spark_result(c1);
@@ -229,7 +229,7 @@ FROM (
 # Spark case 22
 # Spark schema: struct<tags:variant>
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select nested_variant:metadata['tags'] from variant_test_data
 ) AS spark_result(c1);
@@ -244,25 +244,25 @@ FROM (
 # TODO: Decode backtick-quoted field names; this currently returns SQL NULL.
 skipif DataFusion
 query T
-SELECT variant_to_json(special_chars_variant:`field-name`) FROM variant_test_data;
+SELECT to_json(special_chars_variant:`field-name`) FROM variant_test_data;
 ----
 "value1"
 
 # Spark case 24 (extraction only)
 query T
-SELECT variant_to_json(special_chars_variant:['field-name']) FROM variant_test_data;
+SELECT to_json(special_chars_variant:['field-name']) FROM variant_test_data;
 ----
 "value1"
 
 # Spark case 25 (extraction only)
 query T
-SELECT variant_to_json(special_chars_variant:field_name) FROM variant_test_data;
+SELECT to_json(special_chars_variant:field_name) FROM variant_test_data;
 ----
 "value3"
 
 # Spark case 26 (extraction only)
 query T
-SELECT variant_to_json(special_chars_variant:['field_name']) FROM variant_test_data;
+SELECT to_json(special_chars_variant:['field_name']) FROM variant_test_data;
 ----
 "value3"
 
@@ -277,7 +277,7 @@ true
 # Using [] is okay.
 # Spark case 28 (extraction only)
 query T
-SELECT variant_to_json(special_chars_variant:['field.name']) FROM variant_test_data;
+SELECT to_json(special_chars_variant:['field.name']) FROM variant_test_data;
 ----
 "value2"
 
@@ -303,7 +303,7 @@ select count(*) from (select explode(cast(multi_field_variant:scores as array<in
 # Spark case 31
 # Spark schema: struct<int_price_variant:variant,double_price_variant:variant,multi_field_variant:variant,array_value_variant:variant,array_variant:variant,nested_variant:variant,special_chars_variant:variant>
 query TTTTTTT
-SELECT variant_to_json(c1), variant_to_json(c2), variant_to_json(c3), variant_to_json(c4), variant_to_json(c5), variant_to_json(c6), variant_to_json(c7)
+SELECT to_json(c1), to_json(c2), to_json(c3), to_json(c4), to_json(c5), to_json(c6), to_json(c7)
 FROM (
   select * from variant_test_data
 ) AS spark_result(c1, c2, c3, c4, c5, c6, c7);
@@ -376,7 +376,7 @@ true
 # TODO: Support common-type coercion between variant and string in coalesce.
 skipif DataFusion
 query T
-SELECT variant_to_json(c1)
+SELECT to_json(c1)
 FROM (
   select coalesce(multi_field_variant:missing_field, 'default_value') from variant_test_data
 ) AS spark_result(c1);
@@ -392,7 +392,7 @@ SELECT json_to_variant('{"name":"lower","field name":"space","a]b":"bracket"}') 
 # TODO: Decode backtick-quoted field names; this currently returns SQL NULL.
 skipif DataFusion
 query T
-SELECT variant_to_json(v:`name`) FROM additional_path_data;
+SELECT to_json(v:`name`) FROM additional_path_data;
 ----
 "lower"
 
@@ -400,7 +400,7 @@ SELECT variant_to_json(v:`name`) FROM additional_path_data;
 # TODO: Decode backtick-quoted field names; this currently returns SQL NULL.
 skipif DataFusion
 query T
-SELECT variant_to_json(v:`field name`) FROM additional_path_data;
+SELECT to_json(v:`field name`) FROM additional_path_data;
 ----
 "space"
 
@@ -409,6 +409,6 @@ SELECT variant_to_json(v:`field name`) FROM additional_path_data;
 # brackets. SQL parsing succeeds; the Arrow path parser currently rejects this.
 skipif DataFusion
 query T
-SELECT variant_to_json(v:['a]b']) FROM additional_path_data;
+SELECT to_json(v:['a]b']) FROM additional_path_data;
 ----
 "bracket"
