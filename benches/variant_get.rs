@@ -16,6 +16,9 @@ use datafusion_variant::VariantGetUdf;
 use parquet_variant::{Variant, VariantBuilderExt};
 use parquet_variant_compute::{VariantArray, VariantArrayBuilder, VariantType, shred_variant};
 
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 const ROWS: usize = 8192;
 
 fn make_args(
