@@ -41,3 +41,7 @@ harness = false
 [[bench]]
 name = "to_json"
 harness = false
+
+[[bench]]
+name = "json_to_variant"
+harness = false
