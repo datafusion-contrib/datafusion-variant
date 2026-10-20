@@ -14,6 +14,9 @@ use datafusion_variant::ParseJsonUdf;
 use parquet_variant_compute::VariantArray;
 use parquet_variant_json::VariantToJson;
 
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 const ROWS: usize = 8192;
 const ESCAPED_STRING: &str = r#""line\n\"quoted\"\\tail""#;
 const NESTED: &str = r#"{"a":[1,null,true],"b":{"c":"value"}}"#;
