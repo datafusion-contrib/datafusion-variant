@@ -5,7 +5,7 @@ use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
 use datafusion::{logical_expr::ScalarUDF, prelude::*};
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, JsonToVariantUdf, SchemaOfVariantUdf, VariantContainsUdf,
+    CastToVariantUdf, IsVariantNullUdf, ParseJsonUdf, SchemaOfVariantUdf, VariantContainsUdf,
     VariantExprPlanner, VariantGetJsonUdf, VariantListConstruct, VariantListDelete,
     VariantListInsert, VariantObjectConstruct, VariantObjectDelete, VariantObjectInsert,
     VariantObjectKeys, VariantPretty, VariantToJsonUdf, VariantTypePlanner,
@@ -104,7 +104,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         // register variant udfs
         ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(JsonToVariantUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(ParseJsonUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()));

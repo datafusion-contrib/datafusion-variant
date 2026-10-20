@@ -5,10 +5,10 @@
 # root_nulls
 query BBBB
 SELECT
-  json_to_variant(CAST(NULL AS VARCHAR)) IS NULL,
-  json_to_variant('null') IS NULL,
-  is_variant_null(json_to_variant('null')),
-  is_variant_null(json_to_variant('1'));
+  parse_json(CAST(NULL AS VARCHAR)) IS NULL,
+  parse_json('null') IS NULL,
+  is_variant_null(parse_json('null')),
+  is_variant_null(parse_json('1'));
 ----
 true false true false
 
@@ -17,9 +17,9 @@ true false true false
 # https://github.com/apache/parquet-format/blob/2d7b634c7ddba87bbebb3da18a20978b6db399a3/VariantShredding.md#objects
 query BBB
 SELECT
-  variant_get(json_to_variant('{"a":null}'), 'a') IS NULL,
-  is_variant_null(variant_get(json_to_variant('{"a":null}'), 'a')),
-  variant_get(json_to_variant('{"a":null}'), 'missing') IS NULL;
+  variant_get(parse_json('{"a":null}'), 'a') IS NULL,
+  is_variant_null(variant_get(parse_json('{"a":null}'), 'a')),
+  variant_get(parse_json('{"a":null}'), 'missing') IS NULL;
 ----
 false true true
 
@@ -28,32 +28,32 @@ false true true
 # https://github.com/apache/parquet-format/blob/2d7b634c7ddba87bbebb3da18a20978b6db399a3/VariantEncoding.md#value-encoding
 query BBB
 SELECT
-  variant_get(json_to_variant('[null]'), '[0]') IS NULL,
-  is_variant_null(variant_get(json_to_variant('[null]'), '[0]')),
-  variant_get(json_to_variant('[null]'), '[1]') IS NULL;
+  variant_get(parse_json('[null]'), '[0]') IS NULL,
+  is_variant_null(variant_get(parse_json('[null]'), '[0]')),
+  variant_get(parse_json('[null]'), '[1]') IS NULL;
 ----
 false true true
 
 # traversal_beyond_null
 query BBB
 SELECT
-  variant_get(json_to_variant('{"a":null}'), 'a.missing') IS NULL,
-  variant_get(json_to_variant('null'), 'a') IS NULL,
-  variant_get(json_to_variant(CAST(NULL AS VARCHAR)), 'a') IS NULL;
+  variant_get(parse_json('{"a":null}'), 'a.missing') IS NULL,
+  variant_get(parse_json('null'), 'a') IS NULL,
+  variant_get(parse_json(CAST(NULL AS VARCHAR)), 'a') IS NULL;
 ----
 true true true
 
 # serialize_variant_null_scalar
 query TT
 SELECT
-  to_json(json_to_variant('null')),
-  to_json(variant_get(json_to_variant('{"a":null}'), 'a'));
+  to_json(parse_json('null')),
+  to_json(variant_get(parse_json('{"a":null}'), 'a'));
 ----
 null null
 
 # serialize_root_column
 query T
-SELECT to_json(json_to_variant(v))
+SELECT to_json(parse_json(v))
 FROM (VALUES
   (0, CAST(NULL AS VARCHAR)),
   (1, 'null'),
@@ -67,27 +67,27 @@ null
 
 # serialize_sql_null_scalar
 query T
-SELECT to_json(json_to_variant(CAST(NULL AS VARCHAR)));
+SELECT to_json(parse_json(CAST(NULL AS VARCHAR)));
 ----
 NULL
 
 # serialize_missing_scalar
 query T
-SELECT to_json(variant_get(json_to_variant('{"a":null}'), 'missing'));
+SELECT to_json(variant_get(parse_json('{"a":null}'), 'missing'));
 ----
 NULL
 
 # serialize_null_input_scalar
 query T
-SELECT to_json(variant_get(json_to_variant(CAST(NULL AS VARCHAR)), 'a'));
+SELECT to_json(variant_get(parse_json(CAST(NULL AS VARCHAR)), 'a'));
 ----
 NULL
 
 # column_value_literal_path
 query BT
 SELECT
-  variant_get(json_to_variant(v), 'a') IS NULL,
-  to_json(variant_get(json_to_variant(v), 'a'))
+  variant_get(parse_json(v), 'a') IS NULL,
+  to_json(variant_get(parse_json(v), 'a'))
 FROM (VALUES
   (0, '{"a":null}'),
   (1, '{}'),
@@ -104,8 +104,8 @@ false 1
 # scalar_value_column_path
 query BT
 SELECT
-  variant_get(json_to_variant('{"a":null}'), p) IS NULL,
-  to_json(variant_get(json_to_variant('{"a":null}'), p))
+  variant_get(parse_json('{"a":null}'), p) IS NULL,
+  to_json(variant_get(parse_json('{"a":null}'), p))
 FROM (VALUES
   (0, 'a'),
   (1, 'missing')
@@ -118,8 +118,8 @@ true NULL
 # column_value_column_path
 query BT
 SELECT
-  variant_get(json_to_variant(v), p) IS NULL,
-  to_json(variant_get(json_to_variant(v), p))
+  variant_get(parse_json(v), p) IS NULL,
+  to_json(variant_get(parse_json(v), p))
 FROM (VALUES
   (0, '{"a":null}', 'a'),
   (1, '{"a":1}',    'missing'),
@@ -134,8 +134,8 @@ false 1
 # sql_null_scalar_column_path
 query BT
 SELECT
-  variant_get(json_to_variant(CAST(NULL AS VARCHAR)), p) IS NULL,
-  to_json(variant_get(json_to_variant(CAST(NULL AS VARCHAR)), p))
+  variant_get(parse_json(CAST(NULL AS VARCHAR)), p) IS NULL,
+  to_json(variant_get(parse_json(CAST(NULL AS VARCHAR)), p))
 FROM (VALUES
   (0, 'a'),
   (1, 'missing')
@@ -150,10 +150,10 @@ true NULL
 # none of these rows contains a conversion failure.
 query BTII
 SELECT
-  variant_get(json_to_variant(v), p) IS NULL,
-  to_json(variant_get(json_to_variant(v), p)),
-  variant_get(json_to_variant(v), p, 'BIGINT'),
-  try_variant_get(json_to_variant(v), p, 'BIGINT')
+  variant_get(parse_json(v), p) IS NULL,
+  to_json(variant_get(parse_json(v), p)),
+  variant_get(parse_json(v), p, 'BIGINT'),
+  try_variant_get(parse_json(v), p, 'BIGINT')
 FROM (VALUES
   (0, CAST(NULL AS VARCHAR), 'a'),
   (1, '{"a":null}',          'a'),

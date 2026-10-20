@@ -9,7 +9,7 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
   (7, 'true');
 
 query T
-select variant_pretty(variant_get(json_to_variant(json_str), 'name')) from json_data;
+select variant_pretty(variant_get(parse_json(json_str), 'name')) from json_data;
 ----
 ShortString(ShortString("Alice"))
 ShortString(ShortString("Bob"))
@@ -29,7 +29,7 @@ CREATE TABLE cast_inputs (id INT, doc TEXT, path TEXT) AS VALUES
 
 # Array input, scalar path: preserve successful rows when other rows cannot cast.
 query I
-SELECT try_variant_get(json_to_variant(doc), 'n', 'TINYINT')
+SELECT try_variant_get(parse_json(doc), 'n', 'TINYINT')
 FROM cast_inputs ORDER BY id;
 ----
 7
@@ -37,11 +37,11 @@ NULL
 NULL
 
 statement error (?i)(cast|extract|overflow)
-SELECT variant_get(json_to_variant(doc), 'n', 'TINYINT') FROM cast_inputs;
+SELECT variant_get(parse_json(doc), 'n', 'TINYINT') FROM cast_inputs;
 
 # Array input and array paths use the same cast policy.
 query I
-SELECT try_variant_get(json_to_variant(doc), path, 'TINYINT')
+SELECT try_variant_get(parse_json(doc), path, 'TINYINT')
 FROM cast_inputs ORDER BY id;
 ----
 7
@@ -49,11 +49,11 @@ NULL
 NULL
 
 statement error (?i)(cast|extract|overflow)
-SELECT variant_get(json_to_variant(doc), path, 'TINYINT') FROM cast_inputs;
+SELECT variant_get(parse_json(doc), path, 'TINYINT') FROM cast_inputs;
 
 # Scalar input, array paths: a failed cast does not null the entire result.
 query I
-SELECT try_variant_get(json_to_variant('{"ok":7,"large":128,"bad":"bad"}'), path, 'TINYINT')
+SELECT try_variant_get(parse_json('{"ok":7,"large":128,"bad":"bad"}'), path, 'TINYINT')
 FROM (VALUES (1, 'ok'), (2, 'large'), (3, 'bad')) AS paths(id, path)
 ORDER BY id;
 ----
@@ -62,13 +62,13 @@ NULL
 NULL
 
 statement error (?i)(cast|extract|overflow)
-SELECT variant_get(json_to_variant('{"ok":7,"large":128}'), path, 'TINYINT')
+SELECT variant_get(parse_json('{"ok":7,"large":128}'), path, 'TINYINT')
 FROM (VALUES ('ok'), ('large')) AS paths(path);
 
 # Representative shared behavior: both return a usable Variant without a type
 # hint. The full extraction matrix is exercised through variant_get elsewhere.
 query II
-WITH input AS (SELECT json_to_variant('{"user":{"age":7}}') AS v)
+WITH input AS (SELECT parse_json('{"user":{"age":7}}') AS v)
 SELECT variant_get(variant_get(v, 'user'), 'age', 'BIGINT'),
        variant_get(try_variant_get(v, 'user'), 'age', 'BIGINT') FROM input;
 ----
@@ -76,16 +76,16 @@ SELECT variant_get(variant_get(v, 'user'), 'age', 'BIGINT'),
 
 # Try must not suppress malformed path errors, for scalar or column paths.
 statement error (?i)parser error
-SELECT try_variant_get(json_to_variant('{"n":7}'), 'n[', 'TINYINT');
+SELECT try_variant_get(parse_json('{"n":7}'), 'n[', 'TINYINT');
 
 statement error (?i)parser error
-SELECT variant_get(json_to_variant('{"n":7}'), 'n[', 'TINYINT');
+SELECT variant_get(parse_json('{"n":7}'), 'n[', 'TINYINT');
 
 statement error (?i)parser error
-SELECT try_variant_get(json_to_variant(doc), path || '[', 'TINYINT') FROM cast_inputs;
+SELECT try_variant_get(parse_json(doc), path || '[', 'TINYINT') FROM cast_inputs;
 
 statement error (?i)(parse|unsupported|invalid)
-SELECT try_variant_get(json_to_variant('7'), '', 'NotAType');
+SELECT try_variant_get(parse_json('7'), '', 'NotAType');
 
 statement error (?i)(parse|unsupported|invalid)
-SELECT variant_get(json_to_variant('7'), '', 'NotAType');
+SELECT variant_get(parse_json('7'), '', 'NotAType');

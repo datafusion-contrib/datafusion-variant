@@ -6,7 +6,7 @@
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[1, 2, 3]'),
+    parse_json('[1, 2, 3]'),
     0
   )
 );
@@ -17,7 +17,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[1, 2, 3]'),
+    parse_json('[1, 2, 3]'),
     2
   )
 );
@@ -28,7 +28,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[1, 2, 3]'),
+    parse_json('[1, 2, 3]'),
     1
   )
 );
@@ -39,7 +39,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[42]'),
+    parse_json('[42]'),
     0
   )
 );
@@ -50,7 +50,7 @@ SELECT variant_pretty(
 statement error index 5 oob for list of length 3
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[1, 2, 3]'),
+    parse_json('[1, 2, 3]'),
     5
   )
 );
@@ -59,7 +59,7 @@ SELECT variant_pretty(
 statement error index 0 oob for list of length 0
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[]'),
+    parse_json('[]'),
     0
   )
 );
@@ -68,7 +68,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[{"a": 1}, {"b": 2}, {"c": 3}]'),
+    parse_json('[{"a": 1}, {"b": 2}, {"c": 3}]'),
     1
   )
 );
@@ -79,7 +79,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[[1, 2], [3, 4], [5, 6]]'),
+    parse_json('[[1, 2], [3, 4], [5, 6]]'),
     0
   )
 );
@@ -90,7 +90,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[null, 1, 2]'),
+    parse_json('[null, 1, 2]'),
     0
   )
 );
@@ -101,7 +101,7 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_list_delete(
-    json_to_variant('[1, "hello", true, null]'),
+    parse_json('[1, "hello", true, null]'),
     1
   )
 );
@@ -113,7 +113,7 @@ query T
 SELECT variant_pretty(
   variant_list_delete(
     variant_list_delete(
-      json_to_variant('[1, 2, 3, 4]'),
+      parse_json('[1, 2, 3, 4]'),
       0
     ),
     0
@@ -127,10 +127,10 @@ query T
 SELECT variant_pretty(
   variant_list_insert(
     variant_list_delete(
-      json_to_variant('[1, 2, 3]'),
+      parse_json('[1, 2, 3]'),
       1
     ),
-    json_to_variant('99')
+    parse_json('99')
   )
 );
 ----
@@ -141,9 +141,9 @@ query T
 SELECT variant_pretty(
   variant_list_delete(
     variant_list_construct(
-      json_to_variant('"Alice"'),
-      json_to_variant('"Bob"'),
-      json_to_variant('"Charlie"')
+      parse_json('"Alice"'),
+      parse_json('"Bob"'),
+      parse_json('"Charlie"')
     ),
     1
   )

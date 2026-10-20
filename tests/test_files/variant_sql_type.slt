@@ -1,7 +1,7 @@
 # SQL VARIANT has canonical binary-view storage and extension metadata.
 statement ok
 CREATE TABLE sql_variant_inputs AS
-SELECT id, json_to_variant(j) AS v, 'x' AS path
+SELECT id, parse_json(j) AS v, 'x' AS path
 FROM (VALUES (1, '{"x":7}'), (2, '{"x":{"a":[1,true]}}'),
              (3, '{"x":[1,"two"]}'), (4, '{"x":null}'),
              (5, '{}'), (6, NULL)) AS input(id, j);
@@ -28,7 +28,7 @@ query TTBB
 SELECT arrow_metadata(hinted, 'ARROW:extension:name'),
        arrow_metadata(casted, 'ARROW:extension:name'),
        arrow_typeof(hinted) = arrow_typeof(CAST(NULL AS VARIANT)),
-       arrow_typeof(casted) = arrow_typeof(json_to_variant('7'))
+       arrow_typeof(casted) = arrow_typeof(parse_json('7'))
 FROM sql_variant_results WHERE id = 1;
 ----
 arrow.parquet.variant arrow.parquet.variant true true
@@ -68,9 +68,9 @@ true arrow.parquet.variant
 
 # Constant folding and a scalar input with column paths use separate dispatch.
 query TTT
-SELECT to_json(try_variant_get(json_to_variant('{"x":7}'), 'x', 'VARIANT')),
-       to_json(CAST(variant_get(json_to_variant('{"x":7}'), 'x') AS VARIANT)),
-       to_json(variant_get(json_to_variant('{"x":7}'), path, 'VARIANT'))
+SELECT to_json(try_variant_get(parse_json('{"x":7}'), 'x', 'VARIANT')),
+       to_json(CAST(variant_get(parse_json('{"x":7}'), 'x') AS VARIANT)),
+       to_json(variant_get(parse_json('{"x":7}'), path, 'VARIANT'))
 FROM sql_variant_inputs WHERE id = 1;
 ----
 7 7 7
@@ -145,15 +145,15 @@ true true {"x":7} {"x":7}
 
 # This is type registration, not a new permissive parser for custom type names.
 statement error (?i)VARIANT does not accept type parameters
-SELECT variant_get(json_to_variant('7'), '', 'VARIANT(1)');
+SELECT variant_get(parse_json('7'), '', 'VARIANT(1)');
 
 statement error (?i)(unsupported|not implemented)
-SELECT variant_get(json_to_variant('7'), '', 'other.VARIANT');
+SELECT variant_get(parse_json('7'), '', 'other.VARIANT');
 
 # The planner preserves nested metadata, but the upstream extraction kernel
 # does not yet implement nested Variant targets. Reject rather than miscast.
 statement error (?i)Nested VARIANT getter targets
-SELECT variant_get(json_to_variant('[1,2]'), '', 'ARRAY<VARIANT>');
+SELECT variant_get(parse_json('[1,2]'), '', 'ARRAY<VARIANT>');
 
 statement error (?i)Nested VARIANT getter targets
-SELECT CAST(variant_get(json_to_variant('{"a":1}'), '') AS STRUCT<a VARIANT>);
+SELECT CAST(variant_get(parse_json('{"a":1}'), '') AS STRUCT<a VARIANT>);

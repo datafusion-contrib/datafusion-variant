@@ -187,7 +187,7 @@ SELECT
 
 # one-arg path (already Variant): pass-through should be unchanged
 query T
-SELECT variant_pretty(cast_to_variant(json_to_variant('{"name": "norm"}')));
+SELECT variant_pretty(cast_to_variant(parse_json('{"name": "norm"}')));
 ----
 {"name": ShortString(ShortString("norm"))}
 
@@ -199,7 +199,7 @@ CREATE TABLE cast_variant_array_data (id INT, json_str TEXT) AS VALUES
 
 query IT
 WITH input AS (
-  SELECT id, json_to_variant(json_str) AS v FROM cast_variant_array_data
+  SELECT id, parse_json(json_str) AS v FROM cast_variant_array_data
 )
 SELECT id, to_json(cast_to_variant(v)) FROM input ORDER BY id;
 ----
@@ -210,7 +210,7 @@ SELECT id, to_json(cast_to_variant(v)) FROM input ORDER BY id;
 # test_scalar_binary_views
 query T
 WITH input AS (
-  SELECT json_to_variant('{"name": "norm"}') AS v
+  SELECT parse_json('{"name": "norm"}') AS v
 )
 SELECT variant_pretty(cast_to_variant(v.metadata, v.value)) FROM input;
 ----
@@ -226,7 +226,7 @@ CREATE TABLE cast_json_data (id INT, json_str TEXT) AS VALUES
 
 query IT
 WITH input AS (
-  SELECT id, json_to_variant(json_str) AS v FROM cast_json_data
+  SELECT id, parse_json(json_str) AS v FROM cast_json_data
 )
 SELECT id, to_json(cast_to_variant(v.metadata, v.value)) FROM input ORDER BY id;
 ----

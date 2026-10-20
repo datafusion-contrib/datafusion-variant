@@ -10,7 +10,7 @@ SET datafusion.execution.time_zone = 'UTC';
 statement ok
 CREATE TABLE schema_merge_inputs AS
 SELECT * FROM (VALUES
-  (0, 'null', variant_list_construct(json_to_variant('null')), 'VOID'),
+  (0, 'null', variant_list_construct(parse_json('null')), 'VOID'),
   (1, 'boolean', variant_list_construct(cast_to_variant(false)), 'BOOLEAN'),
   (2, 'long', variant_list_construct(cast_to_variant(0::BIGINT)), 'BIGINT'),
   (3, 'string', variant_list_construct(cast_to_variant('')), 'STRING'),
@@ -21,10 +21,10 @@ SELECT * FROM (VALUES
   (8, 'float', variant_list_construct(cast_to_variant(0::REAL)), 'FLOAT'),
   (9, 'binary', variant_list_construct(cast_to_variant(X'')), 'BINARY'),
   (10, 'decimal', variant_list_construct(cast_to_variant(CAST('123.456' AS DECIMAL(6,3)))), 'DECIMAL(6,3)'),
-  (11, 'array_long', variant_list_construct(json_to_variant('[0]')), 'ARRAY<BIGINT>'),
-  (12, 'array_double', variant_list_construct(json_to_variant('[0.0]')), 'ARRAY<DOUBLE>'),
-  (13, 'object_a', variant_list_construct(json_to_variant('{"a":""}')), 'OBJECT<a: STRING>'),
-  (14, 'object_ab', variant_list_construct(json_to_variant('{"a":false,"b":0}')), 'OBJECT<a: BOOLEAN, b: BIGINT>')
+  (11, 'array_long', variant_list_construct(parse_json('[0]')), 'ARRAY<BIGINT>'),
+  (12, 'array_double', variant_list_construct(parse_json('[0.0]')), 'ARRAY<DOUBLE>'),
+  (13, 'object_a', variant_list_construct(parse_json('{"a":""}')), 'OBJECT<a: STRING>'),
+  (14, 'object_ab', variant_list_construct(parse_json('{"a":false,"b":0}')), 'OBJECT<a: BOOLEAN, b: BIGINT>')
 ) AS inputs(id, name, singleton, schema);
 
 # Spark's explicit compatible pairs. Null and identical types are handled below;

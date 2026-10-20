@@ -11,7 +11,7 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
 
 # field access
 query T
-select variant_pretty(json_to_variant(json_str):name) from json_data;
+select variant_pretty(parse_json(json_str):name) from json_data;
 ----
 ShortString(ShortString("Alice"))
 ShortString(ShortString("Bob"))
@@ -24,7 +24,7 @@ NULL
 
 # field + array access
 query T
-select variant_pretty(json_to_variant(json_str):items[0]) from json_data;
+select variant_pretty(parse_json(json_str):items[0]) from json_data;
 ----
 NULL
 NULL
@@ -37,7 +37,7 @@ NULL
 
 # array access with non-array
 query T
-select variant_pretty(json_to_variant(json_str):age[0]) from json_data;
+select variant_pretty(parse_json(json_str):age[0]) from json_data;
 ----
 NULL
 NULL
@@ -50,7 +50,7 @@ NULL
 
 # field -> array -> field access
 query T
-select variant_pretty(json_to_variant(json_str):items[0]["name"]) from json_data;
+select variant_pretty(parse_json(json_str):items[0]["name"]) from json_data;
 ----
 NULL
 NULL
@@ -63,7 +63,7 @@ NULL
 
 # field -> array -> field access but with single quotes
 query T
-select variant_pretty(json_to_variant(json_str):items[0]['name']) from json_data;
+select variant_pretty(parse_json(json_str):items[0]['name']) from json_data;
 ----
 NULL
 NULL

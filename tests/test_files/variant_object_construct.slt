@@ -12,7 +12,7 @@ CREATE TABLE test_data (id INT, name TEXT, age INT, active BOOL) AS VALUES
 
 # Test 1: Simple object with one key-value pair
 query T
-SELECT variant_pretty(variant_object_construct('name', json_to_variant('"Alice"')));
+SELECT variant_pretty(variant_object_construct('name', parse_json('"Alice"')));
 ----
 {"name": ShortString(ShortString("Alice"))}
 
@@ -20,9 +20,9 @@ SELECT variant_pretty(variant_object_construct('name', json_to_variant('"Alice"'
 query T
 SELECT variant_pretty(
   variant_object_construct(
-    'name', json_to_variant('"Alice"'),
-    'age', json_to_variant('30'),
-    'active', json_to_variant('true')
+    'name', parse_json('"Alice"'),
+    'age', parse_json('30'),
+    'active', parse_json('true')
   )
 );
 ----
@@ -32,8 +32,8 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_construct(
-    'user', json_to_variant('{"name": "Bob", "age": 25}'),
-    'role', json_to_variant('"admin"')
+    'user', parse_json('{"name": "Bob", "age": 25}'),
+    'role', parse_json('"admin"')
   )
 );
 ----
@@ -43,8 +43,8 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_construct(
-    'items', json_to_variant('[1, 2, 3]'),
-    'count', json_to_variant('3')
+    'items', parse_json('[1, 2, 3]'),
+    'count', parse_json('3')
   )
 );
 ----
@@ -54,8 +54,8 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_construct(
-    'name', json_to_variant('"Charlie"'),
-    'middle_name', json_to_variant('null')
+    'name', parse_json('"Charlie"'),
+    'middle_name', parse_json('null')
   )
 );
 ----
@@ -66,9 +66,9 @@ SELECT variant_pretty(
 # query T
 # SELECT variant_pretty(
 #   variant_object_construct(
-#     'name', json_to_variant('"' || name || '"'),
-#     'age', json_to_variant(CAST(age AS TEXT)),
-#     'active', json_to_variant(CAST(active AS TEXT))
+#     'name', parse_json('"' || name || '"'),
+#     'age', parse_json(CAST(age AS TEXT)),
+#     'active', parse_json(CAST(active AS TEXT))
 #   )
 # ) FROM test_data ORDER BY id;
 # ----
@@ -80,8 +80,8 @@ SELECT variant_pretty(
 query T
 SELECT variant_pretty(
   variant_object_construct(
-    '0', json_to_variant('"first"'),
-    '1', json_to_variant('"second"')
+    '0', parse_json('"first"'),
+    '1', parse_json('"second"')
   )
 );
 ----
