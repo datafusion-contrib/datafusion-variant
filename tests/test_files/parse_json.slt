@@ -215,4 +215,105 @@ SELECT parse_json('{"a":1,"\u0061":2}');
 # - Spark imposes a 16 MiB value limit; Arrow does not enforce that engine limit.
 # These are documented rather than asserting Spark policy is an Arrow bug.
 # APIs still outside this port: configurable duplicate-key allowance, legacy
-# Unicode validation and try_parse_json (#71).
+# Unicode validation (#71).
+
+# Try parsing: malformed JSON becomes SQL NULL; JSON null stays a Variant null.
+# Trailing input and numeric overflow below follow Arrow policy, as noted above.
+# https://spark.apache.org/docs/4.2.0/sql-ref-functions-builtin.html#variant-functions
+statement ok
+CREATE TABLE try_json_inputs(id INT, json VARCHAR, required_json VARCHAR NOT NULL);
+
+statement ok
+INSERT INTO try_json_inputs VALUES
+  (1, '123', '123'),
+  (2, '{"a":[1,', '{"a":[1,'),
+  (3, '{"a":[true,null]}', '{"a":[true,null]}'),
+  (4, NULL, 'null'),
+  (5, 'null', 'null'),
+  (6, '1 2', '1 2'),
+  (7, '"\uD835"', '"\uD835"'),
+  (8, '1e999', '1e999'),
+  (9, '', ''),
+  (10, 'true', 'true');
+
+statement ok
+CREATE VIEW try_parsed_json AS SELECT id,
+  try_parse_json(arrow_cast(json, 'Utf8')) AS utf8,
+  try_parse_json(arrow_cast(json, 'LargeUtf8')) AS large_utf8,
+  try_parse_json(arrow_cast(json, 'Utf8View')) AS utf8_view,
+  try_parse_json(required_json) AS required
+FROM try_json_inputs;
+
+query ITTT
+SELECT id, to_json(utf8), to_json(large_utf8), to_json(utf8_view)
+FROM try_parsed_json ORDER BY id;
+----
+1 123 123 123
+2 NULL NULL NULL
+3 {"a":[true,null]} {"a":[true,null]} {"a":[true,null]}
+4 NULL NULL NULL
+5 null null null
+6 NULL NULL NULL
+7 NULL NULL NULL
+8 NULL NULL NULL
+9 NULL NULL NULL
+10 true true true
+
+query BBBBBB
+SELECT try_parse_json('{') IS NULL,
+  try_parse_json(arrow_cast('{', 'LargeUtf8')) IS NULL,
+  try_parse_json(arrow_cast('{', 'Utf8View')) IS NULL,
+  try_parse_json(NULL) IS NULL,
+  try_parse_json('null') IS NULL,
+  is_variant_null(try_parse_json('null'));
+----
+true true true true false true
+
+query TTT
+SELECT to_json(try_parse_json('123')),
+  to_json(try_parse_json(arrow_cast('123', 'LargeUtf8'))),
+  to_json(try_parse_json(arrow_cast('123', 'Utf8View')));
+----
+123 123 123
+
+# Errors can introduce nulls even for a required input column.
+statement ok
+SET datafusion.catalog.information_schema = true;
+
+query TT
+SELECT column_name, is_nullable FROM information_schema.columns
+WHERE table_name = 'try_parsed_json' AND column_name <> 'id' ORDER BY column_name;
+----
+large_utf8 YES
+required YES
+utf8 YES
+utf8_view YES
+
+query T
+SELECT arrow_metadata(utf8, 'ARROW:extension:name') FROM try_parsed_json WHERE id = 1;
+----
+arrow.parquet.variant
+
+# The strict function still rejects malformed rows.
+statement error JSON format error
+SELECT parse_json(json) FROM try_json_inputs;
+
+# Try parsing suppresses JSON errors, not invalid function arguments.
+statement error (?i)(argument|signature)
+SELECT try_parse_json();
+
+statement error (?i)(argument|signature)
+SELECT parse_json();
+
+statement error (?i)(argument|signature)
+SELECT try_parse_json('1', '2');
+
+statement error (?i)(argument|signature)
+SELECT parse_json('1', '2');
+
+# Both results are usable by the same downstream Variant getter.
+query II
+SELECT variant_get(parse_json('{"a":7}'), 'a', 'INT'),
+       variant_get(try_parse_json('{"a":7}'), 'a', 'INT');
+----
+7 7

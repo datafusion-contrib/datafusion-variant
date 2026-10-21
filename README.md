@@ -78,7 +78,7 @@ The current API includes:
 
 | Area | Functions |
 | --- | --- |
-| JSON conversion | `parse_json`, `to_json`, `variant_get_json` |
+| JSON conversion | `parse_json`, `try_parse_json`, `to_json`, `variant_get_json` |
 | Type conversion | `cast_to_variant` |
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
 | Null inspection | `is_variant_null` |
@@ -86,6 +86,11 @@ The current API includes:
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
 | Utilities | `variant_normalize`, `variant_pretty` |
+
+`try_parse_json` accepts the same inputs as `parse_json`, but returns SQL NULL
+for invalid JSON values. Valid JSON null remains a Variant null. Register it
+with `TryParseJsonUdf::default()`. Both functions currently share Arrow's JSON
+parsing limitations, including decimal precision and duplicate-key handling.
 
 `to_json` serializes Variant values and is registered with
 `VariantToJsonUdf::default()`. Its SQL name replaces `variant_to_json` to match
