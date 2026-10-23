@@ -1,0 +1,266 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Ported from Apache Spark (Apache-2.0), revision
+# c470f3dce544ad46ffb748949b6476d3cbc8d443 (Spark 4.2 development).
+# https://github.com/apache/spark/blob/c470f3dce544ad46ffb748949b6476d3cbc8d443/sql/core/src/test/scala/org/apache/spark/sql/VariantEndToEndSuite.scala
+# test("schema_of_variant_agg"): all literal, non-grouping, and grouping cases.
+# DataFrame fixtures become VALUES/range queries; output is ordered by group key.
+
+# Literal input.
+query T
+SELECT schema_of_variant_agg(parse_json('{"a": [1, 2, 3]}'));
+----
+OBJECT<a: ARRAY<BIGINT>>
+
+# Non-grouping aggregation.
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES ('{"a": [1, 2, 3]}')) AS t(json);
+----
+OBJECT<a: ARRAY<BIGINT>>
+
+query T
+SELECT schema_of_variant_agg(parse_json('{"a": [' || value || ']}'))
+FROM range(0, 101);
+----
+OBJECT<a: ARRAY<BIGINT>>
+
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES ('[{"a": 1}, {"b": 2}]')) AS t(json);
+----
+ARRAY<OBJECT<a: BIGINT, b: BIGINT>>
+
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES ('{"a": [1, 2, 3]}'), ('{"a": "banana"}')) AS t(json);
+----
+OBJECT<a: VARIANT>
+
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES ('{"a": "banana"}'), ('{"b": "apple"}')) AS t(json);
+----
+OBJECT<a: STRING, b: STRING>
+
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES ('{"a": "data"}'), (NULL)) AS t(json);
+----
+OBJECT<a: STRING>
+
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES (NULL), (NULL)) AS t(json);
+----
+VOID
+
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES ('{"a": null}'), ('{"a": null}')) AS t(json);
+----
+OBJECT<a: VOID>
+
+query T
+SELECT schema_of_variant_agg(parse_json(json))
+FROM (VALUES
+  ('{"hi":[]}'),
+  ('{"hi":[{},{}]}'),
+  ('{"hi":[{"it''s":[{"me":[{"a": 1}]}]}]}')
+) AS t(json);
+----
+OBJECT<hi: ARRAY<OBJECT<`it's`: ARRAY<OBJECT<me: ARRAY<OBJECT<a: BIGINT>>>>>>>
+
+# Grouping aggregation, with small batches and multiple target partitions.
+statement ok
+SET datafusion.execution.batch_size = 7;
+
+statement ok
+SET datafusion.execution.target_partitions = 4;
+
+statement ok
+CREATE TABLE schema_agg_groups AS
+SELECT value AS id, parse_json(CASE WHEN value % 4 = 0
+  THEN '{"a": [' || value || ']}'
+  ELSE '{"a": ["' || value || '"]}' END) AS v
+FROM range(0, 101);
+
+query IT
+SELECT id % 2 AS k, schema_of_variant_agg(v)
+FROM schema_agg_groups GROUP BY k ORDER BY k;
+----
+0 OBJECT<a: ARRAY<VARIANT>>
+1 OBJECT<a: ARRAY<STRING>>
+
+query IT
+SELECT id % 3 AS k, schema_of_variant_agg(v)
+FROM schema_agg_groups GROUP BY k ORDER BY k;
+----
+0 OBJECT<a: ARRAY<VARIANT>>
+1 OBJECT<a: ARRAY<VARIANT>>
+2 OBJECT<a: ARRAY<VARIANT>>
+
+query IT
+SELECT id % 4 AS k, schema_of_variant_agg(v)
+FROM schema_agg_groups GROUP BY k ORDER BY k;
+----
+0 OBJECT<a: ARRAY<BIGINT>>
+1 OBJECT<a: ARRAY<STRING>>
+2 OBJECT<a: ARRAY<STRING>>
+3 OBJECT<a: ARRAY<STRING>>
+
+# Spark VariantSuite, test("schema_of_variant(object)").
+# https://github.com/apache/spark/blob/c470f3dce544ad46ffb748949b6476d3cbc8d443/sql/core/src/test/scala/org/apache/spark/sql/VariantSuite.scala
+query T
+SELECT schema_of_variant_agg(parse_json('{"STRUCT": {"!special!": true}}'));
+----
+OBJECT<STRUCT: OBJECT<`!special!`: BOOLEAN>>
+
+# Spark expression documentation's integer example.
+query T
+SELECT schema_of_variant_agg(parse_json(j)) FROM (VALUES ('1'), ('2'), ('3')) AS t(j);
+----
+BIGINT
+
+# Arrow 60 parses fractional JSON numbers as DOUBLE, unlike Spark's DECIMAL.
+# Keep that existing parse_json difference explicit; decimal inputs are tested below.
+query T
+SELECT schema_of_variant_agg(parse_json(j))
+FROM (VALUES ('{"a": 1}'), ('{"b": true}'), ('{"c": 1.23}')) AS t(j);
+----
+OBJECT<a: BIGINT, b: BOOLEAN, c: DOUBLE>
+
+# Additional DataFusion integration cases: empty input, SQL NULL, Variant null,
+# FILTER, DISTINCT, multiple aggregate states, and window execution.
+query TTT
+SELECT schema_of_variant_agg(NULL), schema_of_variant_agg(parse_json('null')),
+       schema_of_variant_agg(parse_json('1')) FILTER (WHERE false);
+----
+VOID VOID VOID
+
+query T
+SELECT schema_of_variant_agg(v) FROM schema_agg_groups WHERE false;
+----
+VOID
+
+query IT
+SELECT id % 4 AS k, schema_of_variant_agg(v) FILTER (WHERE id < 0)
+FROM schema_agg_groups GROUP BY k ORDER BY k;
+----
+0 VOID
+1 VOID
+2 VOID
+3 VOID
+
+query TT
+SELECT schema_of_variant_agg(DISTINCT v), schema_of_variant_agg(v)
+FROM schema_agg_groups;
+----
+OBJECT<a: ARRAY<VARIANT>> OBJECT<a: ARRAY<VARIANT>>
+
+query IT
+SELECT id, schema_of_variant_agg(v) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+FROM schema_agg_groups WHERE id < 3 ORDER BY id;
+----
+0 OBJECT<a: ARRAY<BIGINT>>
+1 OBJECT<a: ARRAY<VARIANT>>
+2 OBJECT<a: ARRAY<VARIANT>>
+
+# Decimal widening must preserve precision/scale across partial states.
+query T
+SELECT schema_of_variant_agg(v) FROM (
+  SELECT cast_to_variant(CAST('123.456' AS DECIMAL(6,3))) AS v
+  UNION ALL SELECT cast_to_variant(1::BIGINT)
+) AS t;
+----
+DECIMAL(23,3)
+
+query T
+SELECT schema_of_variant_agg(v) FROM (
+  SELECT cast_to_variant(CAST('99999999999999999999999999999999999999' AS DECIMAL(38,0))) AS v
+  UNION ALL SELECT cast_to_variant(CAST('0.1' AS DECIMAL(1,1)))
+) AS t;
+----
+DOUBLE
+
+# Preserve unusual field names through state serialization.
+query T
+SELECT schema_of_variant_agg(parse_json(json)) FROM (VALUES
+  ('{"a`b": [], "": {}, "a\"b": 1}'),
+  ('{"a`b": [true], "": {"z": null}, "a\"b": false}')
+) AS t(json);
+----
+OBJECT<``: OBJECT<z: VOID>, `a"b`: VARIANT, `a``b`: ARRAY<BOOLEAN>>
+
+# Reject ordinary SQL values and structs without the Variant extension metadata.
+statement error schema_of_variant_agg expects a Variant or untyped NULL argument
+SELECT schema_of_variant_agg(1);
+
+statement error schema_of_variant_agg expects a Variant or untyped NULL argument
+SELECT schema_of_variant_agg('null');
+
+statement error schema_of_variant_agg expects a Variant or untyped NULL argument
+SELECT schema_of_variant_agg(CAST(NULL AS VARCHAR));
+
+statement error schema_of_variant_agg expects a Variant or untyped NULL argument
+SELECT schema_of_variant_agg(named_struct('metadata', X'010000', 'value', X'00'));
+
+# Additional cases from the earlier aggregate implementation in PR #24.
+# https://github.com/datafusion-contrib/datafusion-variant/pull/24
+# Scenarios adapted to Spark type names and value-based decimal precision.
+# Expectations checked against Spark SchemaOfVariant.mergeSchema and
+# JsonInferSchema.compatibleType at the Spark revision pinned above.
+query T
+SELECT schema_of_variant_agg(v) FROM (
+  SELECT cast_to_variant(CAST(1.2 AS DECIMAL(4,1))) AS v
+  UNION ALL SELECT cast_to_variant(CAST(12.345 AS DECIMAL(8,3)))
+) AS t;
+----
+DECIMAL(5,3)
+
+query T
+SELECT schema_of_variant_agg(v) FROM (
+  SELECT cast_to_variant(CAST(1.2 AS DECIMAL(4,1))) AS v
+  UNION ALL SELECT cast_to_variant(2.5::REAL)
+) AS t;
+----
+DOUBLE
+
+query T
+SELECT schema_of_variant_agg(v) FROM (
+  SELECT cast_to_variant(DATE '1990-01-01') AS v
+  UNION ALL SELECT cast_to_variant(CAST('2015-05-14 00:00:00' AS TIMESTAMP))
+) AS t;
+----
+TIMESTAMP_NTZ
+
+# Nested objects merge by field; incompatible root types become VARIANT.
+query IT
+SELECT id, schema_of_variant_agg(parse_json(json)) FROM (VALUES
+  (0, '{"foo":"bar","wing":{"ding":"dong"}}'), (0, '{"wing":{"ding":"man"}}'),
+  (1, '{"foo":"bar","wing":{"ding":"dong"}}'), (1, '{"wing":123}'),
+  (2, '[{"a":1}]'), (2, '[{"a":"x"}]'),
+  (3, '{"a":1}'), (3, '[1,2,3]'),
+  (4, '1'), (4, '{"a":1}'),
+  (5, '{}'), (5, '{}')
+) AS t(id, json) GROUP BY id ORDER BY id;
+----
+0 OBJECT<foo: STRING, wing: OBJECT<ding: STRING>>
+1 OBJECT<foo: STRING, wing: VARIANT>
+2 ARRAY<OBJECT<a: VARIANT>>
+3 VARIANT
+4 VARIANT
+5 OBJECT<>

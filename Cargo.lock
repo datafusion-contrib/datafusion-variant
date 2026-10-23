@@ -1691,6 +1691,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqllogictest",
+ "sqlparser",
  "tempfile",
  "tokio",
 ]
@@ -3374,6 +3375,7 @@ checksum = "3679862809bd1f92e563cf6fd820e28f39135303668001c10331d5027183e8b4"
 dependencies = [
  "log",
  "recursive",
+ "serde",
  "sqlparser_derive",
 ]
 

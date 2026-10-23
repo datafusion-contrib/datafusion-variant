@@ -15,17 +15,19 @@ arrow-schema = "60"
 parquet-variant-compute = "60"
 parquet-variant-json = "60"
 parquet-variant = "60"
+# Serialize the shared SQL schema AST for aggregate partial states.
+sqlparser = { version = "0.63", default-features = false, features = ["serde"] }
+serde_json = { version = "1.0.145", features = ["unbounded_depth"] }
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 clap = { version = "4.6", features = ["derive"] }
 parquet = { version = "60", features = ["variant_experimental"] }
-serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 criterion = { version = "0.8", default-features = false }
 mimalloc = "0.1.52"
 anyhow = "1.0.100"
 arrow-cast = "60"
-serde_json = "1.0.145"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
