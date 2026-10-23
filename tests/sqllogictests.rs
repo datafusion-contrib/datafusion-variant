@@ -9,9 +9,10 @@ use datafusion::{
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{
     CastToVariantUdf, IsVariantNullUdf, ParseJsonUdf, SchemaOfVariantAggUdf, SchemaOfVariantUdf,
-    VariantContainsUdf, VariantExprPlanner, VariantGetJsonUdf, VariantListConstruct,
-    VariantListDelete, VariantListInsert, VariantObjectConstruct, VariantObjectDelete,
-    VariantObjectInsert, VariantObjectKeys, VariantPretty, VariantToJsonUdf, VariantTypePlanner,
+    TryParseJsonUdf, VariantContainsUdf, VariantExprPlanner, VariantGetJsonUdf,
+    VariantListConstruct, VariantListDelete, VariantListInsert, VariantObjectConstruct,
+    VariantObjectDelete, VariantObjectInsert, VariantObjectKeys, VariantPretty, VariantToJsonUdf,
+    VariantTypePlanner,
 };
 use indicatif::ProgressBar;
 use parquet_variant_compute::{VariantType, json_to_variant, shred_variant};
@@ -108,6 +109,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         // register variant udfs
         ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(ParseJsonUdf::default()));
+        ctx.register_udf(ScalarUDF::new_from_impl(TryParseJsonUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
         ctx.register_udf(ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()));
