@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, StringViewArray, StringViewBuilder};
-use arrow_schema::{DataType, Field};
+use arrow::array::{Array, ArrayRef, AsArray, StringViewArray, StringViewBuilder};
+use arrow_schema::{DataType, Field, FieldRef};
 use datafusion::{
-    common::{Result, exec_datafusion_err, exec_err, utils::take_function_args},
+    common::{
+        Result, ScalarValue, exec_datafusion_err, exec_err, internal_datafusion_err,
+        utils::take_function_args,
+    },
     functions::utils::make_scalar_function,
     logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature,
-        TypeSignature, Volatility,
+        Accumulator, AggregateUDFImpl, ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs,
+        ScalarUDFImpl, Signature, TypeSignature, Volatility, function::AccumulatorArgs,
+        utils::AggregateOrderSensitivity,
     },
     sql::sqlparser::ast::{
         ArrayElemTypeDef, DataType as SqlType, ExactNumberInfo, Ident, ObjectName,
@@ -16,6 +20,7 @@ use datafusion::{
 };
 use parquet_variant::Variant;
 use parquet_variant_compute::{VariantArray, unshred_variant};
+use serde::Deserialize;
 
 use crate::{shared::try_parse_binary_columnar, variant_type::is_variant};
 
@@ -34,9 +39,9 @@ impl Default for SchemaOfVariantUdf {
     }
 }
 
-fn validate_input(field: &Field) -> Result<()> {
+fn validate_input(field: &Field, name: &str) -> Result<()> {
     if field.data_type() != &DataType::Null && !is_variant(field) {
-        return exec_err!("schema_of_variant expects a Variant or untyped NULL argument");
+        return exec_err!("{name} expects a Variant or untyped NULL argument");
     }
     Ok(())
 }
@@ -54,7 +59,7 @@ impl ScalarUDFImpl for SchemaOfVariantUdf {
 
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<Arc<Field>> {
         let [field] = take_function_args(self.name(), args.arg_fields)?;
-        validate_input(field)?;
+        validate_input(field, self.name())?;
         Ok(Arc::new(Field::new(
             self.name(),
             DataType::Utf8View,
@@ -64,7 +69,7 @@ impl ScalarUDFImpl for SchemaOfVariantUdf {
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let [field] = take_function_args(self.name(), &args.arg_fields)?;
-        validate_input(field)?;
+        validate_input(field, self.name())?;
         make_scalar_function(
             |arrays| {
                 let [input] = take_function_args(self.name(), arrays)?;
@@ -72,6 +77,170 @@ impl ScalarUDFImpl for SchemaOfVariantUdf {
             },
             vec![],
         )(&args.args)
+    }
+}
+
+/// Infer and merge schemas across rows. Empty and all-null groups return VOID.
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct SchemaOfVariantAggUdf {
+    signature: Signature,
+}
+
+impl Default for SchemaOfVariantAggUdf {
+    fn default() -> Self {
+        Self {
+            signature: Signature::new(TypeSignature::Any(1), Volatility::Immutable),
+        }
+    }
+}
+
+impl AggregateUDFImpl for SchemaOfVariantAggUdf {
+    fn name(&self) -> &str {
+        "schema_of_variant_agg"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _: &[DataType]) -> Result<DataType> {
+        Ok(DataType::Utf8View)
+    }
+
+    fn return_field(&self, fields: &[FieldRef]) -> Result<FieldRef> {
+        let [field] = take_function_args(self.name(), fields)?;
+        validate_input(field, self.name())?;
+        Ok(Arc::new(Field::new(self.name(), DataType::Utf8View, false)))
+    }
+
+    fn is_nullable(&self) -> bool {
+        false
+    }
+
+    fn order_sensitivity(&self) -> AggregateOrderSensitivity {
+        AggregateOrderSensitivity::Insensitive
+    }
+
+    fn default_value(&self, _: &DataType) -> Result<ScalarValue> {
+        Ok(ScalarValue::Utf8View(Some("VOID".into())))
+    }
+
+    fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
+        let [field] = take_function_args(self.name(), args.expr_fields)?;
+        validate_input(field, self.name())?;
+        Ok(Box::new(SchemaAccumulator::default()))
+    }
+}
+
+#[derive(Debug)]
+struct SchemaAccumulator {
+    schema: SqlType,
+}
+
+impl Default for SchemaAccumulator {
+    fn default() -> Self {
+        Self {
+            schema: named_type("VOID"),
+        }
+    }
+}
+
+impl SchemaAccumulator {
+    fn merge(&mut self, schema: SqlType) {
+        // Move out the current schema without allocating a temporary named type.
+        let current = std::mem::replace(&mut self.schema, SqlType::Unspecified);
+        self.schema = merge_schema(current, schema);
+    }
+}
+
+impl Accumulator for SchemaAccumulator {
+    fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
+        let [input] = take_function_args("schema_of_variant_agg", values)?;
+        if input.data_type() == &DataType::Null {
+            return Ok(());
+        }
+        let variants = unshred_variant(&VariantArray::try_new(input.as_ref())?)?;
+        let metadata = try_parse_binary_columnar(variants.metadata_column())?;
+        let encoded = try_parse_binary_columnar(variants.value_column())?;
+        for (i, metadata) in metadata.into_iter().enumerate() {
+            if !variants.is_null(i) {
+                let value = match encoded[i] {
+                    Some(bytes) => Variant::try_new(
+                        metadata.ok_or_else(|| {
+                            exec_datafusion_err!("schema_of_variant_agg received missing metadata")
+                        })?,
+                        bytes,
+                    )?,
+                    None => Variant::Null,
+                };
+                self.merge(infer_schema(&value));
+            }
+        }
+        Ok(())
+    }
+
+    fn evaluate(&mut self) -> Result<ScalarValue> {
+        Ok(ScalarValue::Utf8View(Some(print_schema(&self.schema))))
+    }
+
+    fn state(&mut self) -> Result<Vec<ScalarValue>> {
+        // Serialize the AST, not the display schema: OBJECT is Spark output syntax,
+        // and field names and types must survive partial aggregation losslessly.
+        Ok(vec![ScalarValue::Utf8View(Some(
+            serde_json::to_string(&self.schema)
+                .map_err(|e| internal_datafusion_err!("Cannot serialize Variant schema: {e}"))?,
+        ))])
+    }
+
+    fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
+        let [state] = take_function_args("schema_of_variant_agg state", states)?;
+        for value in state.as_string_view().iter().flatten() {
+            // These states are generated internally from already-validated Variant
+            // values. The AST's JSON representation nests much deeper than the input.
+            let mut decoder = serde_json::Deserializer::from_str(value);
+            decoder.disable_recursion_limit();
+            self.merge(
+                SqlType::deserialize(&mut decoder).map_err(|e| {
+                    internal_datafusion_err!("Cannot deserialize Variant schema: {e}")
+                })?,
+            );
+        }
+        Ok(())
+    }
+
+    fn size(&self) -> usize {
+        size_of_val(self) + schema_heap_size(&self.schema)
+    }
+}
+
+// Account for heap allocations in the subset of SQL types produced by infer_schema.
+fn schema_heap_size(schema: &SqlType) -> usize {
+    match schema {
+        SqlType::Array(ArrayElemTypeDef::AngleBracket(element)) => {
+            size_of_val(element.as_ref()) + schema_heap_size(element)
+        }
+        SqlType::Struct(fields, _) => {
+            fields.capacity() * size_of::<StructField>()
+                + fields
+                    .iter()
+                    .map(|field| {
+                        field
+                            .field_name
+                            .as_ref()
+                            .map_or(0, |name| name.value.capacity())
+                            + schema_heap_size(&field.field_type)
+                    })
+                    .sum::<usize>()
+        }
+        SqlType::Custom(name, _) => {
+            name.0.capacity() * size_of::<datafusion::sql::sqlparser::ast::ObjectNamePart>()
+                + name
+                    .0
+                    .iter()
+                    .map(|part| part.as_ident().map_or(0, |name| name.value.capacity()))
+                    .sum::<usize>()
+        }
+        _ => 0,
     }
 }
 
@@ -108,7 +277,7 @@ fn schema_array(input: &dyn Array) -> Result<ArrayRef> {
 }
 
 // Use SQL types directly, with ordinary named types for Spark's VOID and VARIANT.
-// There is no separate schema tree or aggregate-state encoding in this scalar UDF.
+// Scalar inference and aggregate partial states share this representation.
 fn named_type(name: &str) -> SqlType {
     SqlType::Custom(ObjectName::from(vec![Ident::new(name)]), vec![])
 }
@@ -295,6 +464,109 @@ mod tests {
             number_rows,
             config_options: Default::default(),
         })
+    }
+
+    #[tokio::test]
+    async fn aggregate_across_partitions_and_batches() {
+        use arrow::{array::Int32Array, datatypes::Schema, record_batch::RecordBatch};
+        use datafusion::{
+            datasource::MemTable,
+            logical_expr::AggregateUDF,
+            physical_plan::displayable,
+            prelude::{SessionConfig, SessionContext},
+        };
+
+        let ctx = SessionContext::new_with_config(
+            SessionConfig::new()
+                .with_target_partitions(3)
+                .with_batch_size(1),
+        );
+        ctx.register_udaf(AggregateUDF::new_from_impl(SchemaOfVariantAggUdf::default()));
+        let mut partitions = Vec::new();
+        let mut schema = None;
+        for value in [Some(r#"{"a":1}"#), Some(r#"{"b":true}"#), None] {
+            let json: ArrayRef = Arc::new(StringArray::from(vec![value, None]));
+            let variants = json_to_variant(&json).unwrap();
+            let variants = shred_variant(
+                &variants,
+                &DataType::Struct(vec![Field::new("a", DataType::Int64, true)].into()),
+            )
+            .unwrap();
+            let batch_schema = Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Int32, false),
+                variants.field("v"),
+            ]));
+            let batch = RecordBatch::try_new(
+                batch_schema.clone(),
+                vec![
+                    Arc::new(Int32Array::from(vec![0, 1])),
+                    Arc::new(variants.into_inner()),
+                ],
+            )
+            .unwrap();
+            partitions.push(vec![batch.slice(0, 1), batch.slice(1, 1)]);
+            schema = Some(batch_schema);
+        }
+        ctx.register_table(
+            "inputs",
+            Arc::new(MemTable::try_new(schema.unwrap(), partitions).unwrap()),
+        )
+        .unwrap();
+        for grouped in [false, true] {
+            let query = if grouped {
+                "SELECT schema_of_variant_agg(v) FROM inputs GROUP BY id ORDER BY id"
+            } else {
+                "SELECT schema_of_variant_agg(v) FROM inputs"
+            };
+            let df = ctx.sql(query).await.unwrap();
+            assert!(!df.schema().field(0).is_nullable());
+            let plan = df.clone().create_physical_plan().await.unwrap();
+            let display = displayable(plan.as_ref()).indent(false).to_string();
+            assert!(display.contains("mode=Partial"), "{display}");
+            assert!(display.contains("mode=Final"), "{display}");
+            let batches = df.collect().await.unwrap();
+            let actual: Vec<_> = batches
+                .iter()
+                .flat_map(|batch| {
+                    batch
+                        .column(0)
+                        .as_string_view()
+                        .iter()
+                        .map(|s| s.unwrap().to_owned())
+                })
+                .collect();
+            let expected = if grouped {
+                vec!["OBJECT<a: BIGINT, b: BOOLEAN>", "VOID"]
+            } else {
+                vec!["OBJECT<a: BIGINT, b: BOOLEAN>"]
+            };
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn aggregate_deep_state_roundtrip() {
+        // Regression: serializing the SQL AST adds enough nesting to exceed
+        // serde_json's default recursion limit for an otherwise valid schema.
+        let mut schema = decimal(38, 17);
+        for _ in 0..32 {
+            schema = SqlType::Struct(
+                vec![StructField {
+                    field_name: Some(Ident::new("a`\"b")),
+                    field_type: array_type(schema),
+                    options: None,
+                }],
+                StructBracketKind::AngleBrackets,
+            );
+        }
+        let mut partial = SchemaAccumulator {
+            schema: schema.clone(),
+        };
+        let mut merged = SchemaAccumulator::default();
+        merged
+            .merge_batch(&[ScalarValue::iter_to_array(partial.state().unwrap()).unwrap()])
+            .unwrap();
+        assert_eq!(merged.schema, schema);
     }
 
     #[test]

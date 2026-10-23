@@ -82,7 +82,7 @@ The current API includes:
 | Type conversion | `cast_to_variant` |
 | Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
 | Null inspection | `is_variant_null` |
-| Schema inference | `schema_of_variant` |
+| Schema inference | `schema_of_variant`, `schema_of_variant_agg` |
 | Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
 | Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
 | Utilities | `variant_normalize`, `variant_pretty` |
@@ -97,6 +97,11 @@ SQL NULL, and reports `VOID` for Variant null. It follows Spark's
 `schema_of_variant` inference rules. Arrow's JSON parser produces `DOUBLE`
 for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
 decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
+
+`schema_of_variant_agg(v)` merges schemas across rows, skipping SQL NULLs.
+Empty and all-null groups return `VOID`. It shares the scalar function's
+inference rules. Register it with
+`ctx.register_udaf(AggregateUDF::new_from_impl(SchemaOfVariantAggUdf::default()))`.
 
 `variant_get_json(v, 'a')` extracts a value and serializes it as JSON, including
 quotes around strings. It retains a direct extraction path that avoids the
