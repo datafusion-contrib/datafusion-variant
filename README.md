@@ -228,6 +228,12 @@ are excluded until their reconstruction issues are fixed
 ([#71](https://github.com/datafusion-contrib/datafusion-variant/issues/71)).
 See [the source](benches/to_json.rs).
 
+Run schema inference benchmarks with `cargo bench --bench schema_of_variant`.
+They cover scalar and array inputs, aggregate updates, state serialization, and
+partial-state merging, including nulls, nested values, widening, and shredded integers.
+Input construction and validation are outside timing.
+See [the source](benches/schema_of_variant.rs) for workloads and timing boundaries.
+
 To compare a change, save a baseline before making it, then rerun afterward:
 
 ```sh
