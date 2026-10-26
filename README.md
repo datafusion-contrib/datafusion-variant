@@ -145,7 +145,7 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 +-------+
 ```
 
-> [!NOTE]
+> [!WARNING]
 > Planned: choose unshredded storage, an explicit shredding schema, or automatic
 > shredding when writing Parquet. Shredding stores selected fields in typed
 > Parquet columns alongside the remaining Variant data.
@@ -188,13 +188,16 @@ ORDER BY event:status::BIGINT;
 
 An empty cell represents SQL NULL. The first column uses the `variant_get` UDF;
 the second uses SQL field-access syntax. Both support nested fields and
-zero-based array indices. `variant_get` raises an error if a value cannot be
-converted to the requested type; use `try_variant_get` or `TRY_CAST` to return
-NULL instead.
+zero-based array indices.
 
-Reading a mixture of shredded and unshredded files as one table is not yet a
-supported recipe. See the [upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
-for schema adaptation and extension metadata preservation work.
+> [!TIP]
+> `variant_get` raises an error if a value cannot be converted to the requested
+> type. Use `try_variant_get` or `TRY_CAST` to return SQL NULL instead.
+
+> [!WARNING]
+> Reading a mixture of shredded and unshredded files as one table is not yet a
+> supported recipe. See the [upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
+> for schema adaptation and extension metadata preservation work.
 
 ### Filter on shredded fields
 
@@ -246,9 +249,12 @@ ORDER BY event:status::BIGINT;
 +------------------------------------------------------------------+
 ```
 
-`to_json` returns JSON text, so string values include JSON quotes. Use a typed
-getter such as `variant_get(event, 'service', 'VARCHAR')` for an unquoted SQL
-string. JSON formatting and object key order need not match the input text.
+`to_json` returns JSON text. JSON formatting and object key order need not match
+the input text.
+
+> [!TIP]
+> JSON strings include quotes. Use a typed getter such as
+> `variant_get(event, 'service', 'VARCHAR')` for an unquoted SQL string.
 
 ### Discover fields and distinguish nulls
 
