@@ -147,6 +147,7 @@ async fn main_inner() -> Result<()> {
     };
 
     if args.repl_mode() {
+        print_examples();
         return exec::exec_from_repl(&ctx, &mut print_options)
             .await
             .map_err(|e| DataFusionError::External(Box::new(e)));
@@ -161,6 +162,35 @@ async fn main_inner() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Print example commands when starting the interactive shell.
+fn print_examples() {
+    println!(
+        r#"
+Variant functions are preinstalled. Try:
+
+  -- Parse JSON into a Variant and extract typed fields
+  SELECT parse_json('{{"service":"api","status":500}}'):status::BIGINT AS status;
+  SELECT variant_get(parse_json('{{"tags":["a","b"]}}'), 'tags[1]', 'VARCHAR') AS tag;
+
+  -- Build a table of Variant values and query it
+  CREATE TABLE events AS SELECT parse_json(json_data) AS event
+    FROM (VALUES ('{{"service":"api","status":200}}'),
+                 ('{{"service":"web","status":500}}')) AS input(json_data);
+  SELECT event:service::VARCHAR AS service FROM events WHERE event:status::BIGINT >= 400;
+
+  -- Write Variant to Parquet and read it back
+  COPY events TO 'events.parquet' STORED AS PARQUET;
+  SET datafusion.execution.parquet.skip_metadata = false;
+  SELECT to_json(event) FROM 'events.parquet';
+
+  -- Inspect the schema of Variant values
+  SELECT schema_of_variant(event) FROM events;
+
+See https://github.com/datafusion-contrib/datafusion-variant for all functions.
+Enter \q to exit."#
+    );
 }
 
 fn get_session_config(args: &Args) -> Result<SessionConfig> {

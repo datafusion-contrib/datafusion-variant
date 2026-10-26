@@ -35,6 +35,27 @@ fn test_version_and_banner() {
         )));
 }
 
+/// The interactive shell (no `-c`/`-f`, SQL piped on stdin) prints example
+/// commands after the banner; `-c` does not.
+#[test]
+fn test_examples_banner_in_repl_only() {
+    cargo_bin_cmd!("dfv")
+        .write_stdin("SELECT 1 AS one;\n\\q\n")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "Variant functions are preinstalled. Try:",
+        ))
+        .stdout(predicates::str::contains("SELECT parse_json("))
+        .stdout(predicates::str::contains("| one |"));
+
+    cargo_bin_cmd!("dfv")
+        .args(["-c", "SELECT 1"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Variant functions are preinstalled").not());
+}
+
 /// Only `-c` and `-f` are supported; other `datafusion-cli` options are
 /// rejected by clap before any SQL runs.
 #[test]
