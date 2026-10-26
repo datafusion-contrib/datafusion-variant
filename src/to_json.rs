@@ -12,16 +12,43 @@ use datafusion::{
     },
     scalar::ScalarValue,
 };
+use datafusion_doc::Documentation;
+use datafusion_macros::user_doc;
 use parquet_variant_compute::{VariantArray, variant_to_json};
 use parquet_variant_json::VariantToJson;
 
 use crate::shared::try_field_as_variant_array;
 
-/// Returns a JSON string from a VariantArray
-///
-/// ## Arguments
-/// - expr: a DataType::Struct expression that represents a VariantArray
-/// - options: an optional MAP (note, it seems arrow-rs' parquet-variant is pretty restrictive about the options)
+/// Serializes a Variant value as JSON, preserving SQL NULL.
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Serializes a Variant value to a JSON string. SQL NULL returns SQL NULL;
+Variant null becomes the string `null`. Strings retain their JSON quotes.
+This function accepts Variant values only. The optional second argument is currently
+ignored; serialization options are not implemented.",
+    syntax_example = "to_json(value[, options])",
+    sql_example = r#"```sql
+> SELECT to_json(parse_json('"hello"')) AS json;
++---------+
+| json    |
++---------+
+| "hello" |
++---------+
+> SELECT to_json(parse_json('null')) AS json, to_json(parse_json(NULL)) IS NULL AS sql_null;
++------+----------+
+| json | sql_null |
++------+----------+
+| null | true     |
++------+----------+
+```"#,
+    argument(name = "value", description = "Variant expression to serialize."),
+    argument(
+        name = "options",
+        description = "Optional argument, currently ignored."
+    ),
+    related_udf(name = "parse_json"),
+    related_udf(name = "try_parse_json")
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantToJsonUdf {
     signature: Signature,
@@ -39,6 +66,10 @@ impl Default for VariantToJsonUdf {
 }
 
 impl ScalarUDFImpl for VariantToJsonUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "to_json"
     }
@@ -59,6 +90,11 @@ impl ScalarUDFImpl for VariantToJsonUdf {
 
         try_field_as_variant_array(field.as_ref())?;
 
+        // TODO: Parse and validate the optional options map instead of ignoring it.
+        // Spark's Variant serializer uses its timeZone option when formatting timestamps.
+        // First add time-zone options to Arrow's VariantToJson scalar serializer and
+        // variant_to_json batch kernel, including timestamps nested in objects/arrays;
+        // then wire the UDF option and session time zone through both execution paths.
         let arg = args
             .args
             .first()

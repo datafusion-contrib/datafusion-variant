@@ -9,12 +9,42 @@ use datafusion::logical_expr::{
     Volatility,
 };
 use datafusion::scalar::ScalarValue;
+use datafusion_doc::Documentation;
+use datafusion_macros::user_doc;
 use parquet_variant_compute::{VariantArray, VariantType};
 
 /// Returns true only for a present Variant null; SQL NULL returns false.
 ///
 /// Like Spark, this inspects the top-level value, not nulls inside a container,
 /// and does not perform full validation of the Variant's contents.
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Returns true if the input is a present Variant null, and false otherwise,
+including SQL NULL and missing fields. The result is a non-null BOOLEAN.
+Checks only the top-level value; nulls inside objects or arrays do not make the
+container null. This predicate does not validate the full Variant contents.",
+    syntax_example = "is_variant_null(value)",
+    sql_example = r#"```sql
+> SELECT is_variant_null(parse_json('null')) AS variant_null, is_variant_null(NULL) AS sql_null;
++--------------+----------+
+| variant_null | sql_null |
++--------------+----------+
+| true         | false    |
++--------------+----------+
+> SELECT is_variant_null(variant_get(parse_json('{"a":null}'), 'a')) AS present, is_variant_null(variant_get(parse_json('{"a":null}'), 'b')) AS missing;
++---------+---------+
+| present | missing |
++---------+---------+
+| true    | false   |
++---------+---------+
+```"#,
+    argument(
+        name = "value",
+        description = "Variant expression or an untyped SQL NULL."
+    ),
+    related_udf(name = "variant_get"),
+    related_udf(name = "parse_json")
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct IsVariantNullUdf {
     signature: Signature,
@@ -71,6 +101,10 @@ fn is_variant_null_at(array: &VariantArray, index: usize) -> Result<bool> {
 }
 
 impl ScalarUDFImpl for IsVariantNullUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "is_variant_null"
     }

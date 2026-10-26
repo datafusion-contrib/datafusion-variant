@@ -1677,6 +1677,8 @@ dependencies = [
  "clap",
  "criterion",
  "datafusion",
+ "datafusion-doc",
+ "datafusion-macros",
  "datafusion-sqllogictest",
  "env_logger",
  "flate2",

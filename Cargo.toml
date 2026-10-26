@@ -10,6 +10,8 @@ authors = ["Matthew Kim <matthew@pydantic.dev>"]
 [dependencies]
 # Pin DataFusion to a revision that uses Arrow 60.
 datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+datafusion-macros = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
 arrow = "60"
 arrow-schema = "60"
 parquet-variant-compute = "60"

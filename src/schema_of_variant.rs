@@ -18,6 +18,8 @@ use datafusion::{
         StructBracketKind, StructField, TimezoneInfo,
     },
 };
+use datafusion_doc::Documentation;
+use datafusion_macros::user_doc;
 use parquet_variant::Variant;
 use parquet_variant_compute::{VariantArray, unshred_variant};
 use serde::Deserialize;
@@ -26,6 +28,34 @@ use crate::{shared::try_parse_binary_columnar, variant_type::is_variant};
 
 /// Infer a SQL schema for each Variant value, using Spark's schema_of_variant rules.
 /// SQL NULL propagates; a present Variant null has schema VOID.
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Returns a SQL schema string for a Variant value. SQL NULL returns SQL NULL;
+Variant null has schema `VOID`. Object fields are sorted by name. Array element
+schemas are merged, widening compatible types and using `VARIANT` for incompatible types.
+
+Fractional numbers parsed by `parse_json` have schema `DOUBLE`, unlike Spark's
+decimal inference. Use `cast_to_variant` with SQL decimal inputs to preserve decimal types.",
+    syntax_example = "schema_of_variant(value)",
+    sql_example = r#"```sql
+> SELECT schema_of_variant(parse_json('null')) AS schema;
++--------+
+| schema |
++--------+
+| VOID   |
++--------+
+> SELECT schema_of_variant(parse_json('[{"b":true,"a":0}]')) AS schema;
++--------------------------------------+
+| schema                               |
++--------------------------------------+
+| ARRAY<OBJECT<a: BIGINT, b: BOOLEAN>> |
++--------------------------------------+
+```"#,
+    argument(
+        name = "value",
+        description = "Variant expression whose schema is inferred, or an untyped SQL NULL."
+    )
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct SchemaOfVariantUdf {
     signature: Signature,
@@ -47,6 +77,10 @@ fn validate_input(field: &Field, name: &str) -> Result<()> {
 }
 
 impl ScalarUDFImpl for SchemaOfVariantUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "schema_of_variant"
     }
@@ -81,6 +115,36 @@ impl ScalarUDFImpl for SchemaOfVariantUdf {
 }
 
 /// Infer and merge schemas across rows. Empty and all-null groups return VOID.
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Returns a SQL schema string by merging the schemas of Variant values across rows.
+SQL NULL values are ignored. Empty input, all-SQL-NULL input, and all-Variant-null
+input return `VOID`. Compatible types are widened; incompatible types become `VARIANT`.
+Object fields are merged by name and sorted in the output. Array element schemas
+are merged using the same rules.
+
+Fractional numbers parsed by `parse_json` contribute `DOUBLE`, unlike Spark's
+decimal inference. Use `cast_to_variant` with SQL decimal inputs to preserve decimal types.",
+    syntax_example = "schema_of_variant_agg(value)",
+    sql_example = r#"```sql
+> SELECT schema_of_variant_agg(parse_json(j)) AS schema FROM (VALUES ('1'), ('2'), ('3')) AS t(j);
++--------+
+| schema |
++--------+
+| BIGINT |
++--------+
+> SELECT schema_of_variant_agg(parse_json(j)) AS schema FROM (VALUES ('{"a":1}'), ('{"b":true}'), ('{"c":1.23}')) AS t(j);
++------------------------------------------+
+| schema                                   |
++------------------------------------------+
+| OBJECT<a: BIGINT, b: BOOLEAN, c: DOUBLE> |
++------------------------------------------+
+```"#,
+    argument(
+        name = "value",
+        description = "Variant expression to aggregate, or an untyped SQL NULL."
+    )
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct SchemaOfVariantAggUdf {
     signature: Signature,
@@ -95,6 +159,10 @@ impl Default for SchemaOfVariantAggUdf {
 }
 
 impl AggregateUDFImpl for SchemaOfVariantAggUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "schema_of_variant_agg"
     }

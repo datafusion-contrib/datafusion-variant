@@ -14,6 +14,8 @@ use datafusion::{
     },
     scalar::ScalarValue,
 };
+use datafusion_doc::Documentation;
+use datafusion_macros::user_doc;
 use parquet_variant::{Variant, VariantPath};
 use parquet_variant_compute::{GetOptions, VariantType, variant_get};
 use parquet_variant_json::VariantToJson;
@@ -222,6 +224,66 @@ impl_variant_get_typed!(
 /// `variant_get(value, path[, type])` accepts a SQL type string literal, such as
 /// `BIGINT` or `DECIMAL(12,2)`. Use [`crate::register_variant_get_functions`] to
 /// register with session settings and enable explicit casts of getters.
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Extracts the value at a path and optionally converts it to a SQL type.
+Without a type hint, returns Variant. SQL NULL input and missing paths return SQL NULL.
+Variant null remains a Variant null for Variant output and becomes SQL NULL for typed output.
+Invalid paths, invalid type hints, and failed conversions raise errors.
+
+Type names follow DataFusion SQL semantics, including session settings. For example,
+`INT8` means BIGINT; Arrow type names such as `Int64` are not accepted.
+Nested Variant target types are not supported.
+
+Register with `register_variant_get_functions` to enable SQL casts of getters.
+Also register `VariantExprPlanner` for `:` field access. A cast of an untyped
+getter or colon access performs the same conversion as an explicit type hint.",
+    syntax_example = "variant_get(value, path[, type])",
+    alternative_syntax = "CAST(variant_get(value, path) AS type)",
+    alternative_syntax = "value:field",
+    alternative_syntax = "value:field::type",
+    sql_example = r#"```sql
+> SELECT variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
++-------+
+| value |
++-------+
+| 1     |
++-------+
+> SELECT variant_get(parse_json('{"a":1}'), 'b', 'BIGINT') IS NULL AS missing;
++---------+
+| missing |
++---------+
+| true    |
++---------+
+> SELECT to_json(variant_get(parse_json('[1,"hello"]'), '[1]')) AS json;
++---------+
+| json    |
++---------+
+| "hello" |
++---------+
+> WITH input AS (SELECT parse_json('{"price":12.5}') AS v)
+  SELECT variant_get(v, 'price', 'DECIMAL(12,2)') AS type_hint,
+         CAST(variant_get(v, 'price') AS DECIMAL(12,2)) AS sql_cast,
+         v:price::DECIMAL(12,2) AS colon_cast
+  FROM input;
++-----------+----------+------------+
+| type_hint | sql_cast | colon_cast |
++-----------+----------+------------+
+| 12.50     | 12.50    | 12.50      |
++-----------+----------+------------+
+```"#,
+    argument(name = "value", description = "Variant expression to extract from."),
+    argument(
+        name = "path",
+        description = r#"String expression selecting fields with dots and array elements with zero-based brackets, such as `a.b[0]`. Use `["a.b"]` for a literal key containing a dot. An empty string or SQL NULL selects the root. Use field paths without Spark's leading `$`; here `$` is treated as a field name. Keys containing `]` currently require escaping that bracket with a backslash, even inside quotes."#
+    ),
+    argument(
+        name = "type",
+        description = "Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`."
+    ),
+    related_udf(name = "try_variant_get"),
+    related_udf(name = "is_variant_null")
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
@@ -262,6 +324,10 @@ impl VariantGetUdf {
 }
 
 impl ScalarUDFImpl for VariantGetUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "variant_get"
     }
@@ -309,6 +375,55 @@ impl ScalarUDFImpl for VariantGetUdf {
 ///
 /// `try_variant_get(value, path[, type])` accepts the same SQL type strings as
 /// [`VariantGetUdf`].
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Extracts the value at a path and optionally converts it to a SQL type.
+Uses the same paths, type hints, and null handling as `variant_get`, but failed
+result-type conversions return SQL NULL. Without a type hint, returns Variant.
+Invalid paths and invalid type hints still raise errors.
+
+Register with `register_variant_get_functions` to enable `TRY_CAST` of getters.
+Also register `VariantExprPlanner` for `:` field access. `TRY_CAST` of an untyped
+getter or colon access uses the same conversion policy as `try_variant_get`.",
+    syntax_example = "try_variant_get(value, path[, type])",
+    alternative_syntax = "TRY_CAST(variant_get(value, path) AS type)",
+    alternative_syntax = "TRY_CAST(value:field AS type)",
+    sql_example = r#"```sql
+> SELECT try_variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
++-------+
+| value |
++-------+
+| 1     |
++-------+
+> SELECT try_variant_get(parse_json('[1,"hello"]'), '[1]', 'BIGINT') IS NULL AS failed_cast;
++-------------+
+| failed_cast |
++-------------+
+| true        |
++-------------+
+> WITH input AS (SELECT parse_json('{"price":"invalid"}') AS v)
+  SELECT try_variant_get(v, 'price', 'DECIMAL(12,2)') IS NULL AS type_hint,
+         TRY_CAST(variant_get(v, 'price') AS DECIMAL(12,2)) IS NULL AS sql_cast,
+         TRY_CAST(v:price AS DECIMAL(12,2)) IS NULL AS colon_cast
+  FROM input;
++-----------+----------+------------+
+| type_hint | sql_cast | colon_cast |
++-----------+----------+------------+
+| true      | true     | true       |
++-----------+----------+------------+
+```"#,
+    argument(name = "value", description = "Variant expression to extract from."),
+    argument(
+        name = "path",
+        description = "String expression using the path syntax described for `variant_get`."
+    ),
+    argument(
+        name = "type",
+        description = "Optional non-null SQL type string literal. Defaults to `VARIANT`; accepts the same types as `variant_get`."
+    ),
+    related_udf(name = "variant_get"),
+    related_udf(name = "is_variant_null")
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct TryVariantGetUdf {
     signature: Signature,
@@ -349,6 +464,10 @@ impl TryVariantGetUdf {
 }
 
 impl ScalarUDFImpl for TryVariantGetUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "try_variant_get"
     }
