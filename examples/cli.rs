@@ -1,15 +1,9 @@
 use anyhow::{Context, Result};
 use arrow::array::{ArrayRef, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
-use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
-use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
+use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::*;
-use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, ParseJsonUdf, SchemaOfVariantAggUdf, SchemaOfVariantUdf,
-    TryParseJsonUdf, VariantContainsUdf, VariantExprPlanner, VariantListConstruct,
-    VariantListInsert, VariantObjectConstruct, VariantObjectInsert, VariantObjectKeys,
-    VariantPretty, VariantToJsonUdf, VariantTypePlanner,
-};
+use datafusion_variant::{VariantTypePlanner, register_all};
 use flate2::read::GzDecoder;
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
@@ -113,23 +107,7 @@ async fn main() -> Result<()> {
 
         ctx.register_table("bsky", Arc::new(provider))?;
 
-        // register variant udfs
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(ParseJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(TryParseJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()));
-        ctx.register_udaf(AggregateUDF::new_from_impl(SchemaOfVariantAggUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantContainsUdf::default()));
-        datafusion_variant::register_variant_get_functions(&mut ctx)?;
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantListInsert::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectInsert::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectKeys::default()));
-        ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
+        register_all(&mut ctx)?;
 
         let setup_duration = setup_start.elapsed();
         println!(

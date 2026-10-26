@@ -1,19 +1,10 @@
 use arrow::array::{Array, ArrayRef, Int32Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
-use datafusion::{
-    logical_expr::{AggregateUDF, ScalarUDF},
-    prelude::*,
-};
+use datafusion::execution::SessionStateBuilder;
+use datafusion::prelude::*;
 use datafusion_sqllogictest::{DataFusion, TestContext};
-use datafusion_variant::{
-    CastToVariantUdf, IsVariantNullUdf, ParseJsonUdf, SchemaOfVariantAggUdf, SchemaOfVariantUdf,
-    TryParseJsonUdf, VariantContainsUdf, VariantExprPlanner, VariantGetJsonUdf,
-    VariantListConstruct, VariantListDelete, VariantListInsert, VariantObjectConstruct,
-    VariantObjectDelete, VariantObjectInsert, VariantObjectKeys, VariantPretty, VariantToJsonUdf,
-    VariantTypePlanner,
-};
+use datafusion_variant::{VariantTypePlanner, register_all};
 use indicatif::ProgressBar;
 use parquet_variant_compute::{VariantType, json_to_variant, shred_variant};
 use sqllogictest::strict_column_validator;
@@ -106,26 +97,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             .build();
         let mut ctx = SessionContext::new_with_state(state);
 
-        // register variant udfs
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(ParseJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(TryParseJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(CastToVariantUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(IsVariantNullUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()));
-        ctx.register_udaf(AggregateUDF::new_from_impl(SchemaOfVariantAggUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantContainsUdf::default()));
-        datafusion_variant::register_variant_get_functions(&mut ctx)?;
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantGetJsonUdf::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantPretty::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectConstruct::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantListConstruct::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantListDelete::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantListInsert::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectInsert::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectDelete::default()));
-        ctx.register_udf(ScalarUDF::new_from_impl(VariantObjectKeys::default()));
-        ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
+        register_all(&mut ctx)?;
 
         if relative_path == Path::new("variant_sql_type.slt") {
             register_binary_variant_fixture(&ctx)?;
