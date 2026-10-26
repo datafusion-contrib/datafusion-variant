@@ -12,6 +12,8 @@ use datafusion::{
     },
     scalar::ScalarValue,
 };
+use datafusion_doc::Documentation;
+use datafusion_macros::user_doc;
 use parquet_variant_compute::{VariantArrayBuilder, json_to_variant};
 use parquet_variant_json::JsonToVariant as JsonToVariantExt;
 
@@ -19,6 +21,35 @@ use crate::shared::{try_parse_string_columnar, try_parse_string_scalar};
 use crate::variant_type::variant_field;
 
 /// Parses JSON, returning an error for invalid JSON values.
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Parses a JSON string into a Variant value. Invalid JSON raises an error.
+SQL NULL returns SQL NULL; the JSON text `null` produces a present Variant null.
+
+Uses Arrow's JSON parser. Fractional JSON numbers become DOUBLE; decimal precision
+and duplicate-key handling have known differences from Spark (see [#71](https://github.com/datafusion-contrib/datafusion-variant/issues/71)).",
+    syntax_example = "parse_json(json)",
+    sql_example = r#"```sql
+> SELECT to_json(parse_json('{"a":1}')) AS json;
++---------+
+| json    |
++---------+
+| {"a":1} |
++---------+
+> SELECT parse_json(NULL) IS NULL AS sql_null, is_variant_null(parse_json('null')) AS variant_null;
++----------+--------------+
+| sql_null | variant_null |
++----------+--------------+
+| true     | true         |
++----------+--------------+
+```"#,
+    argument(
+        name = "json",
+        description = "String expression containing a JSON value."
+    ),
+    related_udf(name = "try_parse_json"),
+    related_udf(name = "to_json")
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct ParseJsonUdf {
     signature: Signature,
@@ -37,6 +68,10 @@ impl Default for ParseJsonUdf {
 }
 
 impl ScalarUDFImpl for ParseJsonUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "parse_json"
     }
@@ -67,6 +102,34 @@ impl ScalarUDFImpl for ParseJsonUdf {
 /// Parses JSON, returning SQL NULL for invalid JSON values.
 /// Invalid argument types and counts still return errors.
 /// Accepts the same inputs as [`ParseJsonUdf`].
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Parses a JSON string into a Variant value, returning SQL NULL for invalid JSON.
+In a column, a malformed value produces NULL for that row. SQL NULL returns SQL NULL;
+the JSON text `null` produces a present Variant null. Invalid argument types or counts
+still raise errors. Shares the parser limitations of `parse_json`.",
+    syntax_example = "try_parse_json(json)",
+    sql_example = r#"```sql
+> SELECT to_json(try_parse_json('{"a":1}')) AS json;
++---------+
+| json    |
++---------+
+| {"a":1} |
++---------+
+> SELECT try_parse_json('{') IS NULL AS invalid_json, is_variant_null(try_parse_json('null')) AS variant_null;
++--------------+--------------+
+| invalid_json | variant_null |
++--------------+--------------+
+| true         | true         |
++--------------+--------------+
+```"#,
+    argument(
+        name = "json",
+        description = "String expression containing a JSON value."
+    ),
+    related_udf(name = "parse_json"),
+    related_udf(name = "to_json")
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct TryParseJsonUdf {
     signature: Signature,
@@ -85,6 +148,10 @@ impl Default for TryParseJsonUdf {
 }
 
 impl ScalarUDFImpl for TryParseJsonUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "try_parse_json"
     }
