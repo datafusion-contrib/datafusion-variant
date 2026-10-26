@@ -2,17 +2,37 @@
 
 See the [function index](../README.md#functions) for SQL examples.
 
-`register_all(&mut ctx)` installs all functions, getter cast rewrites, and `:`
-field access. To register only selected functions, wrap their implementations
-with `ScalarUDF::new_from_impl` and pass them to `ctx.register_udf`. Use
+## Registration
+
+The [quickstart](../README.md#1-register-variant) uses `register_all` for functions
+and field access. Explicit SQL `VARIANT` type names also require
+`VariantTypePlanner` when constructing the session:
+
+```rust
+use std::sync::Arc;
+use datafusion::execution::SessionStateBuilder;
+use datafusion::prelude::SessionContext;
+use datafusion_variant::{VariantTypePlanner, register_all};
+
+let state = SessionStateBuilder::new()
+    .with_default_features()
+    .with_type_planner(Arc::new(VariantTypePlanner))
+    .build();
+let mut ctx = SessionContext::new_with_state(state);
+register_all(&mut ctx)?;
+```
+
+For selective registration, wrap scalar implementations with
+`ScalarUDF::new_from_impl` and aggregates with `AggregateUDF::new_from_impl`,
+then pass them to `ctx.register_udf` or `ctx.register_udaf`. Use
 `register_variant_get_functions` for the getters and their cast rewrites, and
 `ctx.register_expr_planner(Arc::new(VariantExprPlanner))` for `:` field access.
-SQL `VARIANT` type names also require `VariantTypePlanner` when constructing
-the session, as shown in the quickstart's function section.
+
+## Function behavior
 
 `try_parse_json` accepts the same inputs as `parse_json`, but returns SQL NULL
-for invalid JSON values. Valid JSON null remains a Variant null. Register it
-with `TryParseJsonUdf::default()`. Both functions currently share Arrow's JSON
+for invalid JSON values. Valid JSON null remains a Variant null.
+Both functions currently share Arrow's JSON
 parsing limitations, including decimal precision and duplicate-key handling.
 
 `to_json` serializes Variant values and is registered with
@@ -24,12 +44,11 @@ Spark; callers using the old SQL name must update their queries.
 SQL NULL, and reports `VOID` for Variant null. It follows Spark's
 `schema_of_variant` inference rules. Arrow's JSON parser produces `DOUBLE`
 for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
-decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
+decimal precision and scale.
 
 `schema_of_variant_agg(v)` merges schemas across rows, skipping SQL NULLs.
 Empty and all-null groups return `VOID`. It shares the scalar function's
-inference rules. Register it with
-`ctx.register_udaf(AggregateUDF::new_from_impl(SchemaOfVariantAggUdf::default()))`.
+inference rules.
 
 `variant_get_json(v, 'a')` extracts a value and serializes it as JSON, including
 quotes around strings. It retains a direct extraction path that avoids the

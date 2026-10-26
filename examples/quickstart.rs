@@ -1,6 +1,14 @@
 //! Run with `cargo run --example quickstart`. No external dataset is required.
+use std::fs::File;
+use std::sync::Arc;
+
+use arrow::array::RecordBatch;
+use arrow::compute::concat_batches;
+use arrow::datatypes::{DataType, Field, Schema};
 use datafusion::prelude::*;
 use datafusion_variant::register_all;
+use parquet::arrow::ArrowWriter;
+use parquet_variant_compute::{VariantArray, shred_variant};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -59,10 +67,43 @@ async fn main() -> anyhow::Result<()> {
     .collect()
     .await?;
 
+    // Shred the same events with Arrow until SQL COPY supports a shredding option.
+    let events = ctx.table("events").await?;
+    let schema = Arc::clone(events.schema().inner());
+    let batch = concat_batches(&schema, &events.collect().await?)?;
+    let shredded = shred_variant(
+        &VariantArray::try_new(batch.column(0).as_ref())?,
+        &DataType::Struct(
+            vec![
+                Field::new("service", DataType::Utf8, true),
+                Field::new("status", DataType::Int64, true),
+            ]
+            .into(),
+        ),
+    )?;
+    let schema = Arc::new(Schema::new(vec![shredded.field("event")]));
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(shredded.into_inner())])?;
+    let shredded_path = output.path().join("shredded_events.parquet");
+    let mut writer = ArrowWriter::try_new(File::create(&shredded_path)?, schema, None)?;
+    writer.write(&batch)?;
+    writer.close()?;
+    ctx.sql(&format!(
+        "CREATE EXTERNAL TABLE shredded_events STORED AS PARQUET LOCATION '{}'",
+        shredded_path.display()
+    ))
+    .await?
+    .collect()
+    .await?;
+
     for sql in [
         "SELECT variant_get(event, 'service', 'VARCHAR') AS service,
                 event:tags[0]::VARCHAR AS first_tag
          FROM saved_events ORDER BY event:status::BIGINT",
+        "SELECT event:service::VARCHAR AS service,
+                event:status::BIGINT AS status
+         FROM shredded_events
+         WHERE event:status::BIGINT >= 400
+         ORDER BY service, status",
         "SELECT to_json(event) AS json_data FROM saved_events
          ORDER BY event:status::BIGINT",
         "SELECT schema_of_variant_agg(event) AS schema FROM saved_events",

@@ -145,6 +145,22 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 +-------+
 ```
 
+> [!NOTE]
+> Planned: choose unshredded storage, an explicit shredding schema, or automatic
+> shredding when writing Parquet. Shredding stores selected fields in typed
+> Parquet columns alongside the remaining Variant data.
+> These write options are not implemented; the API and SQL syntax
+> are TBD. A [DuckDB-style option](https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet)
+> could look like:
+
+```sql
+-- Proposed syntax only; not yet supported.
+COPY events TO 'events.parquet' (
+    FORMAT parquet,
+    SHREDDING {'event': 'STRUCT(service VARCHAR, status BIGINT)'}
+);
+```
+
 ### Read Parquet and select fields
 
 Keep Parquet extension metadata during schema inference so DataFusion recognizes
@@ -175,6 +191,43 @@ the second uses SQL field-access syntax. Both support nested fields and
 zero-based array indices. `variant_get` raises an error if a value cannot be
 converted to the requested type; use `try_variant_get` or `TRY_CAST` to return
 NULL instead.
+
+Reading a mixture of shredded and unshredded files as one table is not yet a
+supported recipe. See the [upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
+for schema adaptation and extension metadata preservation work.
+
+### Filter on shredded fields
+
+Shredding stores fields such as `service` and `status` in typed Parquet columns,
+so extraction can use those values without decoding them from the binary
+Variant payload. The runnable quickstart uses Arrow's `shred_variant` to write
+the same events to `shredded_events.parquet` with these two fields shredded:
+
+```sql
+CREATE EXTERNAL TABLE shredded_events
+STORED AS PARQUET LOCATION 'shredded_events.parquet';
+
+SELECT event:service::VARCHAR AS service,
+       event:status::BIGINT AS status
+FROM shredded_events
+WHERE event:status::BIGINT >= 400
+ORDER BY service, status;
+```
+
+```text
++---------+--------+
+| service | status |
++---------+--------+
+| api     | 500    |
++---------+--------+
+```
+
+> [!NOTE]
+> Further scan optimizations are TBD in DataFusion: pruning unused fields of the
+> Variant struct, skipping row groups/pages using shredded-field statistics,
+> and exposing those statistics to the optimizer. The goal is to read only the
+> required fields and skip data that cannot match the filter. See sections 1
+> and 4 of the [Variant integration epic](https://github.com/apache/datafusion/issues/26517).
 
 ### Convert Variant back to JSON
 
@@ -231,33 +284,11 @@ ORDER BY status;
 +--------+-----------+--------------------+-------------------+
 ```
 
-### Work with shredded Variant
-
-Shredding stores selected fields in typed Parquet columns alongside the remaining
-Variant data. The [JSONBench example](https://github.com/datafusion-contrib/datafusion-variant/blob/main/benchmarks/jsonbench/README.md)
-converts JSON into unshredded, partially shredded, and query-field-shredded files,
-then runs the same typed extraction queries against each layout:
-
-```sh
-cargo run --release --example jsonbench -- prepare --rows 10000
-cargo run --release --example jsonbench -- run --rows 10000 --iterations 1
-```
-
-Preparation downloads the Bluesky sample dataset. The
-[conversion code](https://github.com/datafusion-contrib/datafusion-variant/blob/main/benchmarks/jsonbench/prepare.rs)
-uses Arrow's `shred_variant` and `ArrowWriter`; the SQL `COPY` recipe above does
-not choose a shredding schema. Reading a mixture of shredded and unshredded
-files as one table is not yet a supported recipe. The
-[upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
-tracks schema adaptation and extension metadata preservation work. Contributions
-to this crate are tracked in the
-[compatibility roadmap](https://github.com/datafusion-contrib/datafusion-variant/issues/69).
-
 ## Functions
 
 Links lead to executable SQL examples, or Rust tests for `variant_normalize`.
 See [function behavior and SQL compatibility](https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md)
-for conversion rules, registration details, and known limitations.
+for conversion rules, SQL `VARIANT` type registration, and known limitations.
 
 | Area | Functions and examples |
 | --- | --- |
@@ -270,41 +301,13 @@ for conversion rules, registration details, and known limitations.
 | Arrays | [`variant_list_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt), [`variant_list_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt), [`variant_list_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt) |
 | Utilities | [`variant_normalize`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs), [`variant_pretty`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt) |
 
-For explicit SQL `VARIANT` type names, also install `VariantTypePlanner` when
-constructing the session:
-
-```rust
-use std::sync::Arc;
-use datafusion::execution::SessionStateBuilder;
-use datafusion::prelude::SessionContext;
-use datafusion_variant::{VariantTypePlanner, register_all};
-
-let state = SessionStateBuilder::new()
-    .with_default_features()
-    .with_type_planner(Arc::new(VariantTypePlanner))
-    .build();
-let mut ctx = SessionContext::new_with_state(state);
-register_all(&mut ctx)?;
-```
-
-Use `cast_to_variant` and typed getters for conversions. General SQL casts of
-Variant columns and nested Variant getter targets are not yet supported.
-
 ## More examples and benchmarks
 
 The [interactive CLI](https://github.com/datafusion-contrib/datafusion-variant/blob/main/examples/cli.rs)
 loads Bluesky JSON into a `bsky(json_data)` table. Run `bash download_data.sh`
 (choose option `1`), then `cargo run --example cli`. Queries end with a semicolon;
-enter `q` or `quit` to exit.
-
-```sql
-SELECT variant_get(parse_json(json_data), 'commit.collection', 'VARCHAR') AS collection,
-       count(*) AS events
-FROM bsky
-GROUP BY collection
-ORDER BY events DESC
-LIMIT 5;
-```
+enter `q` or `quit` to exit. Use `parse_json(json_data)` to query these strings
+with the Variant functions.
 
 See the [benchmark guide](https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md)
 for extraction, parsing, serialization, schema inference, and JSONBench workloads,
