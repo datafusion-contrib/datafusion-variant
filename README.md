@@ -297,8 +297,9 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 ## Command line: `dfv`
 
 `dfv` is [datafusion-cli](https://datafusion.apache.org/user-guide/cli/) with the
-Variant functions and the SQL `VARIANT` type preinstalled. It accepts the same
-arguments as `datafusion-cli`; run it from the repository root:
+Variant functions and the SQL `VARIANT` type preinstalled. It supports the
+`-c` (run commands) and `-f` (run a SQL file) options; run it from the
+repository root:
 
 ```shell
 cargo run --bin dfv -- -c "SELECT parse_json('{\"service\":\"api\",\"status\":500}'):status::BIGINT AS status"

@@ -17,17 +17,14 @@ path = "src/main.rs"
 # `datafusion-cli` crate currently depends on Arrow 59 and cannot be used here.
 datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
 datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
-datafusion-common = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
-datafusion-spark = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0", features = ["core"] }
 datafusion-variant = { path = ".." }
 
-# Dependencies of the upstream datafusion-cli `main.rs`.
 clap = { version = "4.5", features = ["cargo", "derive"] }
-dirs = "7.0"
 env_logger = "0.11"
 mimalloc = { version = "0.1", default-features = false }
-regex = "1"
 tokio = { version = "1", features = ["macros", "parking_lot", "rt", "rt-multi-thread", "signal", "sync"] }
 
 [dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
 tempfile = "3"
