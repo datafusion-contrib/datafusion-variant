@@ -294,6 +294,29 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 | Arrays | [`variant_list_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt), [`variant_list_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt), [`variant_list_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt) |
 | Utilities | [`variant_normalize`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs), [`variant_pretty`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt) |
 
+## Command line: `dfv`
+
+`dfv` is [datafusion-cli](https://datafusion.apache.org/user-guide/cli/) with the
+Variant functions and the SQL `VARIANT` type preinstalled. It accepts the same
+arguments as `datafusion-cli`; run it from the repository root:
+
+```shell
+cargo run --bin dfv -- -c "SELECT parse_json('{\"service\":\"api\",\"status\":500}'):status::BIGINT AS status"
+```
+
+```text
++--------+
+| status |
++--------+
+| 500    |
++--------+
+```
+
+Without `-c`, `dfv` starts an interactive shell. The cookbook SQL above runs
+unchanged, including `COPY ... TO 'events.parquet'` and reading the file back.
+`dfv` builds `datafusion-cli` from the same pinned DataFusion revision as this
+crate, so it is not published on crates.io.
+
 ## More examples and benchmarks
 
 The [interactive CLI](https://github.com/datafusion-contrib/datafusion-variant/blob/main/examples/cli.rs)
