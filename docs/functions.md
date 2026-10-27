@@ -25,7 +25,8 @@ register_all(&mut ctx)?;
 For selective registration, wrap scalar implementations with
 `ScalarUDF::new_from_impl` and aggregates with `AggregateUDF::new_from_impl`,
 then pass them to `ctx.register_udf` or `ctx.register_udaf`. Use
-`register_variant_get_functions` for the getters and their cast rewrites, and
+`register_variant_get_functions` for the getters and their cast rewrites,
+`register_variant_conversion_functions` for casts to VARIANT and `to_variant_object`, and
 `ctx.register_expr_planner(Arc::new(VariantExprPlanner))` for `:` field access.
 
 ## Function behavior
@@ -36,14 +37,22 @@ Both functions currently share Arrow's JSON
 parsing limitations, including decimal precision and duplicate-key handling.
 
 `to_json` serializes Variant values and is registered with
-`VariantToJsonUdf::default()`. Its SQL name replaces `variant_to_json` to match
-Spark; callers using the old SQL name must update their queries.
+`VariantToJsonUdf::default()`.
+
+`CAST(value AS VARIANT)` converts scalars and arrays. `TRY_CAST` returns SQL NULL
+for failed conversions. Structs and string-keyed maps require
+`to_variant_object(value)`, which also accepts arrays. Existing Variant values
+retain their storage through identity casts.
+
+Conversion currently omits null object fields, accepts duplicate object keys,
+and does not support nested Variant inputs. These gaps are covered by skipped
+expectations in the [conversion tests](../tests/test_files/spark_variant_conversions.slt).
 
 `schema_of_variant(v)` returns a SQL schema for each value, for example
 `OBJECT<a: BIGINT, b: ARRAY<STRING>>`. It merges types within arrays, preserves
 SQL NULL, and reports `VOID` for Variant null. It follows Spark's
 `schema_of_variant` inference rules. Arrow's JSON parser produces `DOUBLE`
-for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
+for fractional JSON numbers; use `CAST(decimal_value AS VARIANT)` to retain
 decimal precision and scale.
 
 `schema_of_variant_agg(v)` merges schemas across rows, skipping SQL NULLs.
@@ -85,9 +94,9 @@ helper follows session type settings, including `SET` / `RESET`.
 the `arrow.parquet.variant` extension metadata. Getter hints such as
 `variant_get(v, 'price', 'VARIANT')` and getter casts such as `v:price::VARIANT`
 use Arrow's native Variant target conversion.
-Use `cast_to_variant` and typed getters to convert to/from Variant columns;
-general SQL casts of those columns are not yet supported. Nested Variant getter
-targets are also unsupported.
+Use SQL casts or `to_variant_object` to create Variant columns, and typed getters
+to convert their contents to SQL types. General casts from stored Variant columns
+to SQL types and nested Variant getter targets are not yet supported.
 
 See the [Spark field-access tests](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_field_extractions.slt)
 for remaining conversion and syntax gaps.

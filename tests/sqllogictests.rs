@@ -6,7 +6,8 @@ use datafusion::prelude::*;
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{VariantTypePlanner, register_all};
 use indicatif::ProgressBar;
-use parquet_variant_compute::{VariantType, json_to_variant, shred_variant};
+use parquet_variant::{Uuid, Variant, VariantBuilderExt};
+use parquet_variant_compute::{VariantArrayBuilder, VariantType, json_to_variant, shred_variant};
 use sqllogictest::strict_column_validator;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -101,6 +102,35 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         if relative_path == Path::new("variant_sql_type.slt") {
             register_binary_variant_fixture(&ctx)?;
+        }
+
+        if relative_path == Path::new("schema_of_variant.slt") {
+            // UUID casting is pending upstream; variant_list_construct accepts
+            // only scalar arguments, so also build the UUID array cases here.
+            let uuid = Variant::Uuid(Uuid::from_bytes([1; 16]));
+            let mut builder = VariantArrayBuilder::new(3);
+            builder.append_variant(uuid.clone());
+            for other in [Variant::Null, Variant::from("x")] {
+                let mut list = builder.try_new_list()?;
+                list.append_value(uuid.clone());
+                list.append_value(other);
+                list.finish();
+            }
+            let variants = builder.build();
+            let schema = Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Int32, false),
+                variants.field("v"),
+            ]));
+            ctx.register_batch(
+                "variant_uuid_inputs",
+                RecordBatch::try_new(
+                    schema,
+                    vec![
+                        Arc::new(Int32Array::from(vec![1, 2, 3])),
+                        Arc::new(variants.into_inner()),
+                    ],
+                )?,
+            )?;
         }
 
         if relative_path == Path::new("is_variant_null.slt")

@@ -117,7 +117,9 @@ For example, a single Variant column can contain all of these values, shown as J
 
 `parse_json` converts JSON text to the
 [Parquet Variant encoding](https://parquet.apache.org/docs/file-format/types/variantencoding/);
-`cast_to_variant` converts existing typed SQL values, including decimals.
+`CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals;
+`to_variant_object(value)` also accepts structs and string-keyed maps.
+SQL `VARIANT` type syntax requires the [type planner](docs/functions.md#registration).
 
 Extract a field as a SQL type before filtering, aggregating, or joining on it.
 A missing field returns SQL NULL. A JSON `null` is a distinct Variant value:
@@ -282,7 +284,7 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 | Area | Functions and examples |
 | --- | --- |
 | JSON conversion | [`parse_json`, `try_parse_json`, `to_json`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt), [`variant_get_json`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_json.slt) |
-| Type conversion | [`cast_to_variant`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/cast_to_variant.slt) |
+| Type conversion | [`CAST` / `TRY_CAST` to VARIANT, `to_variant_object`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_conversions.slt) |
 | Field and path access | [`variant_get`, `try_variant_get`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get.slt), [`variant_contains`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_contains.slt) |
 | Null inspection | [`is_variant_null`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_variant_null.slt) |
 | Schema inference | [`schema_of_variant`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt), [`schema_of_variant_agg`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant_agg.slt) |
