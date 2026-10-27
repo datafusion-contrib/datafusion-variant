@@ -1,5 +1,9 @@
 #![warn(clippy::all)]
 
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
 mod shared;
 mod sql_type;
 

@@ -35,8 +35,12 @@ Create a session and register the functions and SQL field-access syntax:
 use datafusion::prelude::*;
 use datafusion_variant::register_all;
 
-let mut ctx = SessionContext::new();
-register_all(&mut ctx)?;
+#[tokio::main]
+async fn main() -> datafusion::error::Result<()> {
+    let mut ctx = SessionContext::new();
+    register_all(&mut ctx)?;
+    Ok(())
+}
 ```
 
 > [!WARNING]
@@ -189,6 +193,7 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 > The API and SQL syntax are TBD. A [DuckDB-style option](https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet)
 > could look like:
 
+<!-- readme-test: skip: proposed shredding syntax is not implemented -->
 ```sql
 -- Proposed syntax only; not yet supported.
 COPY events TO 'events.parquet' (
@@ -312,6 +317,8 @@ cargo test
 cargo fmt --all -- --check
 cargo clippy -- -D warnings
 ```
+
+`cargo test` also checks this README's Rust example and SQL results.
 
 For Spark compatibility changes, reference the upstream behavior and add
 regression coverage in the [SQL tests](tests/test_files).
