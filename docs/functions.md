@@ -4,7 +4,7 @@ See the [function index](../README.md#functions) for SQL examples.
 
 ## Registration
 
-The [quickstart](../README.md#1-register-variant) uses `register_all` for functions
+The [quickstart](../README.md#2-register-variant) uses `register_all` for functions
 and field access. Explicit SQL `VARIANT` type names also require
 `VariantTypePlanner` when constructing the session:
 

@@ -13,10 +13,24 @@ The [quickstart example](https://github.com/datafusion-contrib/datafusion-varian
 creates a Variant column from JSON, then filters events by a field inside each
 document.
 
-### 1. Register Variant
+### 1. Install Variant
 
-Inside your application's async entry point, create a session and register the
-functions and SQL field-access syntax:
+Add the following to `Cargo.toml`:
+
+```toml
+[dependencies]
+datafusion-variant = { git = "https://github.com/datafusion-contrib/datafusion-variant.git" }
+datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+parquet = { version = "60", features = ["variant_experimental"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Use the same DataFusion revision as this crate. The `variant_experimental`
+feature enables reading and writing Parquet Variant files.
+
+### 2. Register Variant
+
+Create a session and register the functions and SQL field-access syntax:
 
 ```rust
 use datafusion::prelude::*;
@@ -30,7 +44,7 @@ register_all(&mut ctx)?;
 > `register_all` replaces existing functions with the same names. Individual UDFs
 > remain available for selective registration.
 
-### 2. Create the events table
+### 3. Create the events table
 
 Each input row is a JSON document. `parse_json` converts it to a Variant value
 in the `event` column:
@@ -50,7 +64,7 @@ Execute the statement with `ctx.sql(sql).await?.collect().await?`.
 > For malformed input, use `try_parse_json(json_data)` to return SQL NULL instead
 > of failing the query. Valid JSON `null` remains a Variant null.
 
-### 3. Query fields
+### 4. Query fields
 
 Select the service and latency for events with an error status using the
 `variant_get` UDF:
@@ -91,17 +105,6 @@ runs the recipes below, without downloading data:
 cargo run --example quickstart
 ```
 
-For an embedding application, use the DataFusion revision and Arrow versions in
-[Cargo.toml](https://github.com/datafusion-contrib/datafusion-variant/blob/main/Cargo.toml).
-Tokio needs the `macros` and `rt-multi-thread` features.
-
-For Parquet Variant files, also enable Arrow's experimental Variant integration
-in the embedding application's dependencies (already enabled for these examples):
-
-```toml
-parquet = { version = "60", features = ["variant_experimental"] }
-```
-
 ## What is Variant?
 
 A Variant column can hold objects, arrays, and primitive values, with different
@@ -109,9 +112,16 @@ fields and types in each row. Think of it as a
 [tagged union](https://arrow.apache.org/docs/format/Columnar.html#union-layout):
 each value has a type, and different rows can hold different types.
 
-For example, the first event above has a `tags`
-array while the second has an `error` field. The contents do not need a fixed
-schema, but each value retains its type. `parse_json` converts JSON text to the
+For example, a single Variant column can contain all of these values, shown as JSON:
+
+| Value | Type |
+| --- | --- |
+| `{"service":"api","status":200}` | Object |
+| `["cached","retry"]` | Array |
+| `42` | Integer |
+| `"api"` | String |
+
+`parse_json` converts JSON text to the
 [Parquet Variant encoding](https://parquet.apache.org/docs/file-format/types/variantencoding/);
 `cast_to_variant` converts existing typed SQL values, including decimals.
 
