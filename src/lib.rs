@@ -9,6 +9,7 @@ mod sql_type;
 
 mod expr_planner;
 mod impl_variant_get;
+mod is_valid_variant;
 mod is_variant_null;
 mod parse_json;
 mod schema_of_variant;
@@ -29,6 +30,7 @@ mod variant_pretty;
 mod variant_type;
 
 pub use expr_planner::*;
+pub use is_valid_variant::*;
 pub use is_variant_null::*;
 pub use parse_json::*;
 pub use schema_of_variant::*;
@@ -65,6 +67,7 @@ pub fn register_all(
         ScalarUDF::new_from_impl(TryParseJsonUdf::default()),
         ScalarUDF::new_from_impl(VariantToJsonUdf::default()),
         ScalarUDF::new_from_impl(IsVariantNullUdf::default()),
+        ScalarUDF::new_from_impl(IsValidVariantUdf::default()),
         ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()),
         ScalarUDF::new_from_impl(VariantContainsUdf::default()),
         ScalarUDF::new_from_impl(VariantGetJsonUdf::default()),
