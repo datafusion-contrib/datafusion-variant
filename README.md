@@ -134,14 +134,50 @@ For background on the encoding and shredding, see
 
 ## Cookbook
 
-These recipes use the `events` table from the quickstart in a session with
-`register_all` installed. The Parquet recipes create a local `events.parquet`
-output; choose a fresh path when repeating them.
+These recipes build on one another in a session with `register_all` installed.
+The first recipe creates the shared `events` table. The Parquet recipes write
+a local `events.parquet` file; choose a fresh output path when repeating them.
+
+### Convert Variant back to JSON
+
+Create an `events` table, converting each JSON string to Variant. Skip this
+step if you already created the table in the quickstart:
+
+```sql
+CREATE TABLE events AS
+SELECT parse_json(json_data) AS event
+FROM (VALUES
+    ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
+    ('{"service":"api","status":500,"latency_ms":85,"error":null}')
+) AS input(json_data);
+```
+
+Convert the Variant values back to JSON:
+
+```sql
+SELECT to_json(event) AS json_data
+FROM events
+ORDER BY event:status::BIGINT;
+```
+
+```text
++------------------------------------------------------------------+
+| json_data                                                        |
++------------------------------------------------------------------+
+| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+| {"error":null,"latency_ms":85,"service":"api","status":500}      |
++------------------------------------------------------------------+
+```
+
+`to_json` returns JSON text. JSON formatting and object key order need not match
+the input text.
+
+> [!TIP]
+> JSON strings include quotes. Use `event:service::VARCHAR` for an unquoted SQL string.
 
 ### Store JSON as a Variant column in Parquet
 
-The quickstart's `SELECT parse_json(json_data) AS event` converts each JSON
-string to Variant. Save that column with DataFusion's `COPY` statement:
+Save the Variant column with DataFusion's `COPY` statement:
 
 ```sql
 COPY events TO 'events.parquet' STORED AS PARQUET;
@@ -156,11 +192,11 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 ```
 
 > [!WARNING]
-> Planned: choose unshredded storage, an explicit shredding schema, or automatic
-> shredding when writing Parquet. Shredding stores selected fields in typed
+> **NOT YET IMPLEMENTED:** choosing between unshredded storage, an explicit
+> shredding schema, or automatic shredding when writing Parquet.
+> Shredding stores selected fields in typed
 > Parquet columns alongside the remaining Variant data.
-> These write options are not implemented; the API and SQL syntax
-> are TBD. A [DuckDB-style option](https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet)
+> The API and SQL syntax are TBD. A [DuckDB-style option](https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet)
 > could look like:
 
 ```sql
@@ -173,10 +209,11 @@ COPY events TO 'events.parquet' (
 
 ### Read Parquet and select fields
 
-Keep Parquet extension metadata during schema inference so DataFusion recognizes
-the Variant column:
+Read `events.parquet` from the preceding recipe using both `variant_get` and
+SQL field-access syntax:
 
 ```sql
+-- Preserve the schema information that identifies the Variant column.
 SET datafusion.execution.parquet.skip_metadata = false;
 CREATE EXTERNAL TABLE saved_events
 STORED AS PARQUET LOCATION 'events.parquet';
@@ -196,75 +233,16 @@ ORDER BY event:status::BIGINT;
 +---------+-----------+
 ```
 
-An empty cell represents SQL NULL. The first column uses the `variant_get` UDF;
-the second uses SQL field-access syntax. Both support nested fields and
-zero-based array indices.
+Array indices start at zero. An empty cell represents SQL NULL.
 
 > [!TIP]
 > `variant_get` raises an error if a value cannot be converted to the requested
 > type. Use `try_variant_get` or `TRY_CAST` to return SQL NULL instead.
 
 > [!WARNING]
-> Reading a mixture of shredded and unshredded files as one table is not yet a
-> supported recipe. See the [upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
+> **NOT YET IMPLEMENTED:** reading a mixture of shredded and unshredded files
+> as one table. See the [upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
 > for schema adaptation and extension metadata preservation work.
-
-### Filter on shredded fields
-
-Shredding stores fields such as `service` and `status` in typed Parquet columns,
-so extraction can use those values without decoding them from the binary
-Variant payload. The runnable quickstart uses Arrow's `shred_variant` to write
-the same events to `shredded_events.parquet` with these two fields shredded:
-
-```sql
-CREATE EXTERNAL TABLE shredded_events
-STORED AS PARQUET LOCATION 'shredded_events.parquet';
-
-SELECT event:service::VARCHAR AS service,
-       event:status::BIGINT AS status
-FROM shredded_events
-WHERE event:status::BIGINT >= 400
-ORDER BY service, status;
-```
-
-```text
-+---------+--------+
-| service | status |
-+---------+--------+
-| api     | 500    |
-+---------+--------+
-```
-
-> [!NOTE]
-> Further scan optimizations are TBD in DataFusion: pruning unused fields of the
-> Variant struct, skipping row groups/pages using shredded-field statistics,
-> and exposing those statistics to the optimizer. The goal is to read only the
-> required fields and skip data that cannot match the filter. See sections 1
-> and 4 of the [Variant integration epic](https://github.com/apache/datafusion/issues/26517).
-
-### Convert Variant back to JSON
-
-```sql
-SELECT to_json(event) AS json_data
-FROM saved_events
-ORDER BY event:status::BIGINT;
-```
-
-```text
-+------------------------------------------------------------------+
-| json_data                                                        |
-+------------------------------------------------------------------+
-| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
-| {"error":null,"latency_ms":85,"service":"api","status":500}      |
-+------------------------------------------------------------------+
-```
-
-`to_json` returns JSON text. JSON formatting and object key order need not match
-the input text.
-
-> [!TIP]
-> JSON strings include quotes. Use a typed getter such as
-> `variant_get(event, 'service', 'VARCHAR')` for an unquoted SQL string.
 
 ### Discover fields and distinguish nulls
 

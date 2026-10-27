@@ -104,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
          FROM shredded_events
          WHERE event:status::BIGINT >= 400
          ORDER BY service, status",
-        "SELECT to_json(event) AS json_data FROM saved_events
+        "SELECT to_json(event) AS json_data FROM events
          ORDER BY event:status::BIGINT",
         "SELECT schema_of_variant_agg(event) AS schema FROM saved_events",
         "SELECT event:status::BIGINT AS status,
