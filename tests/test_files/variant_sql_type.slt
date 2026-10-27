@@ -40,10 +40,54 @@ CREATE TABLE declared_variant (v VARIANT);
 statement ok
 INSERT INTO declared_variant SELECT hinted FROM sql_variant_results WHERE id = 1;
 
-query TT
-SELECT to_json(v), arrow_metadata(v, 'ARROW:extension:name') FROM declared_variant;
+# Cast stored values through the root conversion kernel, including :: syntax.
+query TTII
+SELECT to_json(v), arrow_metadata(v, 'ARROW:extension:name'),
+       CAST(v AS INT) AS n, v::BIGINT AS wide FROM declared_variant;
 ----
-7 arrow.parquet.variant
+7 arrow.parquet.variant 7 7
+
+# Materialized TRY_CAST results preserve SQL NULL, Variant null, and failures.
+# The existing input matrix includes a scalar, object, array, null, and missing path.
+statement ok
+CREATE TABLE cast_variant_results AS
+SELECT id, TRY_CAST(hinted AS INT) AS n FROM sql_variant_results;
+
+query II rowsort
+SELECT id, n FROM cast_variant_results;
+----
+1 7
+2 NULL
+3 NULL
+4 NULL
+5 NULL
+6 NULL
+
+query TB
+SELECT arrow_typeof(n), arrow_metadata(n, 'ARROW:extension:name') IS NULL
+FROM cast_variant_results WHERE id = 1;
+----
+Int32 true
+
+statement error (?i)(cast|extract)
+SELECT CAST(hinted AS INT) FROM sql_variant_results WHERE id = 2;
+
+# Nested targets retain the try-getter's per-element conversion policy.
+query B
+SELECT TRY_CAST(hinted AS INT[]) IS NOT DISTINCT FROM [1, NULL]
+FROM sql_variant_results WHERE id = 3;
+----
+true
+
+# Composed scalar expressions retain explicit intermediate conversions.
+query R
+SELECT CAST(CAST(parse_json('1.9') AS INT) AS DOUBLE);
+----
+1
+
+# An outer TRY_CAST must not suppress an error from its input expression.
+statement error (?i)(cast|extract)
+SELECT TRY_CAST(CAST(parse_json('{}') AS INT) AS BIGINT);
 
 statement ok
 CREATE TABLE null_variant AS SELECT CAST(NULL AS VARIANT) AS v;
@@ -148,6 +192,46 @@ SELECT bool_and(copied.typed_value IS NOT DISTINCT FROM v.typed_value),
 ----
 true true true
 
+# Root conversion accepts existing binary layouts without normalizing storage.
+statement ok
+CREATE TABLE binary_variant_casts AS
+SELECT CAST(b AS STRUCT<x INT>) AS b, TRY_CAST(l AS STRUCT<x INT>) AS l
+FROM binary_variant_inputs;
+
+query II rowsort
+SELECT b.x, l.x FROM binary_variant_casts;
+----
+7 7
+NULL NULL
+
+# Shredded root conversion agrees with extraction from the original values.
+# Variant null has a separate pending expectation below.
+query B
+SELECT bool_and(CAST(v AS STRUCT<a INT, b INT>) IS NOT DISTINCT FROM
+                variant_get(original, '', 'STRUCT<a INT, b INT>'))
+FROM shredded_null_objects WHERE id <> 2;
+----
+true
+
+# TODO(#71, arrow-rs): root-to-struct extraction of shredded Variant null returns
+# a valid struct of NULL fields. Both CAST and the existing typed getter inherit
+# this kernel bug; the result must instead be a SQL NULL struct.
+skipif DataFusion
+query B
+SELECT CAST(v AS STRUCT<a INT, b INT>) IS NULL
+FROM shredded_null_objects WHERE id = 2;
+----
+true
+
+# A physical storage lookalike without Variant metadata uses ordinary SQL casts.
+query B
+SELECT s.value = X'00' FROM (
+  SELECT CAST(named_struct('metadata', X'010000', 'value', X'00')
+              AS STRUCT<metadata BINARY, value BINARY>) AS s
+);
+----
+true
+
 # Getters may return any valid Variant binary storage layout.
 # TODO(#71): align the UDF's declared physical schema with the kernel result
 # so Binary and LargeBinary inputs can be materialized. BinaryView is a preference.
@@ -179,3 +263,6 @@ SELECT variant_get(parse_json('[1,2]'), '', 'ARRAY<VARIANT>');
 
 statement error (?i)Nested VARIANT getter targets
 SELECT CAST(variant_get(parse_json('{"a":1}'), '') AS STRUCT<a VARIANT>);
+
+statement error (?i)Nested VARIANT getter targets
+SELECT CAST(v AS STRUCT<a VARIANT>) FROM declared_variant;

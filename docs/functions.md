@@ -25,7 +25,7 @@ register_all(&mut ctx)?;
 For selective registration, wrap scalar implementations with
 `ScalarUDF::new_from_impl` and aggregates with `AggregateUDF::new_from_impl`,
 then pass them to `ctx.register_udf` or `ctx.register_udaf`. Use
-`register_variant_get_functions` for the getters and their cast rewrites,
+`register_variant_get_functions` for the getters and casts from VARIANT,
 `register_variant_conversion_functions` for casts to VARIANT and `to_variant_object`, and
 `ctx.register_expr_planner(Arc::new(VariantExprPlanner))` for `:` field access.
 
@@ -94,9 +94,11 @@ helper follows session type settings, including `SET` / `RESET`.
 the `arrow.parquet.variant` extension metadata. Getter hints such as
 `variant_get(v, 'price', 'VARIANT')` and getter casts such as `v:price::VARIANT`
 use Arrow's native Variant target conversion.
-Use SQL casts or `to_variant_object` to create Variant columns, and typed getters
-to convert their contents to SQL types. General casts from stored Variant columns
-to SQL types and nested Variant getter targets are not yet supported.
+Use SQL casts or `to_variant_object` to create Variant columns. Cast stored or
+composed Variant values to SQL types with `CAST(v AS type)` or `TRY_CAST(v AS type)`;
+these use the same root conversion as `variant_get(v, '', 'type')` and
+`try_variant_get(v, '', 'type')` and inherit the getter kernel's conversion limitations.
+Nested Variant getter targets remain unsupported.
 
 See the [Spark field-access tests](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_field_extractions.slt)
 for remaining conversion and syntax gaps.

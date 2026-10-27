@@ -295,12 +295,15 @@ mod tests {
                 register_variant_conversion_functions(&mut ctx)?;
             }
             let batches = ctx.sql(
-                "SELECT CAST(CAST(variant_get(parse_json('{\"a\":7}'), 'a') AS VARIANT) AS INT) AS v"
+                "SELECT CAST(CAST(variant_get(parse_json('{\"a\":7}'), 'a') AS VARIANT) AS INT),
+                        CAST(CAST(7 AS VARIANT) AS INT)"
             ).await?.collect().await?;
-            assert_eq!(
-                ScalarValue::try_from_array(batches[0].column(0), 0)?,
-                ScalarValue::Int32(Some(7))
-            );
+            for column in batches[0].columns() {
+                assert_eq!(
+                    ScalarValue::try_from_array(column, 0)?,
+                    ScalarValue::Int32(Some(7))
+                );
+            }
         }
         Ok(())
     }
