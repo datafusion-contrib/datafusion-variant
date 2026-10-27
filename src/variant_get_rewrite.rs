@@ -13,7 +13,7 @@ use crate::variant_type::{is_variant, validate_getter_target};
 use crate::{TryVariantGetUdf, VariantGetUdf};
 
 /// Register both generic getters with the session's configuration, plus the
-/// rewrite for CAST / TRY_CAST (including casts after `:` field access).
+/// rewrite for CAST / TRY_CAST from Variant (including `:` field access).
 pub fn register_variant_get_functions(ctx: &mut SessionContext) -> Result<()> {
     let config = ctx.copied_config();
     ctx.register_udf(Arc::new(ScalarUDF::new_from_impl(
@@ -25,8 +25,8 @@ pub fn register_variant_get_functions(ctx: &mut SessionContext) -> Result<()> {
     ctx.register_function_rewrite(Arc::new(VariantGetRewrite))
 }
 
-/// Lower casts of Variant-returning getters to the extraction/conversion kernel,
-/// retaining any explicit intermediate conversion.
+/// Lower casts from Variant to the extraction/conversion kernel, combining
+/// untyped getter extraction while retaining explicit intermediate conversions.
 #[derive(Debug)]
 pub struct VariantGetRewrite;
 
@@ -50,20 +50,21 @@ impl FunctionRewrite for VariantGetRewrite {
         while let Expr::Alias(alias) = input {
             input = alias.expr.as_ref();
         }
-        let Expr::ScalarFunction(function) = input else {
-            return Ok(Transformed::no(expr));
-        };
-        let getter = function.func.inner().downcast_ref::<VariantGetUdf>();
-        let try_getter = function.func.inner().downcast_ref::<TryVariantGetUdf>();
-        if getter.is_none() && try_getter.is_none() {
-            return Ok(Transformed::no(expr));
-        }
-        let untyped = getter.is_some_and(VariantGetUdf::is_untyped)
-            || try_getter.is_some_and(TryVariantGetUdf::is_untyped);
-        let args = if untyped && function.args.len() == 2 {
-            function.args.clone()
-        } else if is_variant(&input.to_field(schema)?.1) {
-            // Preserve an explicit VARIANT conversion before casting its result.
+        let args = if let Expr::ScalarFunction(ScalarFunction { func, args }) = input
+            && args.len() == 2
+            && (func
+                .inner()
+                .downcast_ref::<VariantGetUdf>()
+                .is_some_and(VariantGetUdf::is_untyped)
+                || func
+                    .inner()
+                    .downcast_ref::<TryVariantGetUdf>()
+                    .is_some_and(TryVariantGetUdf::is_untyped))
+        {
+            args.clone()
+        } else if !is_variant(target) && is_variant(&input.to_field(schema)?.1) {
+            // Convert stored/composed Variants at the root, preserving their
+            // input expressions. Identity casts belong to the conversion rewrite.
             vec![input.clone(), lit("")]
         } else {
             return Ok(Transformed::no(expr));
@@ -74,8 +75,6 @@ impl FunctionRewrite for VariantGetRewrite {
         } else {
             ScalarUDF::new_from_impl(VariantGetUdf::with_target(Arc::clone(target)))
         };
-        Ok(Transformed::yes(Expr::ScalarFunction(
-            ScalarFunction::new_udf(Arc::new(func), args),
-        )))
+        Ok(Transformed::yes(func.call(args)))
     }
 }

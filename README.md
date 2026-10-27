@@ -119,6 +119,8 @@ For example, a single Variant column can contain all of these values, shown as J
 [Parquet Variant encoding](https://parquet.apache.org/docs/file-format/types/variantencoding/);
 `CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals;
 `to_variant_object(value)` also accepts structs and string-keyed maps.
+`CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST` returning
+SQL NULL for failed conversions.
 SQL `VARIANT` type syntax requires the [type planner](docs/functions.md#registration).
 
 Extract a field as a SQL type before filtering, aggregating, or joining on it.
