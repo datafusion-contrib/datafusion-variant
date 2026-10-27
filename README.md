@@ -1,264 +1,306 @@
 # datafusion-variant
 
-Variant support for Apache DataFusion, with functions and SQL syntax for
-querying and manipulating semi-structured data.
+Query semi-structured data in Apache DataFusion using the Parquet Variant type.
+Parse JSON once, extract typed fields with SQL, and store the results in Parquet.
 
-Variant values can contain primitives, objects, and arrays without requiring
-a fixed schema for their contents.
+This crate is under active development and targets Apache Spark Variant behavior.
+Compatibility is incomplete, and APIs may change. See the
+[roadmap](https://github.com/datafusion-contrib/datafusion-variant/issues/69).
 
-## Project status
+## Quick start
 
-This crate is under active development. The compatibility target is
-**Apache Spark 4.2.0**. Compatibility is incomplete, and function names,
-signatures, and behavior may change.
+Create a Variant column from JSON, then filter events by a field inside each
+document.
 
-SQL `VARIANT` type registration, basic `:` field access, and casts of getters
-through `CAST`, `TRY_CAST`, and `::` are available.
+### 1. Install Variant
 
-See [#69](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
-for the compatibility roadmap, integration work, and benchmarking plans.
+Add the following to `Cargo.toml`:
 
-## Getting started
+```toml
+[dependencies]
+datafusion-variant = { git = "https://github.com/datafusion-contrib/datafusion-variant.git" }
+datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+parquet = { version = "60", features = ["variant_experimental"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
 
-Register the functions you need with a DataFusion `SessionContext`.
-Use `register_variant_get_functions` for SQL type hints and getter casts, and
-register `VariantExprPlanner` to enable `:` field access. Install
-`VariantTypePlanner` when constructing the session for SQL `VARIANT` syntax:
+Use the same DataFusion revision as this crate. The `variant_experimental`
+feature enables reading and writing Parquet Variant files.
+
+### 2. Register Variant
+
+Create a session and register the functions and SQL field-access syntax:
 
 ```rust
-use std::sync::Arc;
-
-use datafusion::error::Result;
-use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
-use datafusion::logical_expr::ScalarUDF;
-use datafusion::prelude::SessionContext;
-use datafusion_variant::{
-    ParseJsonUdf, VariantExprPlanner, VariantToJsonUdf, VariantTypePlanner,
-    register_variant_get_functions,
-};
+use datafusion::prelude::*;
+use datafusion_variant::register_all;
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    let state = SessionStateBuilder::new()
-        .with_default_features()
-        .with_type_planner(Arc::new(VariantTypePlanner))
-        .build();
-    let mut ctx = SessionContext::new_with_state(state);
-
-    ctx.register_udf(ScalarUDF::new_from_impl(ParseJsonUdf::default()));
-    ctx.register_udf(ScalarUDF::new_from_impl(VariantToJsonUdf::default()));
-    register_variant_get_functions(&mut ctx)?;
-    ctx.register_expr_planner(Arc::new(VariantExprPlanner))?;
-
-    ctx.sql(
-        r#"
-        SELECT to_json(
-            parse_json('{"name":"Alice","age":30}'):name
-        ) AS name
-        "#,
-    )
-    .await?
-    .show()
-    .await?;
-
+async fn main() -> datafusion::error::Result<()> {
+    let mut ctx = SessionContext::new();
+    register_all(&mut ctx)?;
     Ok(())
 }
 ```
 
-This returns the JSON string `"Alice"`.
+> [!WARNING]
+> `register_all` replaces existing functions with the same names. Individual UDFs
+> remain available for selective registration.
 
-Use compatible DataFusion and Arrow dependencies when embedding the crate.
-See [Cargo.toml](Cargo.toml) for the current versions and DataFusion revision.
-The example also requires Tokio with its `macros` and `rt-multi-thread`
-features.
+### 3. Create the events table
 
-## Functionality
+Each input row is a JSON document. `parse_json` converts it to a Variant value
+in the `event` column:
 
-The current API includes:
+```sql
+CREATE TABLE events AS
+SELECT parse_json(json_data) AS event
+FROM (VALUES
+    ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
+    ('{"service":"api","status":500,"latency_ms":85,"error":null}')
+) AS input(json_data);
+```
 
-| Area | Functions |
+Execute the statement with `ctx.sql(sql).await?.collect().await?`.
+
+> [!TIP]
+> For malformed input, use `try_parse_json(json_data)` to return SQL NULL instead
+> of failing the query. Valid JSON `null` remains a Variant null.
+
+### 4. Query fields
+
+Select the service and latency for events with an error status using the
+`variant_get` UDF:
+
+```sql
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       variant_get(event, 'latency_ms', 'BIGINT') AS latency_ms
+FROM events
+WHERE variant_get(event, 'status', 'BIGINT') >= 400;
+```
+
+Or use SQL's `:` field-access syntax with `::` casts:
+
+```sql
+SELECT event:service::VARCHAR AS service,
+       event:latency_ms::BIGINT AS latency_ms
+FROM events
+WHERE event:status::BIGINT >= 400;
+```
+
+Both forms return the same result. Display it with
+`ctx.sql(sql).await?.show().await?`:
+
+```text
++---------+------------+
+| service | latency_ms |
++---------+------------+
+| api     | 85         |
++---------+------------+
+```
+
+## What is Variant?
+
+A Variant column can hold objects, arrays, and primitive values, with different
+fields and types in each row. Think of it as a
+[tagged union](https://arrow.apache.org/docs/format/Columnar.html#union-layout):
+each value has a type, and different rows can hold different types.
+
+For example, a single Variant column can contain all of these values, shown as JSON:
+
+| Value | Type |
 | --- | --- |
-| JSON conversion | `parse_json`, `try_parse_json`, `to_json`, `variant_get_json` |
-| Type conversion | `cast_to_variant` |
-| Field and path access | `variant_get`, `try_variant_get`, `variant_contains` |
-| Null inspection | `is_variant_null` |
-| Schema inference | `schema_of_variant`, `schema_of_variant_agg` |
-| Objects | `variant_object_construct`, `variant_object_keys`, `variant_object_insert`, `variant_object_delete` |
-| Arrays | `variant_list_construct`, `variant_list_insert`, `variant_list_delete` |
-| Utilities | `variant_normalize`, `variant_pretty` |
+| `{"service":"api","status":200}` | Object |
+| `["cached","retry"]` | Array |
+| `42` | Integer |
+| `"api"` | String |
 
-`try_parse_json` accepts the same inputs as `parse_json`, but returns SQL NULL
-for invalid JSON values. Valid JSON null remains a Variant null. Register it
-with `TryParseJsonUdf::default()`. Both functions currently share Arrow's JSON
-parsing limitations, including decimal precision and duplicate-key handling.
+`parse_json` converts JSON text to the
+[Parquet Variant encoding](https://parquet.apache.org/docs/file-format/types/variantencoding/);
+`cast_to_variant` converts existing typed SQL values, including decimals.
 
-`to_json` serializes Variant values and is registered with
-`VariantToJsonUdf::default()`. Its SQL name replaces `variant_to_json` to match
-Spark; callers using the old SQL name must update their queries.
+Extract a field as a SQL type before filtering, aggregating, or joining on it.
+A missing field returns SQL NULL. A JSON `null` is a distinct Variant value:
+use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
 
-`schema_of_variant(v)` returns a SQL schema for each value, for example
-`OBJECT<a: BIGINT, b: ARRAY<STRING>>`. It merges types within arrays, preserves
-SQL NULL, and reports `VOID` for Variant null. It follows Spark's
-`schema_of_variant` inference rules. Arrow's JSON parser produces `DOUBLE`
-for fractional JSON numbers; use `cast_to_variant` with SQL decimals to retain
-decimal precision and scale. Register it with `SchemaOfVariantUdf::default()`.
+For background on the encoding and shredding, see
+[Variant Type in Apache Parquet for Semi-Structured Data](https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/).
 
-`schema_of_variant_agg(v)` merges schemas across rows, skipping SQL NULLs.
-Empty and all-null groups return `VOID`. It shares the scalar function's
-inference rules. Register it with
-`ctx.register_udaf(AggregateUDF::new_from_impl(SchemaOfVariantAggUdf::default()))`.
+## Cookbook
 
-`variant_get_json(v, 'a')` extracts a value and serializes it as JSON, including
-quotes around strings. It retains a direct extraction path that avoids the
-intermediate Variant array in `to_json(variant_get(v, 'a'))`.
+These recipes build on one another in a session with `register_all` installed.
+The first recipe creates the shared `events` table. The Parquet recipes write
+a local `events.parquet` file; choose a fresh output path when repeating them.
 
-`variant_get` and `try_variant_get` accept an optional **SQL type string literal**,
-such as `BIGINT`, `VARCHAR`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Types follow
-DataFusion SQL semantics exclusively: `INT8` (including `Int8`) means BIGINT;
-Arrow-only names such as `Int64` and `Utf8View` are rejected. `variant_get`
-raises an error on failed conversions; `try_variant_get` returns NULL for those
-values. Both return NULL for missing paths; invalid paths and type hints still
-raise errors. Use quoted bracket paths for
-literal field names, such as `variant_get(v, '["http.status"]')` for the
-key `http.status`.
-See [literal-key tests](tests/test_files/variant_get_literal_keys.slt) for
-examples and skipped cases awaiting an upstream Arrow path-parser fix.
+### Convert Variant back to JSON
 
-These expressions share the same extraction/conversion kernel:
+Create an `events` table, converting each JSON string to Variant. Skip this
+step if you already created the table in the quickstart:
 
 ```sql
-variant_get(v, 'price', 'DECIMAL(12,2)')
-CAST(variant_get(v, 'price') AS DECIMAL(12,2))
-v:price::DECIMAL(12,2)
+CREATE TABLE events AS
+SELECT parse_json(json_data) AS event
+FROM (VALUES
+    ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
+    ('{"service":"api","status":500,"latency_ms":85,"error":null}')
+) AS input(json_data);
 ```
 
-`TRY_CAST` uses the try-getter's conversion policy. Casts of already typed getters
-retain the intermediate conversion. With the current parser, group colon access
-on the right of arithmetic: `v:a::INT + (v:b::INT)`.
-
-Type strings use DataFusion's SQL cast planner during planning. The registration
-helper follows session type settings, including `SET` / `RESET`.
-
-`VARIANT` resolves to a struct with `metadata` and `value` binary-view fields and
-the `arrow.parquet.variant` extension metadata. Getter hints such as
-`variant_get(v, 'price', 'VARIANT')` and getter casts such as `v:price::VARIANT`
-use Arrow's native Variant target conversion.
-Use `cast_to_variant` and typed getters to convert to/from Variant columns;
-general SQL casts of those columns are not yet supported. Nested Variant getter
-targets are also unsupported.
-
-See the [Spark field-access tests](tests/test_files/spark_variant_field_extractions.slt)
-for remaining conversion and syntax gaps.
-
-## Examples
-
-The [CLI example](examples/cli.rs) loads a sample Bluesky JSON dataset
-into an in-memory table named `bsky` and registers Variant functions
-and `:` field access.
-
-From the repository root, download the sample data and choose option `1`:
-
-```sh
-bash download_data.sh
-```
-
-Start the CLI:
-
-```sh
-cargo run --example cli
-```
-
-Queries must end with a semicolon:
+Convert the Variant values back to JSON:
 
 ```sql
-SELECT to_json(parse_json(json_data))
-FROM bsky
-LIMIT 5;
+SELECT to_json(event) AS json_data
+FROM events
+ORDER BY event:status::BIGINT;
 ```
 
-Enter `quit` or `q` to exit. The example loads
-`data/bluesky/file_0001.json.gz` into memory before accepting queries.
-
-See [examples](examples) for the source code.
-
-## Benchmarks
-
-Run the extraction benchmarks:
-
-```sh
-cargo bench --bench variant_get
+```text
++------------------------------------------------------------------+
+| json_data                                                        |
++------------------------------------------------------------------+
+| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+| {"error":null,"latency_ms":85,"service":"api","status":500}      |
++------------------------------------------------------------------+
 ```
 
-The suite has four groups, each using 8,192 rows. The first three use literal paths:
+`to_json` returns JSON text. JSON formatting and object key order need not match
+the input text.
 
-- `output_types`: compares Variant output and explicit type hints
-  for integer, float, boolean, and string values at path `a` in unshredded objects.
-- `storage_layout`: extracts Variant output from identical two-field objects in
-  unshredded, fully shredded, and partially shredded layouts. The partial layout
-  shreds only sibling field `b`, leaving `a` in binary storage.
-- `path_traversal`: extracts the same integer as Variant from the same unshredded
-  documents via `top`, `obj.b.c`, `arr[1][1]`, and `mix[1].b`. The nested paths each
-  have three steps; `top` is a one-step control. Timing includes parsing the path
-  once per batch, per-row traversal, and output construction.
-- `path_columns`: compares a literal `a`, a UTF-8 column repeating `a`, and a
-  UTF-8 column alternating `a`/`b` over the same unshredded objects containing
-  positive integers at `a` and their negatives at `b`, with Variant output.
-  These call the UDF directly, exercising scalar versus array path dispatch
-  without SQL optimization. Path columns are constructed outside timing.
+> [!TIP]
+> JSON strings include quotes. Use `event:service::VARCHAR` for an unquoted SQL string.
 
-Run one group by filtering its name:
+### Store JSON as a Variant column in Parquet
 
-```sh
-cargo bench --bench variant_get -- output_types
-cargo bench --bench variant_get -- storage_layout
-cargo bench --bench variant_get -- path_traversal
-cargo bench --bench variant_get -- path_columns
+Save the Variant column with DataFusion's `COPY` statement:
+
+```sql
+COPY events TO 'events.parquet' STORED AS PARQUET;
 ```
 
-See [the benchmark source](benches/variant_get.rs) for the workloads.
-
-Run serialization benchmarks with `cargo bench --bench to_json`.
-They cover scalar SQL NULL, plus scalar inputs and 8,192-row arrays of integers,
-Variant nulls, escaped strings, and nested values, plus arrays with 25% and 100% SQL NULLs.
-The `storage_layout` groups compare identical integers and escaped strings in
-unshredded and typed-column storage, for both scalar and column inputs.
-Inputs are constructed before timing; measurements include UDF invocation,
-argument cloning, and output allocation/drop. Shredded objects
-are excluded until their reconstruction issues are fixed
-([#71](https://github.com/datafusion-contrib/datafusion-variant/issues/71)).
-See [the source](benches/to_json.rs).
-
-Run schema inference benchmarks with `cargo bench --bench schema_of_variant`.
-They cover scalar and array inputs, aggregate updates, state serialization, and
-partial-state merging, including nulls, nested values, widening, and shredded integers.
-Input construction and validation are outside timing.
-See [the source](benches/schema_of_variant.rs) for workloads and timing boundaries.
-
-To compare a change, save a baseline before making it, then rerun afterward:
-
-```sh
-# Before the change
-cargo bench --bench variant_get -- --save-baseline before
-
-# After the change
-cargo bench --bench variant_get -- --baseline before
+```text
++-------+
+| count |
++-------+
+| 2     |
++-------+
 ```
 
-Use the same machine and build settings, and preserve `target/criterion`
-between runs. Include relevant results when proposing performance changes.
+> [!WARNING]
+> **NOT YET IMPLEMENTED:** choosing between unshredded storage, an explicit
+> shredding schema, or automatic shredding when writing Parquet.
+> Shredding stores selected fields in typed
+> Parquet columns alongside the remaining Variant data.
+> The API and SQL syntax are TBD. A [DuckDB-style option](https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet)
+> could look like:
 
-Broader benchmark coverage is tracked in
-[#19](https://github.com/datafusion-contrib/datafusion-variant/issues/19).
-
-For realistic Parquet workloads, [JSONBench](benchmarks/jsonbench/README.md)
-prepares the original Bluesky data as unshredded, partially shredded, and
-query-field-shredded Variant. Its default run executes all five adapted queries
-against all three layouts, reusing prepared fixtures:
-
-```sh
-cargo run --release --example jsonbench -- prepare
-cargo run --release --example jsonbench -- run
+<!-- readme-test: skip: proposed shredding syntax is not implemented -->
+```sql
+-- Proposed syntax only; not yet supported.
+COPY events TO 'events.parquet' (
+    FORMAT parquet,
+    SHREDDING {'event': 'STRUCT(service VARCHAR, status BIGINT)'}
+);
 ```
+
+### Read Parquet and select fields
+
+Read `events.parquet` from the preceding recipe using both `variant_get` and
+SQL field-access syntax:
+
+```sql
+-- Preserve the schema information that identifies the Variant column.
+SET datafusion.execution.parquet.skip_metadata = false;
+CREATE EXTERNAL TABLE saved_events
+STORED AS PARQUET LOCATION 'events.parquet';
+
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       event:tags[0]::VARCHAR AS first_tag
+FROM saved_events
+ORDER BY event:status::BIGINT;
+```
+
+```text
++---------+-----------+
+| service | first_tag |
++---------+-----------+
+| api     | cached    |
+| api     |           |
++---------+-----------+
+```
+
+Array indices start at zero. An empty cell represents SQL NULL.
+
+> [!TIP]
+> `variant_get` raises an error if a value cannot be converted to the requested
+> type. Use `try_variant_get` or `TRY_CAST` to return SQL NULL instead.
+
+> [!WARNING]
+> **NOT YET IMPLEMENTED:** reading a mixture of shredded and unshredded files
+> as one table. See the [upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
+> for schema adaptation and extension metadata preservation work.
+
+### Discover fields and distinguish nulls
+
+```sql
+SELECT schema_of_variant_agg(event) AS schema FROM saved_events;
+```
+
+```text
++-----------------------------------------------------------------------------------------------+
+| schema                                                                                        |
++-----------------------------------------------------------------------------------------------+
+| OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
++-----------------------------------------------------------------------------------------------+
+```
+
+Use `schema_of_variant(event)` for a schema per row.
+
+```sql
+SELECT event:status::BIGINT AS status,
+       variant_contains(event, 'error') AS has_error,
+       is_variant_null(event:error) AS error_is_json_null,
+       (event:error) IS NULL AS error_is_sql_null
+FROM saved_events
+ORDER BY status;
+```
+
+```text
++--------+-----------+--------------------+-------------------+
+| status | has_error | error_is_json_null | error_is_sql_null |
++--------+-----------+--------------------+-------------------+
+| 200    | false     | false              | true              |
+| 500    | true      | true               | false             |
++--------+-----------+--------------------+-------------------+
+```
+
+## Functions
+
+Links lead to executable SQL examples, or Rust tests for `variant_normalize`.
+See [function behavior and SQL compatibility](https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md)
+for conversion rules, SQL `VARIANT` type registration, and known limitations.
+
+| Area | Functions and examples |
+| --- | --- |
+| JSON conversion | [`parse_json`, `try_parse_json`, `to_json`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt), [`variant_get_json`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_json.slt) |
+| Type conversion | [`cast_to_variant`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/cast_to_variant.slt) |
+| Field and path access | [`variant_get`, `try_variant_get`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get.slt), [`variant_contains`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_contains.slt) |
+| Null inspection | [`is_variant_null`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_variant_null.slt) |
+| Schema inference | [`schema_of_variant`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt), [`schema_of_variant_agg`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant_agg.slt) |
+| Objects | [`variant_object_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_construct.slt), [`variant_object_keys`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_keys.slt), [`variant_object_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_insert.slt), [`variant_object_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_delete.slt) |
+| Arrays | [`variant_list_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt), [`variant_list_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt), [`variant_list_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt) |
+| Utilities | [`variant_normalize`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs), [`variant_pretty`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt) |
+
+## More examples and benchmarks
+
+The [interactive CLI](https://github.com/datafusion-contrib/datafusion-variant/blob/main/examples/cli.rs)
+loads Bluesky JSON into a `bsky(json_data)` table. Run `bash download_data.sh`,
+then `cargo run --example cli`. Queries end with a semicolon;
+enter `q` or `quit` to exit. Use `parse_json(json_data)` to query these strings
+with the Variant functions.
+
+See the [benchmark guide](https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md)
+for extraction, parsing, serialization, schema inference, and JSONBench workloads,
+including baseline comparison commands.
 
 ## Contributing
 
@@ -275,6 +317,8 @@ cargo test
 cargo fmt --all -- --check
 cargo clippy -- -D warnings
 ```
+
+`cargo test` also checks this README's Rust example and SQL results.
 
 For Spark compatibility changes, reference the upstream behavior and add
 regression coverage in the [SQL tests](tests/test_files).
