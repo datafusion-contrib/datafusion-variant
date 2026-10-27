@@ -1,0 +1,71 @@
+# Arrow-specific conversion inputs; Spark semantics are in spark_variant_conversions.slt.
+
+# TODO: enable UUID SQL syntax (https://github.com/apache/datafusion/pull/21714)
+# and preserve UUID input metadata during conversion (https://github.com/apache/arrow-rs/issues/11937).
+# UUID becomes Variant UUID; unannotated FSB16 must remain Variant binary.
+skipif DataFusion
+query T
+SELECT schema_of_variant(CAST(CAST(X'01010101010101010101010101010101' AS UUID) AS VARIANT));
+----
+UUID
+
+# Arrow storage layouts accepted by the SQL conversion validator. Spark scalar
+# types and numeric batch conversion are covered in spark_variant_conversions.slt.
+query ITTT rowsort
+SELECT id, to_json(CAST(arrow_cast(s, 'Utf8') AS VARIANT)),
+       to_json(CAST(arrow_cast(s, 'Utf8View') AS VARIANT)),
+       to_json(CAST(arrow_cast(s, 'LargeUtf8') AS VARIANT))
+FROM (VALUES (1, 'hello'), (2, NULL)) AS t(id, s);
+----
+1 "hello" "hello" "hello"
+2 NULL NULL NULL
+
+# Unannotated FSB16 remains binary; the UUID extension case above is pending.
+query ITTTT rowsort
+SELECT id, to_json(CAST(arrow_cast(b, 'Binary') AS VARIANT)),
+       to_json(CAST(arrow_cast(b, 'LargeBinary') AS VARIANT)),
+       to_json(CAST(arrow_cast(b, 'BinaryView') AS VARIANT)),
+       to_json(CAST(arrow_cast(b, 'FixedSizeBinary(16)') AS VARIANT))
+FROM (VALUES (1, X'01010101010101010101010101010101'), (2, NULL)) AS t(id, b);
+----
+1 "AQEBAQEBAQEBAQEBAQEBAQ==" "AQEBAQEBAQEBAQEBAQEBAQ==" "AQEBAQEBAQEBAQEBAQEBAQ==" "AQEBAQEBAQEBAQEBAQEBAQ=="
+2 NULL NULL NULL NULL
+
+# Float16 has no Spark SQL equivalent; other scalar primitives are covered by
+# spark_variant_conversions.slt, and string storage layouts by the batch above.
+query T
+SELECT variant_pretty(CAST(arrow_cast(1.5, 'Float16') AS VARIANT));
+----
+Float(1.5)
+
+# Unsigned integers and narrow decimals have no Spark SQL equivalent.
+query TTT
+SELECT to_json(CAST(arrow_cast(64, 'UInt64') AS VARIANT)),
+       to_json(CAST(arrow_cast(123.45, 'Decimal32(9,2)') AS VARIANT)),
+       to_json(CAST(arrow_cast(123.45, 'Decimal64(18,2)') AS VARIANT));
+----
+64 123.45 123.45
+
+# Date32 and timestamps are covered by Spark/schema tests; Arrow tests own unit
+# scaling. Retain the additional Date64/Time32/Time64 input families here.
+query TTT
+SELECT variant_pretty(CAST(arrow_cast('2024-01-02', 'Date64') AS VARIANT)),
+       variant_pretty(CAST(arrow_cast('01:02:03', 'Time32(Second)') AS VARIANT)),
+       variant_pretty(CAST(arrow_cast('01:02:03.123456789', 'Time64(Nanosecond)') AS VARIANT));
+----
+Date(2024-01-02) Time(01:02:03) Time(01:02:03.123456)
+
+# Additional list layouts beyond Spark's ordinary arrays.
+query TT
+SELECT to_json(CAST(arrow_cast([1, 2], 'LargeList(Int64)') AS VARIANT)),
+       to_json(CAST(arrow_cast([1, 2], 'FixedSizeList(2, Int64)') AS VARIANT));
+----
+[1,2] [1,2]
+
+# Dictionary encoding is an Arrow-specific input layout.
+query T
+SELECT variant_pretty(CAST(arrow_cast('foo', 'Dictionary(Int32, Utf8)') AS VARIANT));
+----
+ShortString(ShortString("foo"))
+
+# TODO: ListView / LargeListView inputs (DataFusion SQL cannot construct these scalar inputs here).

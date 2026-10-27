@@ -35,7 +35,7 @@ Variant null has schema `VOID`. Object fields are sorted by name. Array element
 schemas are merged, widening compatible types and using `VARIANT` for incompatible types.
 
 Fractional numbers parsed by `parse_json` have schema `DOUBLE`, unlike Spark's
-decimal inference. Use `cast_to_variant` with SQL decimal inputs to preserve decimal types.",
+decimal inference. Use `CAST(decimal_value AS VARIANT)` to preserve decimal types.",
     syntax_example = "schema_of_variant(value)",
     sql_example = r#"```sql
 > SELECT schema_of_variant(parse_json('null')) AS schema;
@@ -124,7 +124,7 @@ Object fields are merged by name and sorted in the output. Array element schemas
 are merged using the same rules.
 
 Fractional numbers parsed by `parse_json` contribute `DOUBLE`, unlike Spark's
-decimal inference. Use `cast_to_variant` with SQL decimal inputs to preserve decimal types.",
+decimal inference. Use `CAST(decimal_value AS VARIANT)` to preserve decimal types.",
     syntax_example = "schema_of_variant_agg(value)",
     sql_example = r#"```sql
 > SELECT schema_of_variant_agg(parse_json(j)) AS schema FROM (VALUES ('1'), ('2'), ('3')) AS t(j);
@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn binary_layouts_and_unknown_primitive() {
         // Spark VariantExpressionSuite: unknown primitive id 25. Build the raw
-        // storage directly so cast_to_variant does not reject it before this UDF.
+        // storage directly to exercise this UDF's malformed-input handling.
         for bytes in [&[0][..], &[25 << 2][..]] {
             let values: Vec<ArrayRef> = vec![
                 Arc::new(BinaryArray::from(vec![bytes])),

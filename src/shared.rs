@@ -55,20 +55,6 @@ pub fn try_parse_variant_scalar(scalar: &ScalarValue) -> Result<VariantArray> {
     VariantArray::try_new(v.as_ref()).map_err(Into::into)
 }
 
-pub fn try_parse_binary_scalar(scalar: &ScalarValue) -> Result<Option<&Vec<u8>>> {
-    let b = match scalar {
-        ScalarValue::Binary(b) | ScalarValue::BinaryView(b) | ScalarValue::LargeBinary(b) => b,
-        unsupported => {
-            return exec_err!(
-                "expected binary scalar value, got data type: {}",
-                unsupported.data_type()
-            );
-        }
-    };
-
-    Ok(b.as_ref())
-}
-
 pub fn try_parse_binary_columnar(array: &Arc<dyn Array>) -> Result<Vec<Option<&[u8]>>> {
     if let Some(binary_array) = array.as_binary_opt::<i32>() {
         return Ok(binary_array.into_iter().collect::<Vec<_>>());

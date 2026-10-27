@@ -103,6 +103,7 @@ SELECT id, variant_get(v, 'a', 'VARIANT') AS got FROM shredded_null_objects;
 # TODO(#71, arrow-rs): Native Variant-target extraction loses the distinction
 # between missing paths and Variant null in shredded input. Keep parity pending
 # an upstream fix; do not normalize the kernel output locally.
+# https://github.com/apache/arrow-rs/pull/11504
 skipif DataFusion
 query B
 SELECT bool_and(to_json(got) IS NOT DISTINCT FROM
@@ -114,6 +115,7 @@ true
 # TODO(#71, arrow-rs): Native Variant-target extraction loses the distinction
 # between missing paths and Variant null in shredded input. Keep parity pending
 # an upstream fix; do not normalize the kernel output locally.
+# https://github.com/apache/arrow-rs/pull/11052
 skipif DataFusion
 query BB
 SELECT bool_and(to_json(variant_get(v, '[0]', 'VARIANT')) IS NOT DISTINCT FROM
@@ -124,24 +126,44 @@ FROM shredded_null_lists;
 ----
 true true
 
-# Binary and LargeBinary inputs must match the declared BinaryView output schema.
-# TODO(#71, arrow-rs): Variant targets retain input binary widths instead of
-# honoring the requested storage schema. Do not cast the kernel result locally.
+# Identity casts preserve a stored Variant's actual representation.
+query BBBB
+SELECT to_json(CAST(b AS VARIANT)) = to_json(b),
+       to_json(TRY_CAST(l AS VARIANT)) = to_json(l),
+       arrow_typeof(CAST(b AS VARIANT)) = arrow_typeof(b),
+       arrow_typeof(TRY_CAST(l AS VARIANT)) = arrow_typeof(l)
+FROM binary_variant_inputs WHERE b IS NOT NULL;
+----
+true true true true
+
+statement ok
+CREATE TABLE shredded_identity_casts AS
+SELECT v, CAST(v AS VARIANT) AS copied, TRY_CAST(v AS VARIANT) AS safe
+FROM shredded_null_objects;
+
+query BBB
+SELECT bool_and(copied.typed_value IS NOT DISTINCT FROM v.typed_value),
+       bool_and(copied IS NULL = (v IS NULL)),
+       bool_and(arrow_typeof(safe) = arrow_typeof(v)) FROM shredded_identity_casts;
+----
+true true true
+
+# Getters may return any valid Variant binary storage layout.
+# TODO(#71): align the UDF's declared physical schema with the kernel result
+# so Binary and LargeBinary inputs can be materialized. BinaryView is a preference.
 skipif DataFusion
 statement ok
 CREATE TABLE binary_variant_results AS
 SELECT variant_get(b, '', 'VARIANT') AS b,
        CAST(variant_get(l, '') AS VARIANT) AS l FROM binary_variant_inputs;
 
-# TODO(#71, arrow-rs): Enable with binary_variant_results once target widths are honored.
+# TODO(#71): Enable with binary_variant_results once the UDF schema matches its output.
 skipif DataFusion
-query BBTT rowsort
-SELECT arrow_typeof(b) = arrow_typeof(CAST(NULL AS VARIANT)),
-       arrow_typeof(l) = arrow_typeof(CAST(NULL AS VARIANT)),
-       to_json(b), to_json(l) FROM binary_variant_results;
+query TT rowsort
+SELECT to_json(b), to_json(l) FROM binary_variant_results;
 ----
-true true NULL NULL
-true true {"x":7} {"x":7}
+NULL NULL
+{"x":7} {"x":7}
 
 # This is type registration, not a new permissive parser for custom type names.
 statement error (?i)VARIANT does not accept type parameters

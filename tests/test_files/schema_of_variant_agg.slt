@@ -182,16 +182,16 @@ FROM schema_agg_groups WHERE id < 3 ORDER BY id;
 # Decimal widening must preserve precision/scale across partial states.
 query T
 SELECT schema_of_variant_agg(v) FROM (
-  SELECT cast_to_variant(CAST('123.456' AS DECIMAL(6,3))) AS v
-  UNION ALL SELECT cast_to_variant(1::BIGINT)
+  SELECT CAST(CAST('123.456' AS DECIMAL(6,3)) AS VARIANT) AS v
+  UNION ALL SELECT CAST(1::BIGINT AS VARIANT)
 ) AS t;
 ----
 DECIMAL(23,3)
 
 query T
 SELECT schema_of_variant_agg(v) FROM (
-  SELECT cast_to_variant(CAST('99999999999999999999999999999999999999' AS DECIMAL(38,0))) AS v
-  UNION ALL SELECT cast_to_variant(CAST('0.1' AS DECIMAL(1,1)))
+  SELECT CAST(CAST('99999999999999999999999999999999999999' AS DECIMAL(38,0)) AS VARIANT) AS v
+  UNION ALL SELECT CAST(CAST('0.1' AS DECIMAL(1,1)) AS VARIANT)
 ) AS t;
 ----
 DOUBLE
@@ -225,24 +225,24 @@ SELECT schema_of_variant_agg(named_struct('metadata', X'010000', 'value', X'00')
 # JsonInferSchema.compatibleType at the Spark revision pinned above.
 query T
 SELECT schema_of_variant_agg(v) FROM (
-  SELECT cast_to_variant(CAST(1.2 AS DECIMAL(4,1))) AS v
-  UNION ALL SELECT cast_to_variant(CAST(12.345 AS DECIMAL(8,3)))
+  SELECT CAST(CAST(1.2 AS DECIMAL(4,1)) AS VARIANT) AS v
+  UNION ALL SELECT CAST(CAST(12.345 AS DECIMAL(8,3)) AS VARIANT)
 ) AS t;
 ----
 DECIMAL(5,3)
 
 query T
 SELECT schema_of_variant_agg(v) FROM (
-  SELECT cast_to_variant(CAST(1.2 AS DECIMAL(4,1))) AS v
-  UNION ALL SELECT cast_to_variant(2.5::REAL)
+  SELECT CAST(CAST(1.2 AS DECIMAL(4,1)) AS VARIANT) AS v
+  UNION ALL SELECT CAST(2.5::REAL AS VARIANT)
 ) AS t;
 ----
 DOUBLE
 
 query T
 SELECT schema_of_variant_agg(v) FROM (
-  SELECT cast_to_variant(DATE '1990-01-01') AS v
-  UNION ALL SELECT cast_to_variant(CAST('2015-05-14 00:00:00' AS TIMESTAMP))
+  SELECT CAST(DATE '1990-01-01' AS VARIANT) AS v
+  UNION ALL SELECT CAST(CAST('2015-05-14 00:00:00' AS TIMESTAMP) AS VARIANT)
 ) AS t;
 ----
 TIMESTAMP_NTZ

@@ -7,7 +7,6 @@ struct ReadmeDoctests;
 mod shared;
 mod sql_type;
 
-mod cast_to_variant;
 mod expr_planner;
 mod impl_variant_get;
 mod is_variant_null;
@@ -15,6 +14,7 @@ mod parse_json;
 mod schema_of_variant;
 mod to_json;
 mod variant_contains;
+mod variant_conversion;
 mod variant_get;
 mod variant_get_rewrite;
 mod variant_list_construct;
@@ -28,13 +28,13 @@ mod variant_object_keys;
 mod variant_pretty;
 mod variant_type;
 
-pub use cast_to_variant::*;
 pub use expr_planner::*;
 pub use is_variant_null::*;
 pub use parse_json::*;
 pub use schema_of_variant::*;
 pub use to_json::*;
 pub use variant_contains::*;
+pub use variant_conversion::*;
 pub use variant_get::*;
 pub use variant_get_rewrite::*;
 pub use variant_list_construct::*;
@@ -48,7 +48,7 @@ pub use variant_object_keys::*;
 pub use variant_pretty::*;
 pub use variant_type::*;
 
-/// Register all Variant scalar and aggregate functions, getter cast rewrites,
+/// Register all Variant scalar and aggregate functions, cast rewrites,
 /// and `:` field access. Existing functions with the same names are replaced.
 ///
 /// For SQL `VARIANT` type syntax, also install [`VariantTypePlanner`] using
@@ -64,7 +64,6 @@ pub fn register_all(
         ScalarUDF::new_from_impl(ParseJsonUdf::default()),
         ScalarUDF::new_from_impl(TryParseJsonUdf::default()),
         ScalarUDF::new_from_impl(VariantToJsonUdf::default()),
-        ScalarUDF::new_from_impl(CastToVariantUdf::default()),
         ScalarUDF::new_from_impl(IsVariantNullUdf::default()),
         ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()),
         ScalarUDF::new_from_impl(VariantContainsUdf::default()),
@@ -85,5 +84,6 @@ pub fn register_all(
         SchemaOfVariantAggUdf::default(),
     )))?;
     register_variant_get_functions(ctx)?;
+    register_variant_conversion_functions(ctx)?;
     ctx.register_expr_planner(Arc::new(VariantExprPlanner))
 }
