@@ -9,8 +9,7 @@ Compatibility is incomplete, and APIs may change. See the
 
 ## Quick start
 
-The [quickstart example](https://github.com/datafusion-contrib/datafusion-variant/blob/main/examples/quickstart.rs)
-creates a Variant column from JSON, then filters events by a field inside each
+Create a Variant column from JSON, then filter events by a field inside each
 document.
 
 ### 1. Install Variant
@@ -94,15 +93,6 @@ Both forms return the same result. Display it with
 +---------+------------+
 | api     | 85         |
 +---------+------------+
-```
-
-### Run the complete example
-
-Run the example from a checkout; it also writes and reads Parquet and
-runs the recipes below, without downloading data:
-
-```sh
-cargo run --example quickstart
 ```
 
 ## What is Variant?
@@ -298,8 +288,8 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 ## More examples and benchmarks
 
 The [interactive CLI](https://github.com/datafusion-contrib/datafusion-variant/blob/main/examples/cli.rs)
-loads Bluesky JSON into a `bsky(json_data)` table. Run `bash download_data.sh`
-(choose option `1`), then `cargo run --example cli`. Queries end with a semicolon;
+loads Bluesky JSON into a `bsky(json_data)` table. Run `bash download_data.sh`,
+then `cargo run --example cli`. Queries end with a semicolon;
 enter `q` or `quit` to exit. Use `parse_json(json_data)` to query these strings
 with the Variant functions.
 
