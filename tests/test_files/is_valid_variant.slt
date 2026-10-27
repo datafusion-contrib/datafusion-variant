@@ -1,0 +1,181 @@
+# Ported from Apache Spark at 0aa4f9136bccc40856a5af688e3d16f8b38ebfc4:
+# SQL examples and Boolean return type:
+# https://github.com/apache/spark/blob/0aa4f9136bccc40856a5af688e3d16f8b38ebfc4/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
+# Primitive/container and SQL NULL cases from test("is_valid_variant"):
+# https://github.com/apache/spark/blob/0aa4f9136bccc40856a5af688e3d16f8b38ebfc4/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionSuite.scala
+# Malformed storage below uses a Rust fixture in tests/sqllogictests.rs.
+# Expectations were verified from Spark source/tests, not by running Spark.
+
+query BB
+SELECT is_valid_variant(parse_json('null')),
+       is_valid_variant(parse_json('[{"b":true,"a":0}]'));
+----
+true true
+
+# Adapt the valid primitive/container matrix into SQL, exercising batch execution.
+statement ok
+CREATE TABLE valid_variants AS
+SELECT id, parse_json(json) AS v FROM (VALUES
+  (1, CAST(NULL AS VARCHAR)),
+  (2, 'null'),
+  (3, 'true'),
+  (4, 'false'),
+  (5, '1'),
+  (6, '32768'),
+  (7, '2147483648'),
+  (8, '1.25'),
+  (9, '1e100'),
+  (10, '"abc"'),
+  (11, '[true,false]'),
+  (12, '[]'),
+  (13, '{"a":1,"b":2}'),
+  (14, '{}'),
+  (15, '[{"a":[null,{"b":true}]}]')
+) AS t(id, json);
+
+query IBB
+SELECT id, is_valid_variant(v), is_variant_null(v) FROM valid_variants ORDER BY id;
+----
+1 NULL false
+2 true true
+3 true false
+4 true false
+5 true false
+6 true false
+7 true false
+8 true false
+9 true false
+10 true false
+11 true false
+12 true false
+13 true false
+14 true false
+15 true false
+
+# Non-JSON primitive encodings covered by Spark's raw-byte tests.
+query BBBBB
+SELECT is_valid_variant(CAST(CAST(1.25 AS REAL) AS VARIANT)) AS float_value,
+       is_valid_variant(CAST(DATE '2026-10-23' AS VARIANT)),
+       is_valid_variant(CAST(TIMESTAMP '2026-10-23 12:00:00' AS VARIANT)),
+       is_valid_variant(CAST(X'0102' AS VARIANT)),
+       is_valid_variant(CAST(CAST(1.25 AS DECIMAL(38,2)) AS VARIANT)) AS decimal_value;
+----
+true true true true true
+
+query BBBB
+SELECT is_valid_variant(NULL) AS untyped_null,
+       is_valid_variant(CAST(NULL AS VARIANT)) AS typed_null,
+       is_valid_variant(try_parse_json('{')),
+       is_valid_variant(variant_get(parse_json('{"a":null}'), 'missing'));
+----
+NULL NULL NULL NULL
+
+query B
+SELECT is_valid_variant(variant_get(parse_json('{"a":null}'), 'a'));
+----
+true
+
+statement ok
+CREATE TABLE untyped_null_inputs AS SELECT NULL AS v FROM (VALUES (1), (2)) AS t(id);
+
+query B
+SELECT is_valid_variant(v) FROM untyped_null_inputs;
+----
+NULL
+NULL
+
+# DataFusion-specific storage representations, using existing shared fixtures.
+query BB rowsort
+SELECT is_valid_variant(b), is_valid_variant(l) FROM binary_variant_inputs;
+----
+NULL NULL
+true true
+
+query IBB
+SELECT id, is_valid_variant(v), is_valid_variant(original)
+FROM shredded_null_objects ORDER BY id;
+----
+1 NULL NULL
+2 true true
+3 true true
+4 true true
+5 true true
+6 true true
+7 true true
+
+query IBB
+SELECT id, is_valid_variant(v), is_valid_variant(original)
+FROM shredded_null_lists ORDER BY id;
+----
+1 NULL NULL
+2 true true
+3 true true
+4 true true
+5 true true
+6 true true
+7 true true
+
+# Representative malformed cases from Spark's suite: empty payload and nested
+# truncation. Rows 3/4 document Arrow's stricter metadata/UTF-8 validation.
+# Local integration cases: missing representation, valid raw value, masked bytes.
+query IB
+SELECT id, is_valid_variant(raw) FROM variant_validation_inputs ORDER BY id;
+----
+1 false
+2 false
+3 false
+4 false
+5 true
+6 true
+7 NULL
+
+# A Null typed_value preserves raw validation, fallback, and outer SQL NULL.
+query IB
+SELECT id, is_valid_variant(null_typed)
+FROM variant_validation_inputs WHERE id IN (1, 5, 6, 7) ORDER BY id;
+----
+1 false
+5 true
+6 true
+7 NULL
+
+# Reconstruction errors stay row-local; a typed value succeeds, conflicting
+# representations fail, and SQL NULL still masks malformed storage.
+query IB
+SELECT id, is_valid_variant(shredded)
+FROM variant_validation_inputs WHERE id IN (1, 5, 6, 7) ORDER BY id;
+----
+1 false
+5 true
+6 false
+7 NULL
+
+# Arrow also accepts the time primitive, which the pinned Spark rejects.
+query B
+SELECT is_valid_variant(CAST(arrow_cast('12:34:56', 'Time64(Microsecond)') AS VARIANT));
+----
+true
+
+query T
+SELECT arrow_typeof(is_valid_variant(parse_json('null')));
+----
+Boolean
+
+# ExpectsInputTypes(VariantType): no coercion of strings, numbers, or bare structs.
+statement error field does not have extension type VariantType
+SELECT is_valid_variant('null');
+
+statement error field does not have extension type VariantType
+SELECT is_valid_variant(1);
+
+statement error field does not have extension type VariantType
+SELECT is_valid_variant(CAST(NULL AS VARCHAR));
+
+statement error field does not have extension type VariantType
+SELECT is_valid_variant(named_struct('value', X'00', 'metadata', X'010000'));
+
+statement error is_valid_variant
+SELECT is_valid_variant();
+
+statement error is_valid_variant
+SELECT is_valid_variant(parse_json('null'), parse_json('null'));

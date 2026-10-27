@@ -1,13 +1,19 @@
-use arrow::array::{Array, ArrayRef, Int32Array, StringArray};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::array::{
+    Array, ArrayRef, BinaryViewArray, Int32Array, Int64Array, StringArray, StructArray,
+    new_null_array,
+};
+use arrow::buffer::NullBuffer;
+use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use arrow::record_batch::RecordBatch;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::*;
 use datafusion_sqllogictest::{DataFusion, TestContext};
 use datafusion_variant::{VariantTypePlanner, register_all};
 use indicatif::ProgressBar;
-use parquet_variant::{Uuid, Variant, VariantBuilderExt};
-use parquet_variant_compute::{VariantArrayBuilder, VariantType, json_to_variant, shred_variant};
+use parquet_variant::{EMPTY_VARIANT_METADATA_BYTES, Uuid, Variant, VariantBuilderExt};
+use parquet_variant_compute::{
+    VariantArray, VariantArrayBuilder, VariantType, json_to_variant, shred_variant,
+};
 use sqllogictest::strict_column_validator;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -59,6 +65,52 @@ fn register_binary_variant_fixture(ctx: &SessionContext) -> datafusion::error::R
     Ok(())
 }
 
+// SQL constructors only produce valid Variants. Supply raw storage here and assert
+// UDF behavior in is_valid_variant.slt; Arrow owns exhaustive decoder coverage.
+fn register_variant_validation_fixture(ctx: &SessionContext) -> datafusion::error::Result<()> {
+    let empty = EMPTY_VARIANT_METADATA_BYTES;
+    // metadata, encoded value, typed value, outer validity
+    let rows = [
+        (empty, Some(&[][..]), None, true),              // Empty payload.
+        (empty, Some(&[3, 1, 0, 2, 24, 0]), None, true), // Nested truncation.
+        (&[1], Some(&[0]), None, true),                  // Malformed metadata.
+        (empty, Some(&[5, 255]), None, true),            // Invalid UTF-8.
+        (empty, None, Some(3), true),                    // Missing raw / present typed value.
+        (empty, Some(&[12, 1]), Some(4), true),          // Conflicting representations.
+        (&[], Some(&[]), None, false),                   // SQL NULL masks malformed storage.
+    ];
+    let metadata: ArrayRef = Arc::new(BinaryViewArray::from_iter_values(rows.iter().map(|r| r.0)));
+    let value: ArrayRef = Arc::new(BinaryViewArray::from_iter(rows.iter().map(|r| r.1)));
+    let typed: ArrayRef = Arc::new(Int64Array::from_iter(rows.iter().map(|r| r.2)));
+    let nulls: NullBuffer = rows.iter().map(|r| r.3).collect();
+    let mut columns: Vec<(FieldRef, ArrayRef)> = vec![(
+        Arc::new(Field::new("id", DataType::Int32, false)),
+        Arc::new(Int32Array::from_iter_values(1..=rows.len() as i32)),
+    )];
+    for (name, typed) in [
+        ("raw", None),
+        (
+            "null_typed",
+            Some(new_null_array(&DataType::Null, rows.len())),
+        ),
+        ("shredded", Some(typed)),
+    ] {
+        let mut children = vec![("metadata", metadata.clone()), ("value", value.clone())];
+        if let Some(typed) = typed {
+            children.push(("typed_value", typed));
+        }
+        let (child_fields, children, _) = StructArray::try_from(children)?.into_parts();
+        let array = StructArray::new(child_fields, children, Some(nulls.clone()));
+        let variant = VariantArray::try_new(&array)?;
+        columns.push((Arc::new(variant.field(name)), Arc::new(array)));
+    }
+    ctx.register_batch(
+        "variant_validation_inputs",
+        RecordBatch::from(StructArray::from(columns)),
+    )?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -100,7 +152,13 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         register_all(&mut ctx)?;
 
-        if relative_path == Path::new("variant_sql_type.slt") {
+        if relative_path == Path::new("is_valid_variant.slt") {
+            register_variant_validation_fixture(&ctx)?;
+        }
+
+        if relative_path == Path::new("variant_sql_type.slt")
+            || relative_path == Path::new("is_valid_variant.slt")
+        {
             register_binary_variant_fixture(&ctx)?;
         }
 
@@ -133,7 +191,8 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
 
-        if relative_path == Path::new("is_variant_null.slt")
+        if relative_path == Path::new("is_valid_variant.slt")
+            || relative_path == Path::new("is_variant_null.slt")
             || relative_path == Path::new("variant_sql_type.slt")
         {
             register_shredded_null_fixture(

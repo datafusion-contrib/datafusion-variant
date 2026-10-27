@@ -31,6 +31,9 @@ then pass them to `ctx.register_udf` or `ctx.register_udaf`. Use
 
 ## Function behavior
 
+`is_valid_variant(v)` validates values using [Arrow's rules](../src/is_valid_variant.rs).
+SQL NULL propagates; Variant null is valid.
+
 `try_parse_json` accepts the same inputs as `parse_json`, but returns SQL NULL
 for invalid JSON values. Valid JSON null remains a Variant null.
 Both functions currently share Arrow's JSON
