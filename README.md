@@ -6,7 +6,7 @@ such data to [Apache Parquet] files.
 
 This crate is under active development and targets Apache Spark Variant behavior.
 Compatibility is incomplete, and APIs may change. See the
-[roadmap](https://github.com/datafusion-contrib/datafusion-variant/issues/69).
+[roadmap][roadmap].
 
 ## Quick start
 
@@ -198,7 +198,7 @@ ORDER BY event:status::BIGINT;
 
 A Variant column can hold objects, arrays, and primitive values, with different
 fields and types in each row. Think of it as a
-[tagged union](https://arrow.apache.org/docs/format/Columnar.html#union-layout):
+[tagged union][arrow-union-layout]:
 each value has a type, and different rows can hold different types.
 
 For example, a single Variant column can contain all of these values, shown as JSON:
@@ -211,19 +211,19 @@ For example, a single Variant column can contain all of these values, shown as J
 | `"api"` | String |
 
 `parse_json` converts JSON text to the
-[Parquet Variant encoding](https://parquet.apache.org/docs/file-format/types/variantencoding/);
+[Parquet Variant encoding][parquet-variant-encoding];
 `CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals;
 `to_variant_object(value)` also accepts structs and string-keyed maps.
 `CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST` returning
 SQL NULL for failed conversions.
-SQL `VARIANT` type syntax requires the [type planner](docs/functions.md#registration).
+SQL `VARIANT` type syntax requires the [type planner][functions-registration].
 
 Extract a field as a SQL type before filtering, aggregating, or joining on it.
 A missing field returns SQL NULL. A JSON `null` is a distinct Variant value:
 use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
 
 For background on the encoding and shredding, see
-[Variant Type in Apache Parquet for Semi-Structured Data](https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/).
+[Variant Type in Apache Parquet for Semi-Structured Data][parquet-variant-blog].
 
 ## 🚧 Work in Progress 🚧
 
@@ -235,7 +235,7 @@ These features are not yet implemented:
 > shredding schema, or automatic shredding when writing Parquet.
 > Shredding stores selected fields in typed
 > Parquet columns alongside the remaining Variant data.
-> The API and SQL syntax are TBD. A [DuckDB-style option](https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet)
+> The API and SQL syntax are TBD. A [DuckDB-style option][duckdb-variant-parquet]
 > could look like:
 
 <!-- readme-test: skip: proposed shredding syntax is not implemented -->
@@ -251,7 +251,7 @@ COPY events TO 'events.parquet' (
 
 > [!WARNING]
 > **NOT YET IMPLEMENTED:** reading a mixture of shredded and unshredded files
-> as one table. See the [upstream Variant integration epic](https://github.com/apache/datafusion/issues/26517)
+> as one table. See the [upstream Variant integration epic][datafusion-variant-epic]
 > for schema adaptation and extension metadata preservation work.
 
 ### Discover fields and distinguish nulls
@@ -291,29 +291,23 @@ ORDER BY status;
 ## Functions
 
 Links lead to executable SQL examples, or Rust tests for `variant_normalize`.
-See [function behavior and SQL compatibility](https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md)
+See [function behavior and SQL compatibility][functions-doc]
 for conversion rules, SQL `VARIANT` type registration, and known limitations.
 
 | Area | Functions and examples |
 | --- | --- |
-| JSON conversion | [`parse_json`, `try_parse_json`, `to_json`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt), [`variant_get_json`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_json.slt) |
-| Type conversion | [`CAST` / `TRY_CAST` to VARIANT, `to_variant_object`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_conversions.slt) |
-| Field and path access | [`variant_get`, `try_variant_get`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get.slt), [`variant_contains`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_contains.slt) |
-| Validation and null inspection | [`is_valid_variant`](tests/test_files/is_valid_variant.slt), [`is_variant_null`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_variant_null.slt) |
-| Schema inference | [`schema_of_variant`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt), [`schema_of_variant_agg`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant_agg.slt) |
-| Objects | [`variant_object_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_construct.slt), [`variant_object_keys`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_keys.slt), [`variant_object_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_insert.slt), [`variant_object_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_delete.slt) |
-| Arrays | [`variant_list_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt), [`variant_list_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt), [`variant_list_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt) |
-| Utilities | [`variant_normalize`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs), [`variant_pretty`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt) |
+| JSON conversion | [`parse_json`, `try_parse_json`, `to_json`][parse-json-slt], [`variant_get_json`][variant-get-json-slt] |
+| Type conversion | [`CAST` / `TRY_CAST` to VARIANT, `to_variant_object`][spark-variant-conversions-slt] |
+| Field and path access | [`variant_get`, `try_variant_get`][variant-get-slt], [`variant_contains`][variant-contains-slt] |
+| Validation and null inspection | [`is_valid_variant`][is-valid-variant-slt], [`is_variant_null`][is-variant-null-slt] |
+| Schema inference | [`schema_of_variant`][schema-of-variant-slt], [`schema_of_variant_agg`][schema-of-variant-agg-slt] |
+| Objects | [`variant_object_construct`][variant-object-construct-slt], [`variant_object_keys`][variant-object-keys-slt], [`variant_object_insert`][variant-object-insert-slt], [`variant_object_delete`][variant-object-delete-slt] |
+| Arrays | [`variant_list_construct`][variant-list-construct-slt], [`variant_list_insert`][variant-list-insert-slt], [`variant_list_delete`][variant-list-delete-slt] |
+| Utilities | [`variant_normalize`][variant-normalize-src], [`variant_pretty`][variant-pretty-slt] |
 
 ## More examples and benchmarks
 
-The [interactive CLI](https://github.com/datafusion-contrib/datafusion-variant/blob/main/examples/cli.rs)
-loads Bluesky JSON into a `bsky(json_data)` table. Run `bash download_data.sh`,
-then `cargo run --example cli`. Queries end with a semicolon;
-enter `q` or `quit` to exit. Use `parse_json(json_data)` to query these strings
-with the Variant functions.
-
-See the [benchmark guide](https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md)
+See the [benchmark guide][benchmark-guide]
 for extraction, parsing, serialization, schema inference, and JSONBench workloads,
 including baseline comparison commands.
 
@@ -336,20 +330,56 @@ cargo clippy -- -D warnings
 `cargo test` also checks this README's Rust example and SQL results.
 
 For Spark compatibility changes, reference the upstream behavior and add
-regression coverage in the [SQL tests](tests/test_files).
+regression coverage in the [SQL tests][sql-tests].
 
-The [issue tracker](https://github.com/datafusion-contrib/datafusion-variant/issues)
+The [issue tracker][issue-tracker]
 contains individual tasks and discussions. Overall direction is tracked
-in [#69](https://github.com/datafusion-contrib/datafusion-variant/issues/69).
+in [#69][roadmap].
 
 ## References
 
-- [Apache Spark 4.2.0 documentation](https://spark.apache.org/docs/4.2.0/)
-- [Parquet Variant encoding](https://parquet.apache.org/docs/file-format/types/variantencoding/)
-- [Arrow canonical extension types](https://arrow.apache.org/docs/format/CanonicalExtensions.html)
-- [Custom types using metadata in DataFusion](https://datafusion.apache.org/blog/2025/09/21/custom-types-using-metadata)
-- [Iceberg Variant proposal — design background](https://docs.google.com/document/d/1sq70XDiWJ2DemWyA5dVB80gKzwi0CWoM0LOWM7VJVd8/edit)
+- [Apache Spark 4.2.0 documentation][spark-docs]
+- [Parquet Variant encoding][parquet-variant-encoding]
+- [Arrow canonical extension types][arrow-canonical-extensions]
+- [Custom types using metadata in DataFusion][datafusion-custom-types-blog]
+- [Iceberg Variant proposal — design background][iceberg-variant-proposal]
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE.txt).
+Licensed under the [Apache License, Version 2.0][license].
+
+[roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
+[arrow-union-layout]: https://arrow.apache.org/docs/format/Columnar.html#union-layout
+[parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/
+[functions-registration]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md#registration
+[parquet-variant-blog]: https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/
+[duckdb-variant-parquet]: https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet
+[datafusion-variant-epic]: https://github.com/apache/datafusion/issues/26517
+[functions-doc]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md
+[parse-json-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt
+[variant-get-json-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_json.slt
+[spark-variant-conversions-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_conversions.slt
+[variant-get-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get.slt
+[variant-contains-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_contains.slt
+[is-valid-variant-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_valid_variant.slt
+[is-variant-null-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_variant_null.slt
+[schema-of-variant-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt
+[schema-of-variant-agg-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant_agg.slt
+[variant-object-construct-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_construct.slt
+[variant-object-keys-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_keys.slt
+[variant-object-insert-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_insert.slt
+[variant-object-delete-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_delete.slt
+[variant-list-construct-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt
+[variant-list-insert-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt
+[variant-list-delete-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt
+[variant-normalize-src]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs
+[variant-pretty-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt
+[dfv-pr]: https://github.com/datafusion-contrib/datafusion-variant/pull/102
+[benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
+[sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
+[issue-tracker]: https://github.com/datafusion-contrib/datafusion-variant/issues
+[spark-docs]: https://spark.apache.org/docs/4.2.0/
+[arrow-canonical-extensions]: https://arrow.apache.org/docs/format/CanonicalExtensions.html
+[datafusion-custom-types-blog]: https://datafusion.apache.org/blog/2025/09/21/custom-types-using-metadata
+[iceberg-variant-proposal]: https://docs.google.com/document/d/1sq70XDiWJ2DemWyA5dVB80gKzwi0CWoM0LOWM7VJVd8/edit
+[license]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/LICENSE.txt
