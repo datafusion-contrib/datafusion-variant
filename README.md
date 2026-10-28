@@ -1,16 +1,16 @@
 # datafusion-variant
 
 This crate provides a [Variant] SQL type and functions for querying
-semi-structured data using [Apache DataFusion], as well as reading and writing
+semi-structured data using [Apache DataFusion], and reading and writing
 such data to [Apache Parquet] files.
 
-This crate is under active development and targets Apache Spark Variant behavior.
-Compatibility is incomplete, and APIs may change. See the
+This crate is under active development and targets Apache Spark Variant
+behavior. Compatibility is incomplete, and APIs may change. See the
 [roadmap][roadmap].
 
 ## What is Variant?
 
-Variant is used for storing semi-structured data, similarly to JSON. Each value
+Variant is a type for storing semi-structured data, similarly to JSON. Each value
 can hold objects, arrays, and primitive values, with different fields and types
 in each row.
 
@@ -23,8 +23,9 @@ For example, a single Variant column can contain all of these values, shown as J
 | `42` | Integer |
 | `"api"` | String |
 
-For background on the encoding and shredding, see
-[Variant Type in Apache Parquet for Semi-Structured Data][parquet-variant-blog].
+Variant also supports "Shredding" as an optimization for the common case when
+the values share a common structure. For more background see [Variant Type in
+Apache Parquet for Semi-Structured Data][parquet-variant-blog].
 
 ## Quick start
 
@@ -58,32 +59,30 @@ async fn main() -> datafusion::error::Result<()> {
 > [!WARNING]
 > Call `register_all` during session setup, before preparing statements. It replaces
 > existing functions with the same names and the type planner, and clears prepared
-> statements. Individual UDFs remain available for selective registration.
-
+> statements. 
+    
 Congratulations -- you can now query semi-structured data with the Variant type!
 
 ## Common tasks
 
-This section shows how to perform common tasks with the Variant type. You can
-run the SQL examples using the `SessionContext`, e.g. using
-[`ctx.sql(sql).await?.collect().await?`][session-context-sql].
+This section shows common queries with the Variant type. You can run the SQL
+examples like any other DataFusion SQL statement, using the `SessionContext`,
+e.g. using [`ctx.sql(sql).await?.collect().await?`][session-context-sql].
 
 This repository also includes a `dfv` command-line tool with the Variant
-functions and SQL type preinstalled for you to try the examples interactively.
-Run it from the repository root with:
+functionality preinstalled to try the examples interactively. Run it from the
+repository root with:
 
 ```shell
 # Drop `--release` for faster compile times if you aren't measuring performance.
 cargo run --release
 ```
 
-In the examples below, `NULL` in a result table represents SQL NULL.
-
 ### Convert JSON to Variant
 
 `parse_json` converts JSON strings to Variant. You can use it to load semi
-structured documents. For example, to create an `events` table with a Variant
-column named `event`, run:
+structured documents. For example, create an `events` table with a Variant
+column named `event`:
 
 ```sql
 CREATE TABLE events AS
@@ -96,14 +95,14 @@ FROM (VALUES
 ```
 
 > [!TIP]
-> For malformed input, use `try_parse_json(json_data)` to return SQL NULL instead
-> of failing the query. Valid JSON `null` remains a Variant null.
+> For potentially malformed input, use `try_parse_json(json_data)` to return SQL NULL instead
+> of failing the query.
 
 ### Query
 
-You can extract fields from a Variant column using the `variant_get` UDF or
-the SQL `:` field-access syntax. For example, to select the `service` and
-`latency_ms` fields of events whose `status` is at least 400, run:
+You can extract fields from a Variant column using the Spark-SQL style `:`
+field-access syntax or the `variant_get` UDF. For example, to select the
+`service` and `latency_ms` fields of events whose `status` is at least 400, run:
 
 ```sql
 SELECT event:service::VARCHAR AS service,
@@ -121,8 +120,8 @@ WHERE event:status::BIGINT >= 400;
 +---------+------------+
 ```
 
-The `:` syntax is automatically rewritten to calls to the `variant_get`
-function, so the following equivalent query can also be run directly:
+The `:` syntax is automatically rewritten to `variant_get`, so this is an
+equivalent query:
 
 ```sql
 SELECT variant_get(event, 'service', 'VARCHAR') AS service,
@@ -139,10 +138,6 @@ WHERE variant_get(event, 'status', 'BIGINT') >= 400;
 | api     | NULL       |
 +---------+------------+
 ```
-
-Extract a field as a SQL type before filtering, aggregating, or joining on it.
-A missing field returns SQL NULL. A JSON `null` is a distinct Variant null
-value: use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
 
 ### Convert Variant to JSON
 
@@ -167,7 +162,7 @@ ORDER BY event:status::BIGINT;
 
 ### Store Variant in Parquet
 
-You can write the Variant column with DataFusion's `COPY` statement:
+You can write Variant data to columns with the DataFusion `COPY` statement:
 
 ```sql
 COPY events TO 'events.parquet' STORED AS PARQUET;
@@ -182,18 +177,20 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 ```
 
 The Variant column is stored in Parquet as a struct with `metadata` and `value`
-fields, as the `parquet_metadata` table function in `dfv` shows:
+fields, as you can see with the `parquet_metadata` table function:
 
-```shell
-> SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
+```sql
+-- Note parquet_metadata is part of dfv and datafusion-cli, not this crate.
+SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
+```
+
+```text
 +------------------+------------+
 | path_in_schema   | type       |
 +------------------+------------+
 | "event.metadata" | BYTE_ARRAY |
 | "event.value"    | BYTE_ARRAY |
 +------------------+------------+
-2 row(s) fetched.
-Elapsed 0.001 seconds.
 ```
 
 ### Read Variant from Parquet
@@ -208,6 +205,7 @@ You can read `events.parquet` back with the Variant column preserved.
 ```sql
 -- Preserve the schema information that identifies the Variant column.
 SET datafusion.execution.parquet.skip_metadata = false;
+
 SELECT variant_get(event, 'service', 'VARCHAR') AS service,
        event:tags[0]::VARCHAR AS first_tag -- Array indexing via `[]` operator
 FROM 'events.parquet'
@@ -226,12 +224,21 @@ ORDER BY event:status::BIGINT;
 
 ### Convert between Variant and other SQL types
 
-`CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals,
-to Variant, and `to_variant_object(value)` also accepts structs and string-keyed
-maps. `CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST`
-returning SQL NULL for failed conversions. `register_all` includes the
-[type planner][functions-registration] needed for the SQL `VARIANT` type name.
-See the [type conversion tests][spark-variant-conversions-slt] for examples.
+`CAST(value AS VARIANT)` can be used to convert SQL types to variant 
+
+```sql
+SELECT CAST(42 AS VARIANT);
+SELECT CAST(1.23 AS VARIANT);
+```
+
+To cast a struct or list to a Variant, use `to_variant_object`:
+
+<!-- CAST support tracked by https://github.com/datafusion-contrib/datafusion-variant/issues/112-->
+```sql
+SELECT to_variant_object([1,2,3]);
+SELECT to_variant_object([{a: 1, b: 2}, {b: 3, a: 4}]);
+```
+
 
 ### Inspect the schema of Variant values
 
@@ -283,6 +290,13 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 | Objects | [`variant_object_construct`][variant-object-construct-slt], [`variant_object_keys`][variant-object-keys-slt], [`variant_object_insert`][variant-object-insert-slt], [`variant_object_delete`][variant-object-delete-slt] |
 | Arrays | [`variant_list_construct`][variant-list-construct-slt], [`variant_list_insert`][variant-list-insert-slt], [`variant_list_delete`][variant-list-delete-slt] |
 | Utilities | [`variant_normalize`][variant-normalize-src], [`variant_pretty`][variant-pretty-slt] |
+
+## Common pitfalls
+
+Extract a field as a SQL type before filtering, aggregating, or joining on it.
+A missing field returns SQL NULL. A JSON `null` is a distinct Variant null
+value: use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
+
 
 ## More examples and benchmarks
 
