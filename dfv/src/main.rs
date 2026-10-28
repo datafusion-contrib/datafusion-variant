@@ -1,12 +1,4 @@
 //! `dfv`: DataFusion CLI with the Variant functions preinstalled.
-//!
-//! A trimmed-down `datafusion-cli/src/main.rs` from the pinned DataFusion
-//! revision (see `Cargo.toml`). It keeps only the `-c` and `-f` options and
-//! additionally installs [`VariantTypePlanner`] for the SQL `VARIANT` type and
-//! calls [`register_all`] to register the Variant functions. Everything else
-//! (the REPL, printing, object stores, `parquet_metadata`, ...) comes from the
-//! `datafusion-cli` library crate.
-
 use std::env;
 use std::path::Path;
 use std::process::ExitCode;
@@ -60,14 +52,12 @@ struct Args {
 
 impl Args {
     /// Without -c/-f the CLI enters the REPL, which reads its SQL from
-    /// stdin — interactively or piped.
+    /// stdin.
     fn repl_mode(&self) -> bool {
         self.command.is_empty() && self.file.is_empty()
     }
 
-    /// Whether the CLI consumes stdin for its own SQL input (the REPL or an
-    /// explicit `-f /dev/stdin`), in which case stdin cannot also back a
-    /// `LOCATION '/dev/stdin'` table.
+    /// Return true if the CLI reads from stdin
     fn reads_sql_from_stdin(&self) -> bool {
         self.repl_mode() || self.file.iter().any(|f| is_stdin_location(f))
     }
@@ -91,6 +81,7 @@ async fn main_inner() -> Result<()> {
         env!("CARGO_PKG_VERSION")
     );
 
+    // This is mostly copied setup code from datafusion-cli -- it might be nice to encapsulate this more
     let session_config = get_session_config(&args)?;
 
     let instrumented_registry = Arc::new(InstrumentedObjectStoreRegistry::new());
@@ -106,7 +97,7 @@ async fn main_inner() -> Result<()> {
         .with_type_planner(Arc::new(VariantTypePlanner))
         .build();
 
-    // enable dynamic file query
+    // enable dynamic file query (`SELECT .. FROM 'file.parquet'`)
     let mut ctx = SessionContext::new_with_state(state).enable_url_table();
     // register the Variant functions and `:` field access
     register_all(&mut ctx)?;
@@ -166,19 +157,23 @@ async fn main_inner() -> Result<()> {
 
 /// Print example commands when starting the interactive shell.
 fn print_examples() {
-    println!(
-        r#"
-Variant functions are preinstalled. Try:
-
-  -- Parse JSON into a Variant and extract typed fields
-  SELECT parse_json('{{"service":"api","status":500}}'):status::BIGINT AS status;
-  SELECT variant_get(parse_json('{{"tags":["a","b"]}}'), 'tags[1]', 'VARCHAR') AS tag;
-
+    let examples =
+        r###"
+Try:
   -- Build a table of Variant values and query it
-  CREATE TABLE events AS SELECT parse_json(json_data) AS event
-    FROM (VALUES ('{{"service":"api","status":200}}'),
-                 ('{{"service":"web","status":500}}')) AS input(json_data);
-  SELECT event:service::VARCHAR AS service FROM events WHERE event:status::BIGINT >= 400;
+  CREATE TABLE events AS
+  SELECT parse_json(json_data) AS event
+  FROM (VALUES
+      ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
+      ('{"service":"api","status":500,"latency_ms":85,"error":null}'),
+      ('{"service":"api","status":504,"error":"Somethings not working"}')
+  ) AS input(json_data);
+
+  -- Select fields from the Variant values using the `:` operator and filter by a field value
+  SELECT
+     event:service::VARCHAR AS service
+  FROM events
+  WHERE event:status::BIGINT >= 400;
 
   -- Write Variant to Parquet and read it back
   COPY events TO 'events.parquet' STORED AS PARQUET;
@@ -188,9 +183,11 @@ Variant functions are preinstalled. Try:
   -- Inspect the schema of Variant values
   SELECT schema_of_variant(event) FROM events;
 
-See https://github.com/datafusion-contrib/datafusion-variant for all functions.
-Enter \q to exit."#
-    );
+See https://github.com/datafusion-contrib/datafusion-variant#functions for all functions.
+
+Enter \q to exit.
+"###;
+    println!("{examples}");
 }
 
 fn get_session_config(args: &Args) -> Result<SessionConfig> {

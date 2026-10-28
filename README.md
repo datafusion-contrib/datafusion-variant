@@ -8,6 +8,27 @@ This crate is under active development and targets Apache Spark Variant behavior
 Compatibility is incomplete, and APIs may change. See the
 [roadmap][roadmap].
 
+## What is Variant?
+
+Variant is used for storing semi-structured data, similarly to JSON. Each value
+can hold objects, arrays, and primitive values, with different fields and types
+in each row. 
+
+For example, a single Variant column can contain all of these values, shown as JSON:
+
+| Value | Type |
+| --- | --- |
+| `{"service":"api","status":200}` | Object |
+| `["cached","retry"]` | Array |
+| `42` | Integer |
+| `"api"` | String |
+
+For background on the encoding and shredding, see
+[Variant Type in Apache Parquet for Semi-Structured Data][parquet-variant-blog].
+
+
+
+
 ## Quick start
 
 First, enable Variant in your project by adding the following to `Cargo.toml`:
@@ -193,106 +214,41 @@ ORDER BY event:status::BIGINT;
 +---------+-----------+
 ```
 
+### Inspect the schema of Variant values
 
-## What is Variant?
+Due to their dynamic nature, Variant values can have different fields and types in
+each row. You can inspect the schema of a Variant column using the following
+functions:
 
-A Variant column can hold objects, arrays, and primitive values, with different
-fields and types in each row. Think of it as a
-[tagged union][arrow-union-layout]:
-each value has a type, and different rows can hold different types.
-
-For example, a single Variant column can contain all of these values, shown as JSON:
-
-| Value | Type |
-| --- | --- |
-| `{"service":"api","status":200}` | Object |
-| `["cached","retry"]` | Array |
-| `42` | Integer |
-| `"api"` | String |
-
-`parse_json` converts JSON text to the
-[Parquet Variant encoding][parquet-variant-encoding];
-`CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals;
-`to_variant_object(value)` also accepts structs and string-keyed maps.
-`CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST` returning
-SQL NULL for failed conversions.
-SQL `VARIANT` type syntax requires the [type planner][functions-registration].
-
-Extract a field as a SQL type before filtering, aggregating, or joining on it.
-A missing field returns SQL NULL. A JSON `null` is a distinct Variant value:
-use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
-
-For background on the encoding and shredding, see
-[Variant Type in Apache Parquet for Semi-Structured Data][parquet-variant-blog].
-
-## 🚧 Work in Progress 🚧
-
-These features are not yet implemented:
-
-
-> [!WARNING]
-> **NOT YET IMPLEMENTED:** choosing between unshredded storage, an explicit
-> shredding schema, or automatic shredding when writing Parquet.
-> Shredding stores selected fields in typed
-> Parquet columns alongside the remaining Variant data.
-> The API and SQL syntax are TBD. A [DuckDB-style option][duckdb-variant-parquet]
-> could look like:
-
-<!-- readme-test: skip: proposed shredding syntax is not implemented -->
-```sql
--- Proposed syntax only; not yet supported.
-COPY events TO 'events.parquet' (
-    FORMAT parquet,
-    SHREDDING {'event': 'STRUCT(service VARCHAR, status BIGINT)'}
-);
-```
-
-
-
-> [!WARNING]
-> **NOT YET IMPLEMENTED:** reading a mixture of shredded and unshredded files
-> as one table. See the [upstream Variant integration epic][datafusion-variant-epic]
-> for schema adaptation and extension metadata preservation work.
-
-### Discover fields and distinguish nulls
-
-```sql
-SELECT schema_of_variant_agg(event) AS schema FROM saved_events;
+```shell
+-- Get the schema of each Variant value
+SELECT schema_of_variant(event) FROM events;
 ```
 
 ```text
-+-----------------------------------------------------------------------------------------------+
-| schema                                                                                        |
-+-----------------------------------------------------------------------------------------------+
-| OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
-+-----------------------------------------------------------------------------------------------+
++----------------------------------------------------------------------------------+
+| schema_of_variant(events.event)                                                  |
++----------------------------------------------------------------------------------+
+| OBJECT<latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
+| OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT>         |
+| OBJECT<error: STRING, service: STRING, status: BIGINT>                           |
++----------------------------------------------------------------------------------+
 ```
 
-Use `schema_of_variant(event)` for a schema per row.
-
 ```sql
-SELECT event:status::BIGINT AS status,
-       variant_contains(event, 'error') AS has_error,
-       is_variant_null(event:error) AS error_is_json_null,
-       (event:error) IS NULL AS error_is_sql_null
-FROM saved_events
-ORDER BY status;
+-- Print the merged schema (union) of all Variant values in the column
+SELECT schema_of_variant_agg(event) AS schema FROM events;
 ```
 
 ```text
-+--------+-----------+--------------------+-------------------+
-| status | has_error | error_is_json_null | error_is_sql_null |
-+--------+-----------+--------------------+-------------------+
-| 200    | false     | false              | true              |
-| 500    | true      | true               | false             |
-+--------+-----------+--------------------+-------------------+
++-------------------------------------------------------------------------------------------------+
+| schema                                                                                          |
++-------------------------------------------------------------------------------------------------+
+| OBJECT<error: STRING, latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
++-------------------------------------------------------------------------------------------------+
 ```
 
-## Functions
-
-Links lead to executable SQL examples, or Rust tests for `variant_normalize`.
-See [function behavior and SQL compatibility][functions-doc]
-for conversion rules, SQL `VARIANT` type registration, and known limitations.
+# Functions
 
 | Area | Functions and examples |
 | --- | --- |
@@ -343,6 +299,57 @@ in [#69][roadmap].
 - [Arrow canonical extension types][arrow-canonical-extensions]
 - [Custom types using metadata in DataFusion][datafusion-custom-types-blog]
 - [Iceberg Variant proposal — design background][iceberg-variant-proposal]
+
+
+
+
+## 🚧 Work in Progress 🚧
+
+These features are not yet implemented:
+
+
+> [!WARNING]
+> **NOT YET IMPLEMENTED:** choosing between unshredded storage, an explicit
+> shredding schema, or automatic shredding when writing Parquet.
+> Shredding stores selected fields in typed
+> Parquet columns alongside the remaining Variant data.
+> The API and SQL syntax are TBD. A [DuckDB-style option][duckdb-variant-parquet]
+> could look like:
+
+<!-- readme-test: skip: proposed shredding syntax is not implemented -->
+```sql
+-- Proposed syntax only; not yet supported.
+COPY events TO 'events.parquet' (
+    FORMAT parquet,
+    SHREDDING {'event': 'STRUCT(service VARCHAR, status BIGINT)'}
+);
+```
+
+
+
+> [!WARNING]
+> **NOT YET IMPLEMENTED:** reading a mixture of shredded and unshredded files
+> as one table. See the [upstream Variant integration epic][datafusion-variant-epic]
+> for schema adaptation and extension metadata preservation work.
+
+
+`parse_json` converts JSON text to the
+[Parquet Variant encoding][parquet-variant-encoding];
+`CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals;
+`to_variant_object(value)` also accepts structs and string-keyed maps.
+`CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST` returning
+SQL NULL for failed conversions.
+SQL `VARIANT` type syntax requires the [type planner][functions-registration].
+
+Extract a field as a SQL type before filtering, aggregating, or joining on it.
+A missing field returns SQL NULL. A JSON `null` is a distinct Variant value:
+use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
+## Functions
+
+Links lead to executable SQL examples, or Rust tests for `variant_normalize`.
+See [function behavior and SQL compatibility][functions-doc]
+for conversion rules, SQL `VARIANT` type registration, and known limitations.
+
 
 ## License
 
