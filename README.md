@@ -10,7 +10,7 @@ behavior. Compatibility is incomplete, and APIs may change. See the
 
 ## What is Variant?
 
-Variant is a type for storing semi-structured data, similarly to JSON. Each value
+Variant is a type for storing semi-structured data, similar to JSON. Each value
 can hold objects, arrays, and primitive values, with different fields and types
 in each row.
 
@@ -23,8 +23,8 @@ For example, a single Variant column can contain all of these values, shown as J
 | `42` | Integer |
 | `"api"` | String |
 
-Variant also supports "Shredding" as an optimization for the common case when
-the values share a common structure. For more background see [Variant Type in
+Variant also supports "shredding" as an optimization for the common case where
+the values share a common structure. For more background, see [Variant Type in
 Apache Parquet for Semi-Structured Data][parquet-variant-blog].
 
 ## Quick start
@@ -59,15 +59,15 @@ async fn main() -> datafusion::error::Result<()> {
 > [!WARNING]
 > Call `register_all` during session setup, before preparing statements. It replaces
 > existing functions with the same names and the type planner, and clears prepared
-> statements. 
-    
+> statements.
+
 Congratulations -- you can now query semi-structured data with the Variant type!
 
 ## Common tasks
 
 This section shows common queries with the Variant type. You can run the SQL
-examples like any other DataFusion SQL statement, using the `SessionContext`,
-e.g. using [`ctx.sql(sql).await?.collect().await?`][session-context-sql].
+examples like any other DataFusion SQL statement using the `SessionContext`,
+e.g. with [`ctx.sql(sql).await?.collect().await?`][session-context-sql].
 
 This repository also includes a `dfv` command-line tool with the Variant
 functionality preinstalled to try the examples interactively. Run it from the
@@ -80,8 +80,8 @@ cargo run --release
 
 ### Convert JSON to Variant
 
-`parse_json` converts JSON strings to Variant. You can use it to load semi
-structured documents. For example, create an `events` table with a Variant
+`parse_json` converts JSON strings to Variant. You can use it to load
+semi-structured documents. For example, create an `events` table with a Variant
 column named `event`:
 
 ```sql
@@ -95,12 +95,12 @@ FROM (VALUES
 ```
 
 > [!TIP]
-> For potentially malformed input, use `try_parse_json(json_data)` to return SQL NULL instead
-> of failing the query.
+> For potentially malformed input, use `try_parse_json(json_data)` to return
+> SQL NULL instead of failing the query.
 
 ### Query
 
-You can extract fields from a Variant column using the Spark-SQL style `:`
+You can extract fields from a Variant column using the Spark SQL-style `:`
 field-access syntax or the `variant_get` UDF. For example, to select the
 `service` and `latency_ms` fields of events whose `status` is at least 400, run:
 
@@ -162,7 +162,7 @@ ORDER BY event:status::BIGINT;
 
 ### Store Variant in Parquet
 
-You can write Variant data to columns with the DataFusion `COPY` statement:
+You can write Variant columns to Parquet with the DataFusion `COPY` statement:
 
 ```sql
 COPY events TO 'events.parquet' STORED AS PARQUET;
@@ -179,12 +179,13 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 The Variant column is stored in Parquet as a struct with `metadata` and `value`
 fields, as you can see with the `parquet_metadata` table function:
 
+<!-- readme-test: skip: parquet_metadata is provided by dfv, not this crate -->
 ```sql
--- Note parquet_metadata is part of dfv and datafusion-cli, not this crate.
+-- Note: parquet_metadata is part of dfv and datafusion-cli, not this crate.
 SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
 ```
 
-```text
+```console
 +------------------+------------+
 | path_in_schema   | type       |
 +------------------+------------+
@@ -224,21 +225,37 @@ ORDER BY event:status::BIGINT;
 
 ### Convert between Variant and other SQL types
 
-`CAST(value AS VARIANT)` can be used to convert SQL types to variant 
+`CAST(value AS VARIANT)` converts SQL values to Variant. For example, to
+convert an integer and a decimal to Variant and show them as JSON, run:
 
 ```sql
-SELECT CAST(42 AS VARIANT);
-SELECT CAST(1.23 AS VARIANT);
+SELECT to_json(CAST(42 AS VARIANT)) AS int_value,
+       to_json(CAST(1.23 AS VARIANT)) AS decimal_value;
 ```
 
-To cast a struct or list to a Variant, use `to_variant_object`:
+```text
++-----------+---------------+
+| int_value | decimal_value |
++-----------+---------------+
+| 42        | 1.23          |
++-----------+---------------+
+```
 
-<!-- CAST support tracked by https://github.com/datafusion-contrib/datafusion-variant/issues/112-->
+To convert a struct or list to Variant, use `to_variant_object`:
+
+<!-- CAST support tracked by https://github.com/datafusion-contrib/datafusion-variant/issues/112 -->
 ```sql
-SELECT to_variant_object([1,2,3]);
-SELECT to_variant_object([{a: 1, b: 2}, {b: 3, a: 4}]);
+SELECT to_json(to_variant_object([1, 2, 3])) AS list_value,
+       to_json(to_variant_object([{a: 1, b: 2}, {b: 3, a: 4}])) AS struct_list_value;
 ```
 
+```text
++------------+-------------------------------+
+| list_value | struct_list_value             |
++------------+-------------------------------+
+| [1,2,3]    | [{"a":1,"b":2},{"a":4,"b":3}] |
++------------+-------------------------------+
+```
 
 ### Inspect the schema of Variant values
 
@@ -296,7 +313,6 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 Extract a field as a SQL type before filtering, aggregating, or joining on it.
 A missing field returns SQL NULL. A JSON `null` is a distinct Variant null
 value: use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
-
 
 ## More examples and benchmarks
 
