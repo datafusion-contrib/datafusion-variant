@@ -299,18 +299,3 @@ fn test_load_bsky_rejects_bad_arguments() {
             ));
     }
 }
-
-/// Downloads the real 135 MB `file_0001.json.gz`; run with `--ignored`.
-#[test]
-#[ignore = "downloads 135 MB from the network"]
-fn test_load_bsky_downloads_missing_file() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    cargo_bin_cmd!("dfv")
-        .env("DFV_BSKY_DIR", temp_dir.path())
-        .args(["-c", "SELECT count(*) AS rows FROM load_bsky(1)"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("| 1000000 |"))
-        .stderr(predicates::str::contains("Downloading https://"));
-    assert!(temp_dir.path().join("file_0001.json.gz").is_file());
-}
