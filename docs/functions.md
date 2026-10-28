@@ -4,23 +4,19 @@ See the [function index](../README.md#functions) for SQL examples.
 
 ## Registration
 
-The [quickstart](../README.md#2-register-variant) uses `register_all` for functions
-and field access. Explicit SQL `VARIANT` type names also require
-`VariantTypePlanner` when constructing the session:
+The [quickstart](../README.md#2-register-variant) uses `register_all` for functions,
+field access, and SQL `VARIANT` type syntax:
 
 ```rust
-use std::sync::Arc;
-use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionContext;
-use datafusion_variant::{VariantTypePlanner, register_all};
+use datafusion_variant::register_all;
 
-let state = SessionStateBuilder::new()
-    .with_default_features()
-    .with_type_planner(Arc::new(VariantTypePlanner))
-    .build();
-let mut ctx = SessionContext::new_with_state(state);
+let mut ctx = SessionContext::new();
 register_all(&mut ctx)?;
 ```
+
+Call `register_all` during session setup, before preparing statements. It replaces
+the type planner and rebuilds session state, clearing any prepared statements.
 
 For selective registration, wrap scalar implementations with
 `ScalarUDF::new_from_impl` and aggregates with `AggregateUDF::new_from_impl`,
@@ -29,6 +25,8 @@ then pass them to `ctx.register_udf` or `ctx.register_udaf`. Use
 `register_variant_conversion_functions` for casts to VARIANT and `to_variant_object`, and
 `ctx.register_expr_planner(Arc::new(VariantExprPlanner))` for `:` field access.
 Use `register_variant_explode_functions` for the explode table functions.
+For selective SQL `VARIANT` type registration, install `VariantTypePlanner`
+with `SessionStateBuilder::with_type_planner`.
 
 ## Function behavior
 

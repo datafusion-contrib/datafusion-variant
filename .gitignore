@@ -1,3 +1,5 @@
 /target
 /data/*
 profile.json.gz
+# REPL history written by datafusion-cli (e.g. by the dfv tests)
+.history

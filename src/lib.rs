@@ -53,16 +53,26 @@ pub use variant_pretty::*;
 pub use variant_type::*;
 
 /// Register all Variant scalar, aggregate, and table functions, cast rewrites,
-/// and `:` field access. Existing functions with the same names are replaced.
+/// `:` field access, and SQL `VARIANT` type syntax.
 ///
-/// For SQL `VARIANT` type syntax, also install [`VariantTypePlanner`] using
-/// `SessionStateBuilder::with_type_planner` when constructing the session.
+/// Existing functions with the same names and the session's type planner are
+/// replaced. Call during session setup, before preparing statements: installing
+/// the type planner rebuilds the session state and clears prepared statements.
 pub fn register_all(
     ctx: &mut datafusion::prelude::SessionContext,
 ) -> datafusion::error::Result<()> {
-    use datafusion::execution::FunctionRegistry;
+    use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
     use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
     use std::sync::Arc;
+
+    {
+        let state = ctx.state_ref();
+        let mut state = state.write();
+        *state = SessionStateBuilder::new_from_existing(state.clone())
+            .with_session_id(state.session_id().to_owned())
+            .with_type_planner(Arc::new(VariantTypePlanner))
+            .build();
+    }
 
     for udf in [
         ScalarUDF::new_from_impl(ParseJsonUdf::default()),
