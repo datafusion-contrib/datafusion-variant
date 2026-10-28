@@ -113,25 +113,15 @@ impl TableProvider for BskyTable {
 
     async fn scan(
         &self,
-        state: &dyn Session,
+        _state: &dyn Session,
         projection: Option<&[usize]>,
         _filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let batches = self.batches().await?;
-        // Spread the batches over the configured number of partitions so
-        // queries run in parallel.
-        let num_partitions = state.config().target_partitions().max(1);
-        let mut partitions: Vec<Vec<RecordBatch>> = vec![Vec::new(); num_partitions];
-        for (i, batch) in batches.into_iter().enumerate() {
-            partitions[i % num_partitions].push(batch);
-        }
-        partitions.retain(|p| !p.is_empty());
-        if partitions.is_empty() {
-            partitions.push(Vec::new());
-        }
+        // A single partition; DataFusion repartitions as needed.
         Ok(MemorySourceConfig::try_new_exec(
-            &partitions,
+            &[batches],
             self.schema(),
             projection.map(<[usize]>::to_vec),
         )?)
