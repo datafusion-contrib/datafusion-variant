@@ -25,6 +25,8 @@ use datafusion_cli::{DATAFUSION_CLI_VERSION, exec};
 use datafusion_variant::register_all;
 use mimalloc::MiMalloc;
 
+mod load_bsky;
+
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -126,6 +128,8 @@ async fn main_inner() -> Result<()> {
         "list_files_cache",
         Arc::new(ListFilesCacheFunc::new(cache_manager)),
     );
+    // register `load_bsky(n)` to download and load sample Bluesky JSON data
+    ctx.register_udtf("load_bsky", Arc::new(load_bsky::LoadBskyFunc::default()));
 
     let mut print_options = PrintOptions {
         format: PrintFormat::Automatic,
@@ -179,6 +183,10 @@ Try:
 
   -- Inspect the schema of Variant values
   SELECT schema_of_variant(event) FROM events;
+
+  -- Load 1M real Bluesky events (downloads ~135MB to data/bluesky on first use)
+  CREATE TABLE bsky AS SELECT parse_json(json_data) AS event FROM load_bsky(1);
+  SELECT event:kind::VARCHAR AS kind, count(*) FROM bsky GROUP BY kind ORDER BY 2 DESC;
 
 See https://github.com/datafusion-contrib/datafusion-variant#functions for all functions.
 

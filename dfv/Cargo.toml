@@ -20,10 +20,15 @@ datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "4841
 datafusion-variant = { path = ".." }
 parquet = { version = "60", features = ["variant_experimental"] }
 
+arrow = "60"
+async-trait = "0.1"
 clap = { version = "4.5", features = ["cargo", "derive"] }
 env_logger = "0.11"
+flate2 = "1"
+futures = "0.3"
 mimalloc = { version = "0.1", default-features = false }
-tokio = { version = "1", features = ["macros", "parking_lot", "rt", "rt-multi-thread", "signal", "sync"] }
+object_store = { version = "0.14", features = ["http"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "parking_lot", "rt", "rt-multi-thread", "signal", "sync"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"
