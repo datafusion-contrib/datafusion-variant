@@ -8,7 +8,7 @@
 //!
 //! [ClickHouse Bluesky dataset]: https://clickhouse.com/docs/getting-started/example-datasets/bluesky
 
-use std::fs::File;
+use std::fs::{File, TryLockError};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -132,11 +132,36 @@ impl TableProvider for BskyTable {
 /// temporary `.part` file first so an interrupted download is not mistaken
 /// for a complete file.
 async fn download(file_name: &str, dest: &Path) -> Result<()> {
+    let path = dest.to_path_buf();
+    // Keep the lock file in place: removing it could let callers lock different
+    // files for the same destination. Closing the handle releases the lock.
+    let _lock = tokio::task::spawn_blocking(move || -> std::io::Result<File> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let lock = File::options()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path.with_extension("lock"))?;
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                eprintln!("Waiting for download of {}", path.display());
+                lock.lock()?;
+            }
+            Err(TryLockError::Error(e)) => return Err(e),
+        }
+        Ok(lock)
+    })
+    .await
+    .map_err(|e| DataFusionError::External(Box::new(e)))??;
+    // Another scan or dfv process may have completed the download while we waited.
+    if dest.is_file() {
+        return Ok(());
+    }
     let location = ObjectPath::from(format!("bluesky/{file_name}"));
     eprintln!("Downloading {BASE_URL}/{location} to {}", dest.display());
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let store = HttpBuilder::new().with_url(BASE_URL).build()?;
     let result = store.get(&location).await?;
     let total_bytes = result.meta.size;
