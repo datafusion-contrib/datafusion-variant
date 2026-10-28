@@ -286,6 +286,9 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 
 ## More examples and benchmarks
 
+For an interactive SQL shell with the Variant functions preinstalled, see
+`dfv` ([#102](https://github.com/datafusion-contrib/datafusion-variant/pull/102)).
+
 See the [benchmark guide][benchmark-guide]
 for extraction, parsing, serialization, schema inference, and JSONBench workloads,
 including baseline comparison commands.
