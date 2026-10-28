@@ -9,130 +9,110 @@ CREATE TABLE test_data (id INT, name TEXT, age INT, active BOOL) AS VALUES
   (3, 'Joe', 31, true);
 
 # Test 1: Simple list with one element
-query T
-SELECT variant_pretty(variant_list_construct(parse_json('"Alice"')));
+query ?
+SELECT variant_list_construct(parse_json('"Alice"'));
 ----
-[ShortString(ShortString("Alice"))]
+["Alice"]
 
 # Test 2: List with multiple elements of different types
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('"Alice"'),
-    parse_json('30'),
-    parse_json('true')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('"Alice"'),
+  parse_json('30'),
+  parse_json('true')
 );
 ----
-[ShortString(ShortString("Alice")), Int8(30), BooleanTrue]
+["Alice",30,true]
 
 # Test 3: List with nested object
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('{"name": "Bob", "age": 25}'),
-    parse_json('"admin"')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('{"name": "Bob", "age": 25}'),
+  parse_json('"admin"')
 );
 ----
-[{"age": Int8(25), "name": ShortString(ShortString("Bob"))}, ShortString(ShortString("admin"))]
+[{"age":25,"name":"Bob"},"admin"]
 
 # Test 4: List with nested array
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('[1, 2, 3]'),
-    parse_json('5')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('[1, 2, 3]'),
+  parse_json('5')
 );
 ----
-[[Int8(1), Int8(2), Int8(3)], Int8(5)]
+[[1,2,3],5]
 
 # Test 5: List with null values
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('"Charlie"'),
-    parse_json('null'),
-    parse_json('42')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('"Charlie"'),
+  parse_json('null'),
+  parse_json('42')
 );
 ----
-[ShortString(ShortString("Charlie")), Null, Int8(42)]
+["Charlie",null,42]
 
 # Test 6: List with all nulls
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('null'),
-    parse_json('null')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('null'),
+  parse_json('null')
 );
 ----
-[Null, Null]
+[null,null]
 
 # Test 7: List with boolean values
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('true'),
-    parse_json('false'),
-    parse_json('true')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('true'),
+  parse_json('false'),
+  parse_json('true')
 );
 ----
-[BooleanTrue, BooleanFalse, BooleanTrue]
+[true,false,true]
 
 # Test 8: List with numeric values
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('1'),
-    parse_json('2.5'),
-    parse_json('3'),
-    parse_json('-10')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('1'),
+  parse_json('2.5'),
+  parse_json('3'),
+  parse_json('-10')
 );
 ----
-[Int8(1), Double(2.5), Int8(3), Int8(-10)]
+[1,2.5,3,-10]
 
 # Test 9: List with string values
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('"first"'),
-    parse_json('"second"'),
-    parse_json('"third"')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('"first"'),
+  parse_json('"second"'),
+  parse_json('"third"')
 );
 ----
-[ShortString(ShortString("first")), ShortString(ShortString("second")), ShortString(ShortString("third"))]
+["first","second","third"]
 
 # Test 10: List with mixed complex types
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('{"key": "value"}'),
-    parse_json('[1, 2]'),
-    parse_json('"string"'),
-    parse_json('123'),
-    parse_json('null')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('{"key": "value"}'),
+  parse_json('[1, 2]'),
+  parse_json('"string"'),
+  parse_json('123'),
+  parse_json('null')
 );
 ----
-[{"key": ShortString(ShortString("value"))}, [Int8(1), Int8(2)], ShortString(ShortString("string")), Int8(123), Null]
+[{"key":"value"},[1,2],"string",123,null]
 
 # Test 11: List with special characters in strings
-query T
-SELECT variant_pretty(
-  variant_list_construct(
-    parse_json('"hello world"'),
-    parse_json('"foo\nbar"'),
-    parse_json('"test\"quote"')
-  )
+query ?
+SELECT variant_list_construct(
+  parse_json('"hello world"'),
+  parse_json('"foo\nbar"'),
+  parse_json('"test\"quote"')
 );
 ----
-[ShortString(ShortString("hello world")), ShortString(ShortString("foo\nbar")), ShortString(ShortString("test\"quote"))]
+["hello world","foo\nbar","test\"quote"]
 
 # Cleanup
 statement ok

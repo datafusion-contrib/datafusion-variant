@@ -4,8 +4,6 @@
 //! excluded with `<!-- readme-test: skip: reason -->` before its fence.
 
 use anyhow::{Context, Result, ensure};
-use arrow::util::display::FormatOptions;
-use arrow::util::pretty::pretty_format_batches_with_options;
 use datafusion::prelude::*;
 use datafusion::sql::parser::DFParser;
 use datafusion_variant::register_all;
@@ -37,7 +35,8 @@ async fn readme_sql() -> Result<()> {
         }
         if line.starts_with("## ") {
             // Like `dfv`, allow `SELECT ... FROM 'file.parquet'`.
-            ctx = SessionContext::new().enable_url_table();
+            let config = SessionConfig::new().set_str("datafusion.format.null", "NULL");
+            ctx = SessionContext::new_with_config(config).enable_url_table();
             register_all(&mut ctx)?;
         }
         if let Some(reason) = line
@@ -82,17 +81,20 @@ async fn readme_sql() -> Result<()> {
                 let statements = DFParser::parse_sql(&sql)
                     .with_context(|| format!("README:{line_number}: parsing SQL"))?;
                 for statement in statements {
-                    let batches = async {
+                    let df = async {
                         let plan = ctx.state().statement_to_plan(statement).await?;
-                        ctx.execute_logical_plan(plan).await?.collect().await
+                        ctx.execute_logical_plan(plan).await
                     }
                     .await
                     .with_context(|| format!("README:{line_number}: executing SQL"))?;
-                    if batches.iter().any(|batch| batch.num_columns() > 0) {
-                        // Show SQL NULL as `NULL`, as `dfv` does.
-                        let options = FormatOptions::default().with_null("NULL");
-                        let table = pretty_format_batches_with_options(&batches, &options)?;
-                        pending.push((line_number, table.to_string()));
+                    if !df.schema().fields().is_empty() {
+                        // Exercise the session's registered extension formatters.
+                        let table = df.to_string().await.with_context(|| {
+                            format!("README:{line_number}: displaying SQL result")
+                        })?;
+                        pending.push((line_number, table));
+                    } else {
+                        df.collect().await?;
                     }
                 }
             }

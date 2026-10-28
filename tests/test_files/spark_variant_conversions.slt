@@ -27,30 +27,30 @@
 statement ok
 SET datafusion.execution.time_zone = 'UTC';
 
-query TTTTTTTT
-SELECT to_json(false::VARIANT), to_json(true::VARIANT),
-       to_json(0::TINYINT::VARIANT), to_json(1::SMALLINT::VARIANT),
-       to_json(2::INT::VARIANT), to_json(3::BIGINT::VARIANT),
-       to_json(4::REAL::VARIANT), to_json(5::DOUBLE::VARIANT);
+query ????????
+SELECT false::VARIANT, true::VARIANT,
+       0::TINYINT::VARIANT, 1::SMALLINT::VARIANT,
+       2::INT::VARIANT, 3::BIGINT::VARIANT,
+       4::REAL::VARIANT, 5::DOUBLE::VARIANT;
 ----
 false true 0 1 2 3 4 5
 
-query TTT
-SELECT to_json(CAST(CAST('999999999' AS DECIMAL(9,0)) AS VARIANT)),
-       to_json(CAST(CAST('999999999999999999' AS DECIMAL(18,0)) AS VARIANT)),
-       to_json(CAST(CAST('99999999999999999999999999999999999999' AS DECIMAL(38,0)) AS VARIANT));
+query ???
+SELECT CAST(CAST('999999999' AS DECIMAL(9,0)) AS VARIANT),
+       CAST(CAST('999999999999999999' AS DECIMAL(18,0)) AS VARIANT),
+       CAST(CAST('99999999999999999999999999999999999999' AS DECIMAL(38,0)) AS VARIANT);
 ----
 999999999 999999999999999999 99999999999999999999999999999999999999
 
-query TBT
-SELECT to_json(''::VARIANT),
+query ?B?
+SELECT ''::VARIANT,
        to_json(repeat('x', 128)::VARIANT) = '"' || repeat('x', 128) || '"',
-       to_json(X'010203'::VARIANT);
+       X'010203'::VARIANT;
 ----
 "" true "AQID"
 
-query TBB
-SELECT to_json(DATE '1970-01-01'::VARIANT),
+query ?BB
+SELECT DATE '1970-01-01'::VARIANT,
        CAST(NULL AS VARIANT) IS NULL AS untyped_null,
        CAST(CAST(NULL AS VARCHAR) AS VARIANT) IS NULL AS typed_null;
 ----
@@ -62,8 +62,8 @@ SELECT schema_of_variant(TIMESTAMP '1970-01-01 00:00:00'::VARIANT),
 ----
 TIMESTAMP_NTZ TIMESTAMP
 
-query T
-SELECT to_json(CAST([NULL, 'a', 'b', 'c'] AS VARIANT));
+query ?
+SELECT CAST([NULL, 'a', 'b', 'c'] AS VARIANT);
 ----
 [null,"a","b","c"]
 
@@ -79,17 +79,17 @@ SELECT CAST(named_struct('a', 1) AS VARIANT);
 statement error use to_variant_object
 SELECT CAST([named_struct('a', 1)] AS VARIANT);
 
-query TTT
-SELECT to_json(to_variant_object([1,2,3])),
-       to_json(to_variant_object(MAP {'z':1, 'y':2, 'x':3})),
-       to_json(to_variant_object([[MAP {'z':1, 'y':2, 'x':3}]]));
+query ???
+SELECT to_variant_object([1,2,3]),
+       to_variant_object(MAP {'z':1, 'y':2, 'x':3}),
+       to_variant_object([[MAP {'z':1, 'y':2, 'x':3}]]);
 ----
 [1,2,3] {"x":3,"y":2,"z":1} [[{"x":3,"y":2,"z":1}]]
 
-query T
-SELECT to_json(to_variant_object(named_struct(
+query ?
+SELECT to_variant_object(named_struct(
   'c', ['123','true','f'], 'b', MAP {'a':'123','b':'true','c':'f'},
-  'd', MAP {'a':named_struct('i',132)}, 'a', named_struct('i',0))));
+  'd', MAP {'a':named_struct('i',132)}, 'a', named_struct('i',0)));
 ----
 {"a":{"i":0},"b":{"a":"123","b":"true","c":"f"},"c":["123","true","f"],"d":{"a":{"i":132}}}
 
@@ -100,9 +100,9 @@ SELECT to_variant_object(1);
 # recording the physical metadata/value serialization as acceptable behavior.
 # https://github.com/apache/arrow-rs/issues/11942
 skipif DataFusion
-query T
-SELECT to_json(CAST([parse_json('{"a":1,"b":[1,2,3]}'),
-                    parse_json('{"c":true,"d":{"e":"str"}}')] AS VARIANT));
+query ?
+SELECT CAST([parse_json('{"a":1,"b":[1,2,3]}'),
+                    parse_json('{"c":true,"d":{"e":"str"}}')] AS VARIANT);
 ----
 [{"a":1,"b":[1,2,3]},{"c":true,"d":{"e":"str"}}]
 
@@ -142,8 +142,8 @@ statement error requires an array, struct, or map
 SELECT to_variant_object(parse_json('{}'));
 
 # CAST of a string wraps it; it does not parse JSON.
-query TT
-SELECT to_json('{"a":1}'::VARIANT), to_json(parse_json('{"a":1}')::VARIANT);
+query ??
+SELECT '{"a":1}'::VARIANT, parse_json('{"a":1}')::VARIANT;
 ----
 "{\"a\":1}" {"a":1}
 
@@ -154,16 +154,16 @@ SELECT id, i::VARIANT AS v,
        to_variant_object(named_struct('a', i, 'b', [i, NULL])) AS o
 FROM (VALUES (1, 7), (2, NULL), (3, -2)) AS t(id, i);
 
-query IT rowsort
-SELECT id, to_json(v) FROM conversion_values;
+query I? rowsort
+SELECT id, v FROM conversion_values;
 ----
 1 7
 2 NULL
 3 -2
 
 # Null object-field behavior is covered by the pending Spark expectation below.
-query IT rowsort
-SELECT id, to_json(o) FROM conversion_values WHERE id <> 2;
+query I? rowsort
+SELECT id, o FROM conversion_values WHERE id <> 2;
 ----
 1 {"a":7,"b":[7,null]}
 3 {"a":-2,"b":[-2,null]}
@@ -175,8 +175,8 @@ SELECT arrow_metadata(v, 'ARROW:extension:name'),
 arrow.parquet.variant arrow.parquet.variant
 
 # Getter extraction followed by conversion back to Variant composes both rewrites.
-query T
-SELECT to_json(CAST(CAST(variant_get(o, 'a') AS INT) AS VARIANT))
+query ?
+SELECT CAST(CAST(variant_get(o, 'a') AS INT) AS VARIANT)
 FROM conversion_values WHERE id = 1;
 ----
 7
@@ -190,8 +190,8 @@ true true
 # Spark keeps null object fields. Arrow ObjectFieldBuilder currently omits them.
 # https://github.com/apache/arrow-rs/issues/11947
 skipif DataFusion
-query T
-SELECT to_json(to_variant_object(named_struct('a', CAST(NULL AS INT))));
+query ?
+SELECT to_variant_object(named_struct('a', CAST(NULL AS INT)));
 ----
 {"a":null}
 
@@ -199,14 +199,14 @@ SELECT to_json(to_variant_object(named_struct('a', CAST(NULL AS INT))));
 # Once preserved, Arrow also needs the nested Variant conversion support above.
 # https://github.com/apache/arrow-rs/issues/11942
 skipif DataFusion
-query T
-SELECT to_json(to_variant_object(named_struct('v', parse_json('1'))));
+query ?
+SELECT to_variant_object(named_struct('v', parse_json('1')));
 ----
 {"v":1}
 
 # TRY_CAST uses Arrow's per-row failure handling, not whole-batch nulling.
-query IT rowsort
-SELECT id, to_json(TRY_CAST(arrow_cast(s, 'Decimal256(39, 0)') AS VARIANT))
+query I? rowsort
+SELECT id, TRY_CAST(arrow_cast(s, 'Decimal256(39, 0)') AS VARIANT)
 FROM (VALUES (1, '7'), (2, '999999999999999999999999999999999999999'), (3, NULL)) AS t(id, s);
 ----
 1 7
@@ -230,7 +230,7 @@ statement error (?i)duplicate
 SELECT to_variant_object(named_struct('a', 1, 'a', 2));
 
 # A plain struct resembling Variant storage is still an object.
-query T
-SELECT to_json(to_variant_object(named_struct('metadata', X'010000', 'value', X'00')));
+query ?
+SELECT to_variant_object(named_struct('metadata', X'010000', 'value', X'00'));
 ----
 {"metadata":"AQAA","value":"AA=="}

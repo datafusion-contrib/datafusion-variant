@@ -6,16 +6,61 @@ use arrow::buffer::NullBuffer;
 use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
-use datafusion_sqllogictest::{DataFusion, TestContext};
+use datafusion_sqllogictest::{
+    DFColumnType, DFOutput, DFSqlLogicTestError, TestContext, convert_batches,
+    convert_schema_to_types,
+};
 use datafusion_variant::register_all;
-use indicatif::ProgressBar;
 use parquet_variant::{EMPTY_VARIANT_METADATA_BYTES, Uuid, Variant, VariantBuilderExt};
 use parquet_variant_compute::{
     VariantArray, VariantArrayBuilder, VariantType, json_to_variant, shred_variant,
 };
-use sqllogictest::strict_column_validator;
+use sqllogictest::{AsyncDB, DBOutput, strict_column_validator};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+// Share the temporary presentation adapter with dfv without adding a library API.
+#[path = "../src/display_shim.rs"]
+mod display;
+
+// TODO: return to the upstream DataFusion runner once
+// DataFusion's SLT runner uses registered extension formatters. Tobias's follow-up:
+// https://github.com/apache/datafusion/pull/21714#discussion_r3160465335
+struct TestDatabase {
+    ctx: SessionContext,
+}
+
+#[async_trait::async_trait]
+impl AsyncDB for TestDatabase {
+    type Error = DFSqlLogicTestError;
+    type ColumnType = DFColumnType;
+
+    async fn run(&mut self, sql: &str) -> Result<DFOutput, Self::Error> {
+        let df = self.ctx.sql(sql).await?;
+        let types = convert_schema_to_types(df.schema().fields());
+        let mut options = self.ctx.state().config_options().format.clone();
+        // SLTs always represent SQL NULL as NULL, independently of CLI settings.
+        options.null = "NULL".into();
+        let df = display::format_for_display(df, options)?;
+        let schema = Arc::clone(df.schema().inner());
+        let rows = convert_batches(&schema, df.collect().await?, false)?;
+        if rows.is_empty() && types.is_empty() {
+            Ok(DBOutput::StatementComplete(0))
+        } else {
+            Ok(DBOutput::Rows { types, rows })
+        }
+    }
+
+    fn engine_name(&self) -> &str {
+        "DataFusion"
+    }
+
+    async fn sleep(duration: std::time::Duration) {
+        tokio::time::sleep(duration).await;
+    }
+
+    async fn shutdown(&mut self) {}
+}
 
 fn register_shredded_null_fixture(
     ctx: &SessionContext,
@@ -149,6 +194,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         if relative_path == Path::new("is_valid_variant.slt")
             || relative_path == Path::new("variant_explode.slt")
+            || relative_path == Path::new("variant_display.slt")
         {
             register_variant_validation_fixture(&ctx)?;
         }
@@ -156,6 +202,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         if relative_path == Path::new("variant_sql_type.slt")
             || relative_path == Path::new("is_valid_variant.slt")
             || relative_path == Path::new("variant_explode.slt")
+            || relative_path == Path::new("variant_display.slt")
         {
             register_binary_variant_fixture(&ctx)?;
         }
@@ -193,6 +240,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             || relative_path == Path::new("is_variant_null.slt")
             || relative_path == Path::new("variant_sql_type.slt")
             || relative_path == Path::new("variant_explode.slt")
+            || relative_path == Path::new("variant_display.slt")
         {
             register_shredded_null_fixture(
                 &ctx,
@@ -224,15 +272,8 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
 
-        let pb = ProgressBar::new(24);
-
-        let mut runner = sqllogictest::Runner::new(|| async {
-            Ok(DataFusion::new(
-                ctx.clone(),
-                relative_path.clone(),
-                pb.clone(),
-            ))
-        });
+        let mut runner =
+            sqllogictest::Runner::new(|| async { Ok(TestDatabase { ctx: ctx.clone() }) });
 
         runner.with_column_validator(strict_column_validator);
         runner.run_file_async(test_file).await?;

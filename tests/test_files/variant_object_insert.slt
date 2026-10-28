@@ -10,259 +10,219 @@ CREATE TABLE test_data (id INT, name TEXT, age INT, active BOOL) AS VALUES
   (3, 'Joe', 31, true);
 
 # Test 1: Insert a simple string value into an empty object
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    parse_json('{}'),
-    'name',
-    parse_json('"Alice"')
-  )
+query ?
+SELECT variant_object_insert(
+  parse_json('{}'),
+  'name',
+  parse_json('"Alice"')
 );
 ----
-{"name": ShortString(ShortString("Alice"))}
+{"name":"Alice"}
 
 # Test 2: Insert a number into an object with existing fields
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('name', parse_json('"Bob"')),
-    'age',
-    parse_json('25')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('name', parse_json('"Bob"')),
+  'age',
+  parse_json('25')
 );
 ----
-{"age": Int8(25), "name": ShortString(ShortString("Bob"))}
+{"age":25,"name":"Bob"}
 
 # Test 3: Update an existing key
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct(
-      'name', parse_json('"Charlie"'),
-      'age', parse_json('30')
-    ),
-    'age',
-    parse_json('31')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct(
+    'name', parse_json('"Charlie"'),
+    'age', parse_json('30')
+  ),
+  'age',
+  parse_json('31')
 );
 ----
-{"age": Int8(31), "name": ShortString(ShortString("Charlie"))}
+{"age":31,"name":"Charlie"}
 
 # Test 4: Insert a boolean value
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('name', parse_json('"David"')),
-    'active',
-    parse_json('true')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('name', parse_json('"David"')),
+  'active',
+  parse_json('true')
 );
 ----
-{"active": BooleanTrue, "name": ShortString(ShortString("David"))}
+{"active":true,"name":"David"}
 
 # Test 5: Insert a null value
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('name', parse_json('"Eve"')),
-    'middle_name',
-    parse_json('null')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('name', parse_json('"Eve"')),
+  'middle_name',
+  parse_json('null')
 );
 ----
-{"middle_name": Null, "name": ShortString(ShortString("Eve"))}
+{"middle_name":null,"name":"Eve"}
 
 # Test 6: Insert a nested object
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('name', parse_json('"Frank"')),
-    'address',
-    parse_json('{"city": "NYC", "zip": 10001}')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('name', parse_json('"Frank"')),
+  'address',
+  parse_json('{"city": "NYC", "zip": 10001}')
 );
 ----
-{"address": {"city": ShortString(ShortString("NYC")), "zip": Int16(10001)}, "name": ShortString(ShortString("Frank"))}
+{"address":{"city":"NYC","zip":10001},"name":"Frank"}
 
 # Test 7: Insert an array value
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('name', parse_json('"Grace"')),
-    'scores',
-    parse_json('[95, 87, 92]')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('name', parse_json('"Grace"')),
+  'scores',
+  parse_json('[95, 87, 92]')
 );
 ----
-{"name": ShortString(ShortString("Grace")), "scores": [Int8(95), Int8(87), Int8(92)]}
+{"name":"Grace","scores":[95,87,92]}
 
 # Test 8: Insert with numeric key (as string)
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    parse_json('{"0": "zero"}'),
-    '1',
-    parse_json('"one"')
-  )
+query ?
+SELECT variant_object_insert(
+  parse_json('{"0": "zero"}'),
+  '1',
+  parse_json('"one"')
 );
 ----
-{"0": ShortString(ShortString("zero")), "1": ShortString(ShortString("one"))}
+{"0":"zero","1":"one"}
 
 # Test 9: Chain multiple inserts
-query T
-SELECT variant_pretty(
+query ?
+SELECT variant_object_insert(
   variant_object_insert(
-    variant_object_insert(
-      variant_object_construct('a', parse_json('1')),
-      'b',
-      parse_json('2')
-    ),
-    'c',
-    parse_json('3')
-  )
+    variant_object_construct('a', parse_json('1')),
+    'b',
+    parse_json('2')
+  ),
+  'c',
+  parse_json('3')
 );
 ----
-{"a": Int8(1), "b": Int8(2), "c": Int8(3)}
+{"a":1,"b":2,"c":3}
 
 # Test 10: Insert a complex nested structure
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('user', parse_json('"Henry"')),
-    'metadata',
-    parse_json('{"tags": ["admin", "user"], "count": 42}')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('user', parse_json('"Henry"')),
+  'metadata',
+  parse_json('{"tags": ["admin", "user"], "count": 42}')
 );
 ----
-{"metadata": {"count": Int8(42), "tags": [ShortString(ShortString("admin")), ShortString(ShortString("user"))]}, "user": ShortString(ShortString("Henry"))}
+{"metadata":{"count":42,"tags":["admin","user"]},"user":"Henry"}
 
 # Test 11: Insert with special characters in key
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    parse_json('{}'),
-    'user_name',
-    parse_json('"test_user"')
-  )
+query ?
+SELECT variant_object_insert(
+  parse_json('{}'),
+  'user_name',
+  parse_json('"test_user"')
 );
 ----
-{"user_name": ShortString(ShortString("test_user"))}
+{"user_name":"test_user"}
 
 # Test 12: Insert with special characters in value
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    parse_json('{}'),
-    'message',
-    parse_json('"hello\nworld"')
-  )
+query ?
+SELECT variant_object_insert(
+  parse_json('{}'),
+  'message',
+  parse_json('"hello\nworld"')
 );
 ----
-{"message": ShortString(ShortString("hello\nworld"))}
+{"message":"hello\nworld"}
 
 # Test 13: Insert into object with multiple existing fields
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct(
-      'a', parse_json('1'),
-      'b', parse_json('2'),
-      'c', parse_json('3')
-    ),
-    'd',
-    parse_json('4')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct(
+    'a', parse_json('1'),
+    'b', parse_json('2'),
+    'c', parse_json('3')
+  ),
+  'd',
+  parse_json('4')
 );
 ----
-{"a": Int8(1), "b": Int8(2), "c": Int8(3), "d": Int8(4)}
+{"a":1,"b":2,"c":3,"d":4}
 
 # Test 14: Update with different type
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('value', parse_json('42')),
-    'value',
-    parse_json('"forty-two"')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('value', parse_json('42')),
+  'value',
+  parse_json('"forty-two"')
 );
 ----
-{"value": ShortString(ShortString("forty-two"))}
+{"value":"forty-two"}
 
 # Test 15: Insert negative number
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    parse_json('{}'),
-    'temperature',
-    parse_json('-10')
-  )
+query ?
+SELECT variant_object_insert(
+  parse_json('{}'),
+  'temperature',
+  parse_json('-10')
 );
 ----
-{"temperature": Int8(-10)}
+{"temperature":-10}
 
 # Test 16: Insert decimal number
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    parse_json('{}'),
-    'price',
-    parse_json('19.99')
-  )
+query ?
+SELECT variant_object_insert(
+  parse_json('{}'),
+  'price',
+  parse_json('19.99')
 );
 ----
-{"price": Double(19.99)}
+{"price":19.99}
 
 # Test 17: Insert into object with null values
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('a', parse_json('null')),
-    'b',
-    parse_json('"value"')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('a', parse_json('null')),
+  'b',
+  parse_json('"value"')
 );
 ----
-{"a": Null, "b": ShortString(ShortString("value"))}
+{"a":null,"b":"value"}
 
 # Test 18: Insert empty array
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    parse_json('{}'),
-    'items',
-    parse_json('[]')
-  )
+query ?
+SELECT variant_object_insert(
+  parse_json('{}'),
+  'items',
+  parse_json('[]')
 );
 ----
-{"items": []}
+{"items":[]}
 
 # Test 19: Insert empty object
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_construct('name', parse_json('"test"')),
-    'config',
-    parse_json('{}')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_construct('name', parse_json('"test"')),
+  'config',
+  parse_json('{}')
 );
 ----
-{"config": {}, "name": ShortString(ShortString("test"))}
+{"config":{},"name":"test"}
 
 # Test 20: Multiple updates to same key
-query T
-SELECT variant_pretty(
+query ?
+SELECT variant_object_insert(
   variant_object_insert(
-    variant_object_insert(
-      variant_object_construct('x', parse_json('1')),
-      'x',
-      parse_json('2')
-    ),
+    variant_object_construct('x', parse_json('1')),
     'x',
-    parse_json('3')
-  )
+    parse_json('2')
+  ),
+  'x',
+  parse_json('3')
 );
 ----
-{"x": Int8(3)}
+{"x":3}
 
 # Cleanup
 statement ok

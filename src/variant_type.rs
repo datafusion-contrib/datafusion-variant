@@ -11,6 +11,8 @@ use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 /// Resolve SQL `VARIANT` to its Arrow storage field and extension metadata.
 /// Installed by [`crate::register_all`], or selectively with
 /// `SessionStateBuilder::with_type_planner`.
+// TODO: reuse upstream SQL VARIANT mapping once available (section 6):
+// https://github.com/apache/datafusion/issues/26517
 #[derive(Debug, Default)]
 pub struct VariantTypePlanner;
 
