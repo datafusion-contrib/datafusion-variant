@@ -29,7 +29,7 @@ feature enables reading and writing Parquet Variant files.
 
 ### 2. Register Variant
 
-Create a session and register the functions and SQL field-access syntax:
+Create a session and register the functions, SQL field access, and `VARIANT` type:
 
 ```rust
 use datafusion::prelude::*;
@@ -44,8 +44,9 @@ async fn main() -> datafusion::error::Result<()> {
 ```
 
 > [!WARNING]
-> `register_all` replaces existing functions with the same names. Individual UDFs
-> remain available for selective registration.
+> Call `register_all` during session setup, before preparing statements. It replaces
+> existing functions with the same names and the type planner, and clears prepared
+> statements. Individual UDFs remain available for selective registration.
 
 ### 3. Create the events table
 
@@ -121,7 +122,7 @@ For example, a single Variant column can contain all of these values, shown as J
 `to_variant_object(value)` also accepts structs and string-keyed maps.
 `CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST` returning
 SQL NULL for failed conversions.
-SQL `VARIANT` type syntax requires the [type planner](docs/functions.md#registration).
+`register_all` includes the [type planner](docs/functions.md#registration) for SQL `VARIANT` syntax.
 
 Extract a field as a SQL type before filtering, aggregating, or joining on it.
 A missing field returns SQL NULL. A JSON `null` is a distinct Variant value:

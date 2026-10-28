@@ -9,7 +9,8 @@ use datafusion::{
 use parquet_variant_compute::{VariantArrayBuilder, VariantType};
 
 /// Resolve SQL `VARIANT` to its Arrow storage field and extension metadata.
-/// Register with `SessionStateBuilder::with_type_planner` for SQL type syntax.
+/// Installed by [`crate::register_all`], or selectively with
+/// `SessionStateBuilder::with_type_planner`.
 #[derive(Debug, Default)]
 pub struct VariantTypePlanner;
 
