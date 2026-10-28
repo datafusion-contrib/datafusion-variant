@@ -157,8 +157,7 @@ async fn main_inner() -> Result<()> {
 
 /// Print example commands when starting the interactive shell.
 fn print_examples() {
-    let examples =
-        r###"
+    let examples = r###"
 Try:
   -- Build a table of Variant values and query it
   CREATE TABLE events AS

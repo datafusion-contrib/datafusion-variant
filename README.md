@@ -2,7 +2,7 @@
 
 This crate provides a [Variant] SQL type and functions for querying
 semi-structured data using [Apache DataFusion], as well as reading and writing
-such data to [Apache Parquet] files. 
+such data to [Apache Parquet] files.
 
 This crate is under active development and targets Apache Spark Variant behavior.
 Compatibility is incomplete, and APIs may change. See the
@@ -12,7 +12,7 @@ Compatibility is incomplete, and APIs may change. See the
 
 Variant is used for storing semi-structured data, similarly to JSON. Each value
 can hold objects, arrays, and primitive values, with different fields and types
-in each row. 
+in each row.
 
 For example, a single Variant column can contain all of these values, shown as JSON:
 
@@ -25,9 +25,6 @@ For example, a single Variant column can contain all of these values, shown as J
 
 For background on the encoding and shredding, see
 [Variant Type in Apache Parquet for Semi-Structured Data][parquet-variant-blog].
-
-
-
 
 ## Quick start
 
@@ -58,22 +55,26 @@ async fn main() -> datafusion::error::Result<()> {
 ```
 
 > [!WARNING]
-> `register_all` replaces existing functions with the same names. 
+> `register_all` replaces existing functions with the same names.
 
 Congratulations -- you can now query semi-structured data with the Variant type!
 
 ## Common tasks
 
 This section shows how to perform common tasks with the Variant type. You can
-run the SQL examples using the `SessionContext` e.g. using 
+run the SQL examples using the `SessionContext`, e.g. using
 [`ctx.sql(sql).await?.collect().await?`][session-context-sql].
 
 This repository also includes a `dfv` command-line tool with the Variant
-functions and SQL type preinstalled for you to try the examples interactively. Run it like
+functions and SQL type preinstalled for you to try the examples interactively.
+Run it from the repository root with:
+
 ```shell
-# Note you can drop --release` if you want faster compile times and aren't measuring performance.
+# Drop `--release` for faster compile times if you aren't measuring performance.
 cargo run --release
 ```
+
+In the examples below, `NULL` in a result table represents SQL NULL.
 
 ### Convert JSON to Variant
 
@@ -95,11 +96,11 @@ FROM (VALUES
 > For malformed input, use `try_parse_json(json_data)` to return SQL NULL instead
 > of failing the query. Valid JSON `null` remains a Variant null.
 
-### Query 
+### Query
 
 You can extract fields from a Variant column using the `variant_get` UDF or
 the SQL `:` field-access syntax. For example, to select the `service` and
-`latency_ms` fields from the `event` Variant column, run:
+`latency_ms` fields of events whose `status` is at least 400, run:
 
 ```sql
 SELECT event:service::VARCHAR AS service,
@@ -117,9 +118,8 @@ WHERE event:status::BIGINT >= 400;
 +---------+------------+
 ```
 
-The `:` syntax is automatically rewritten to the `variant_get` function to the
-following equivalent query, which you can also run directly:
-
+The `:` syntax is automatically rewritten to calls to the `variant_get`
+function, so the following equivalent query can also be run directly:
 
 ```sql
 SELECT variant_get(event, 'service', 'VARCHAR') AS service,
@@ -133,8 +133,13 @@ WHERE variant_get(event, 'status', 'BIGINT') >= 400;
 | service | latency_ms |
 +---------+------------+
 | api     | 85         |
+| api     | NULL       |
 +---------+------------+
 ```
+
+Extract a field as a SQL type before filtering, aggregating, or joining on it.
+A missing field returns SQL NULL. A JSON `null` is a distinct Variant null
+value: use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
 
 ### Convert Variant to JSON
 
@@ -169,14 +174,15 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 +-------+
 | count |
 +-------+
-| 2     |
+| 3     |
 +-------+
 ```
 
-You can see the Variant column is stored in Parquet as a struct:
+The Variant column is stored in Parquet as a struct with `metadata` and `value`
+fields, as the `parquet_metadata` table function in `dfv` shows:
 
-```sql
-> select path_in_schema, type from  parquet_metadata('events.parquet');
+```shell
+> SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
 +------------------+------------+
 | path_in_schema   | type       |
 +------------------+------------+
@@ -189,11 +195,12 @@ Elapsed 0.001 seconds.
 
 ### Read Variant from Parquet
 
-You can `events.parquet` with the Variant column preserved. 
+You can read `events.parquet` back with the Variant column preserved.
 
 > [!WARNING]
-> DataFusion's Parquet reader ignores this metadata by default today,
-> so you must set `datafusion.execution.parquet.skip_metadata`
+> DataFusion's Parquet reader ignores the schema metadata that identifies the
+> Variant column by default today, so you must set
+> `datafusion.execution.parquet.skip_metadata` to `false` first.
 
 ```sql
 -- Preserve the schema information that identifies the Variant column.
@@ -214,13 +221,22 @@ ORDER BY event:status::BIGINT;
 +---------+-----------+
 ```
 
+### Convert between Variant and other SQL types
+
+`CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals,
+to Variant, and `to_variant_object(value)` also accepts structs and string-keyed
+maps. `CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST`
+returning SQL NULL for failed conversions. Using the SQL `VARIANT` type name
+requires the [type planner][functions-registration], which `dfv` installs.
+See the [type conversion tests][spark-variant-conversions-slt] for examples.
+
 ### Inspect the schema of Variant values
 
 Due to their dynamic nature, Variant values can have different fields and types in
 each row. You can inspect the schema of a Variant column using the following
 functions:
 
-```shell
+```sql
 -- Get the schema of each Variant value
 SELECT schema_of_variant(event) FROM events;
 ```
@@ -248,7 +264,11 @@ SELECT schema_of_variant_agg(event) AS schema FROM events;
 +-------------------------------------------------------------------------------------------------+
 ```
 
-# Functions
+## Functions
+
+Links lead to executable SQL examples, or Rust tests for `variant_normalize`.
+See [function behavior and SQL compatibility][functions-doc]
+for conversion rules, SQL `VARIANT` type registration, and known limitations.
 
 | Area | Functions and examples |
 | --- | --- |
@@ -300,37 +320,20 @@ in [#69][roadmap].
 - [Custom types using metadata in DataFusion][datafusion-custom-types-blog]
 - [Iceberg Variant proposal — design background][iceberg-variant-proposal]
 
-
-`parse_json` converts JSON text to the
-[Parquet Variant encoding][parquet-variant-encoding];
-`CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals;
-`to_variant_object(value)` also accepts structs and string-keyed maps.
-`CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST` returning
-SQL NULL for failed conversions.
-SQL `VARIANT` type syntax requires the [type planner][functions-registration].
-
-Extract a field as a SQL type before filtering, aggregating, or joining on it.
-A missing field returns SQL NULL. A JSON `null` is a distinct Variant value:
-use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
-## Functions
-
-Links lead to executable SQL examples, or Rust tests for `variant_normalize`.
-See [function behavior and SQL compatibility][functions-doc]
-for conversion rules, SQL `VARIANT` type registration, and known limitations.
-
-
 ## License
 
 Licensed under the [Apache License, Version 2.0][license].
 
+[Variant]: https://parquet.apache.org/docs/file-format/types/variantencoding/
+[Apache DataFusion]: https://datafusion.apache.org/
+[Apache Parquet]: https://parquet.apache.org/
+[`SessionContext`]: https://docs.rs/datafusion/latest/datafusion/execution/context/struct.SessionContext.html
+[Apache DataFusion documentation]: https://datafusion.apache.org/library-user-guide/using-the-sql-api.html
 [roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [session-context-sql]: https://docs.rs/datafusion/latest/datafusion/execution/context/struct.SessionContext.html#method.sql
-[arrow-union-layout]: https://arrow.apache.org/docs/format/Columnar.html#union-layout
 [parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/
 [functions-registration]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md#registration
 [parquet-variant-blog]: https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/
-[duckdb-variant-parquet]: https://duckdb.org/docs/2.0/sql/data_types/variant#writing-variant-to-parquet
-[datafusion-variant-epic]: https://github.com/apache/datafusion/issues/26517
 [functions-doc]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md
 [parse-json-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt
 [variant-get-json-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_json.slt
@@ -350,7 +353,6 @@ Licensed under the [Apache License, Version 2.0][license].
 [variant-list-delete-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt
 [variant-normalize-src]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs
 [variant-pretty-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt
-[dfv-pr]: https://github.com/datafusion-contrib/datafusion-variant/pull/102
 [benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
 [issue-tracker]: https://github.com/datafusion-contrib/datafusion-variant/issues

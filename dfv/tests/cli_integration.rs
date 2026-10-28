@@ -43,17 +43,18 @@ fn test_examples_banner_in_repl_only() {
         .write_stdin("SELECT 1 AS one;\n\\q\n")
         .assert()
         .success()
+        .stdout(predicates::str::contains("\nTry:\n"))
         .stdout(predicates::str::contains(
-            "Variant functions are preinstalled. Try:",
+            "-- Build a table of Variant values and query it",
         ))
-        .stdout(predicates::str::contains("SELECT parse_json("))
         .stdout(predicates::str::contains("| one |"));
 
     cargo_bin_cmd!("dfv")
         .args(["-c", "SELECT 1"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("Variant functions are preinstalled").not());
+        .stdout(predicates::str::contains("\nTry:\n").not())
+        .stdout(predicates::str::contains("-- Build a table of Variant values").not());
 }
 
 /// Only `-c` and `-f` are supported; other `datafusion-cli` options are
