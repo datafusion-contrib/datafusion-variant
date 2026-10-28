@@ -129,7 +129,7 @@ async fn main_inner() -> Result<()> {
         Arc::new(ListFilesCacheFunc::new(cache_manager)),
     );
     // register `load_bsky(n)` to download and load sample Bluesky JSON data
-    ctx.register_udtf("load_bsky", Arc::new(load_bsky::LoadBskyFunc::default()));
+    ctx.register_udtf("load_bsky", Arc::new(load_bsky::LoadBskyFunc));
 
     let mut print_options = PrintOptions {
         format: PrintFormat::Automatic,

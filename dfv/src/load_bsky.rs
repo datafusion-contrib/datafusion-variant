@@ -2,19 +2,16 @@
 //!
 //! `load_bsky(n)` returns the `n`th file of the [ClickHouse Bluesky dataset]
 //! as a table with a single `json_data` column holding one JSON document per
-//! row. The file is read from `data/bluesky/file_000n.json.gz` relative to
-//! the current directory (override the directory with the `DFV_BSKY_DIR`
-//! environment variable). If the file does not exist it is downloaded first
-//! (about 135 MB per file). Loaded files are cached in memory for the rest of
-//! the session.
+//! row. The file is read from `DFV_BSKY_DIR/data/bluesky/file_000n.json.gz`
+//!
+//! If the file does not exist it is downloaded first (about 135 MB per file).
 //!
 //! [ClickHouse Bluesky dataset]: https://clickhouse.com/docs/getting-started/example-datasets/bluesky
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use arrow::array::{RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
@@ -43,13 +40,9 @@ const MAX_FILE_NUMBER: i64 = 1000;
 /// Rows per output `RecordBatch`.
 const BATCH_SIZE: usize = 8192;
 
-type Cache = Arc<Mutex<HashMap<PathBuf, Arc<Vec<RecordBatch>>>>>;
-
 /// `load_bsky(n)` table function. See the module documentation.
 #[derive(Debug, Default)]
-pub struct LoadBskyFunc {
-    cache: Cache,
-}
+pub struct LoadBskyFunc;
 
 impl TableFunctionImpl for LoadBskyFunc {
     fn call_with_args(&self, args: TableFunctionArgs) -> Result<Arc<dyn TableProvider>> {
@@ -72,7 +65,6 @@ impl TableFunctionImpl for LoadBskyFunc {
         Ok(Arc::new(BskyTable {
             file_name: format!("file_{file_number:04}.json.gz"),
             path: dir.join(format!("file_{file_number:04}.json.gz")),
-            cache: Arc::clone(&self.cache),
         }))
     }
 }
@@ -85,19 +77,16 @@ fn bsky_schema() -> SchemaRef {
     )]))
 }
 
-/// One Bluesky file as a table. The file is downloaded and read on first scan.
+/// One Bluesky file as a table. The file is downloaded if needed and read
+/// from disk on every scan.
 #[derive(Debug)]
 struct BskyTable {
     file_name: String,
     path: PathBuf,
-    cache: Cache,
 }
 
 impl BskyTable {
-    async fn batches(&self) -> Result<Arc<Vec<RecordBatch>>> {
-        if let Some(batches) = self.cache.lock().unwrap().get(&self.path) {
-            return Ok(Arc::clone(batches));
-        }
+    async fn batches(&self) -> Result<Vec<RecordBatch>> {
         if !self.path.is_file() {
             download(&self.file_name, &self.path).await?;
         }
@@ -108,11 +97,6 @@ impl BskyTable {
             .map_err(|e| DataFusionError::External(Box::new(e)))??;
         let rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
         eprintln!("Loaded {rows} rows");
-        let batches = Arc::new(batches);
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(self.path.clone(), Arc::clone(&batches));
         Ok(batches)
     }
 }
@@ -139,8 +123,8 @@ impl TableProvider for BskyTable {
         // queries run in parallel.
         let num_partitions = state.config().target_partitions().max(1);
         let mut partitions: Vec<Vec<RecordBatch>> = vec![Vec::new(); num_partitions];
-        for (i, batch) in batches.iter().enumerate() {
-            partitions[i % num_partitions].push(batch.clone());
+        for (i, batch) in batches.into_iter().enumerate() {
+            partitions[i % num_partitions].push(batch);
         }
         partitions.retain(|p| !p.is_empty());
         if partitions.is_empty() {
