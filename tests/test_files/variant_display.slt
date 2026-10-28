@@ -1,5 +1,147 @@
 # Ordinary queries use the formatter installed by register_all.
 
+# The DESCRIBE shim is installed by register_all, independently of the result
+# adapter. Preserve column order and nullability alongside the logical type.
+statement ok
+CREATE TABLE describe_events AS
+SELECT 1 AS id, parse_json('{"service":"api"}') AS event,
+       CAST(NULL AS VARIANT) AS optional;
+
+query TTT
+DESCRIBE describe_events;
+----
+id Int64 NO
+event Variant NO
+optional Variant YES
+
+# Query descriptions retain the result field metadata too.
+query TTT
+DESCRIBE SELECT parse_json('null') AS v;
+----
+v Variant NO
+
+# Extension metadata, not the storage shape, identifies Variant. An ordinary
+# struct with Variant-shaped storage must keep its Arrow type, even beside Variant.
+statement ok
+CREATE TABLE describe_storage (
+    v VARIANT,
+    raw STRUCT<metadata BYTEA, value BYTEA>
+);
+
+query TTT
+DESCRIBE describe_storage;
+----
+v Variant YES
+raw Struct("metadata": Binary, "value": Binary) YES
+
+# Tables without Variant fields keep DataFusion's normal description path.
+query TTT
+DESCRIBE SELECT 1 AS n;
+----
+n Int64 NO
+
+# SHOW COLUMNS reads information_schema.columns. Registration precedes both
+# enabling information_schema and creating these tables.
+statement ok
+SET datafusion.catalog.information_schema = true;
+
+query TTTTTT
+SHOW COLUMNS FROM describe_events;
+----
+datafusion public describe_events id Int64 NO
+datafusion public describe_events event Variant NO
+datafusion public describe_events optional Variant YES
+
+# Type predicates, aliases, projection, and limits operate on logical names.
+query T
+SELECT column_name AS name FROM information_schema.columns
+WHERE table_name = 'describe_events' AND data_type = 'Variant'
+ORDER BY name LIMIT 1 OFFSET 1;
+----
+optional
+
+# Preserve the rest of the metadata and the storage type of untagged structs.
+query TITT
+SELECT column_name, ordinal_position, data_type, is_nullable
+FROM information_schema.columns WHERE table_name = 'describe_storage'
+ORDER BY ordinal_position;
+----
+v 0 Variant YES
+raw 1 Struct("metadata": Binary, "value": Binary) YES
+
+# Alternate storage layouts also use field metadata in information_schema.
+query TTT rowsort
+SELECT table_name, column_name, data_type FROM information_schema.columns
+WHERE table_name IN ('binary_variant_inputs', 'shredded_null_objects');
+----
+binary_variant_inputs b Variant
+binary_variant_inputs l Variant
+shredded_null_objects id Int32
+shredded_null_objects original Variant
+shredded_null_objects v Variant
+
+# Resolve table identities by catalog and schema, not just table/column names.
+statement ok
+CREATE SCHEMA alternate;
+
+statement ok
+CREATE TABLE alternate.describe_events (event BIGINT);
+
+statement ok
+CREATE DATABASE other;
+
+statement ok
+CREATE SCHEMA other.public;
+
+statement ok
+CREATE TABLE other.public.describe_events (event INT);
+
+query TTTT rowsort
+SELECT table_catalog, table_schema, column_name, data_type FROM information_schema.columns
+WHERE table_name = 'describe_events' AND column_name = 'event';
+----
+datafusion alternate event Int64
+datafusion public event Variant
+other public event Int32
+
+# Reanalyzing a saved view must not stack adapters or lose the type predicate.
+statement ok
+CREATE VIEW variant_columns AS
+SELECT table_name, column_name FROM information_schema.columns
+WHERE data_type = 'Variant';
+
+query T
+SELECT column_name FROM variant_columns WHERE table_name = 'describe_events'
+ORDER BY column_name;
+----
+event
+optional
+
+# Analyzer traversal includes subqueries, not only the outer query's inputs.
+query I
+SELECT 1 WHERE EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'describe_events' AND data_type = 'Variant'
+);
+----
+1
+
+# A user table with the same name is not an introspection source when the
+# built-in information schema is disabled.
+statement ok
+SET datafusion.catalog.information_schema = false;
+
+statement ok
+CREATE SCHEMA information_schema;
+
+statement ok
+CREATE TABLE information_schema.columns AS SELECT 'untouched' AS data_type;
+
+query T
+SELECT data_type FROM information_schema.columns;
+----
+untouched
+
 # A scalar extension result must broadcast across rows. Ordinary columns retain
 # the upstream SLT normalizer, including booleans and floating values.
 query ?BR
