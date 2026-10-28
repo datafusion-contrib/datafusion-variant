@@ -5,10 +5,9 @@ use arrow::array::{
 use arrow::buffer::NullBuffer;
 use arrow::datatypes::{DataType, Field, FieldRef, Schema};
 use arrow::record_batch::RecordBatch;
-use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::*;
 use datafusion_sqllogictest::{DataFusion, TestContext};
-use datafusion_variant::{VariantTypePlanner, register_all};
+use datafusion_variant::register_all;
 use indicatif::ProgressBar;
 use parquet_variant::{EMPTY_VARIANT_METADATA_BYTES, Uuid, Variant, VariantBuilderExt};
 use parquet_variant_compute::{
@@ -139,16 +138,12 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(&test_file)
             .to_path_buf();
 
-        let ctx = if let Some(test_ctx) = TestContext::try_new_for_test_file(&relative_path).await {
-            test_ctx.session_ctx().clone()
-        } else {
-            SessionContext::new()
-        };
-
-        let state = SessionStateBuilder::new_from_existing(ctx.state())
-            .with_type_planner(Arc::new(VariantTypePlanner))
-            .build();
-        let mut ctx = SessionContext::new_with_state(state);
+        let mut ctx =
+            if let Some(test_ctx) = TestContext::try_new_for_test_file(&relative_path).await {
+                test_ctx.session_ctx().clone()
+            } else {
+                SessionContext::new()
+            };
 
         register_all(&mut ctx)?;
 

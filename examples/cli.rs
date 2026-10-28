@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
 use arrow::array::{ArrayRef, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
-use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::*;
-use datafusion_variant::{VariantTypePlanner, register_all};
+use datafusion_variant::register_all;
 use flate2::read::GzDecoder;
 use rustyline::error::ReadlineError;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
@@ -95,11 +94,7 @@ async fn main() -> Result<()> {
     let ctx = {
         let setup_start = Instant::now();
 
-        let state = SessionStateBuilder::new()
-            .with_default_features()
-            .with_type_planner(Arc::new(VariantTypePlanner))
-            .build();
-        let mut ctx = SessionContext::new_with_state(state);
+        let mut ctx = SessionContext::new();
         let schema = Schema::new(vec![Field::new("json_data", DataType::Utf8, false)]);
         let string_array: ArrayRef = Arc::new(StringArray::from(json_strings));
         let batch = RecordBatch::try_new(Arc::new(schema), vec![string_array])?;
