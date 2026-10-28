@@ -57,7 +57,7 @@ impl Dataset {
 struct Prepare {
     #[command(flatten)]
     dataset: Dataset,
-    /// Original compressed JSON files; compatible with download_data.sh.
+    /// Directory holding the original compressed JSON files.
     #[arg(long, default_value = "data/bluesky")]
     source_dir: PathBuf,
     /// Maximum records per conversion batch.
