@@ -66,7 +66,7 @@ Congratulations -- you can now query semi-structured data with the Variant type!
 
 This section shows how to perform common tasks with the Variant type. You can
 run the SQL examples using the `SessionContext` e.g. using 
-[`ctx.sql(sql).await?.collect().await?`](Docs for session context.sql()).
+[`ctx.sql(sql).await?.collect().await?`][session-context-sql].
 
 This repository also includes a `dfv` command-line tool with the Variant
 functions and SQL type preinstalled for you to try the examples interactively. Run it like
@@ -301,38 +301,6 @@ in [#69][roadmap].
 - [Iceberg Variant proposal — design background][iceberg-variant-proposal]
 
 
-
-
-## 🚧 Work in Progress 🚧
-
-These features are not yet implemented:
-
-
-> [!WARNING]
-> **NOT YET IMPLEMENTED:** choosing between unshredded storage, an explicit
-> shredding schema, or automatic shredding when writing Parquet.
-> Shredding stores selected fields in typed
-> Parquet columns alongside the remaining Variant data.
-> The API and SQL syntax are TBD. A [DuckDB-style option][duckdb-variant-parquet]
-> could look like:
-
-<!-- readme-test: skip: proposed shredding syntax is not implemented -->
-```sql
--- Proposed syntax only; not yet supported.
-COPY events TO 'events.parquet' (
-    FORMAT parquet,
-    SHREDDING {'event': 'STRUCT(service VARCHAR, status BIGINT)'}
-);
-```
-
-
-
-> [!WARNING]
-> **NOT YET IMPLEMENTED:** reading a mixture of shredded and unshredded files
-> as one table. See the [upstream Variant integration epic][datafusion-variant-epic]
-> for schema adaptation and extension metadata preservation work.
-
-
 `parse_json` converts JSON text to the
 [Parquet Variant encoding][parquet-variant-encoding];
 `CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals;
@@ -356,6 +324,7 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 Licensed under the [Apache License, Version 2.0][license].
 
 [roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
+[session-context-sql]: https://docs.rs/datafusion/latest/datafusion/execution/context/struct.SessionContext.html#method.sql
 [arrow-union-layout]: https://arrow.apache.org/docs/format/Columnar.html#union-layout
 [parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/
 [functions-registration]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md#registration
