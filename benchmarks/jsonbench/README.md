@@ -9,7 +9,7 @@ cargo run --release --example jsonbench -- run
 ```
 
 Preparation downloads the original million-row Bluesky gzip file to
-`data/bluesky` and writes these layouts under
+`data/bluesky` (also used by `download_data.sh`) and writes these layouts under
 `data/jsonbench`:
 
 | Layout | Fields shredded |

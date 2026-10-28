@@ -24,8 +24,7 @@ async fn main() {
     let file_path = "data/bluesky/file_0001.json.gz";
 
     // load data
-    let file = File::open(file_path)
-        .expect("run `cargo run --release --example jsonbench -- prepare` to download the data");
+    let file = File::open(file_path).expect("make sure to run ./bin/download_data.sh");
     let decoder = GzDecoder::new(file);
     let reader = BufReader::new(decoder);
 
