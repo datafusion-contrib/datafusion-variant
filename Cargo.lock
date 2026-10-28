@@ -2240,6 +2240,7 @@ dependencies = [
  "datafusion-variant",
  "env_logger",
  "mimalloc",
+ "parquet",
  "predicates",
  "tempfile",
  "tokio",
