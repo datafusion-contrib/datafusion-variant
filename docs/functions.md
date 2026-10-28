@@ -24,10 +24,20 @@ then pass them to `ctx.register_udf` or `ctx.register_udaf`. Use
 `register_variant_get_functions` for the getters and casts from VARIANT,
 `register_variant_conversion_functions` for casts to VARIANT and `to_variant_object`, and
 `ctx.register_expr_planner(Arc::new(VariantExprPlanner))` for `:` field access.
+Use `register_variant_explode_functions` for the explode table functions.
 For selective SQL `VARIANT` type registration, install `VariantTypePlanner`
 with `SessionStateBuilder::with_type_planner`.
 
 ## Function behavior
+
+`variant_explode(input)` emits immediate array elements or object fields in
+encoded order as `pos` (zero-based INT), `key` (VARCHAR, NULL for arrays), and
+`value` (VARIANT). Scalars, empty containers, and SQL/Variant null emit no rows;
+`variant_explode_outer` emits one all-NULL row instead. Child Variant nulls stay
+Variant values. See [SQL examples](../tests/test_files/variant_explode.slt).
+
+Correlated calls support comma, CROSS, and INNER joins; correlated LEFT joins
+and `WITH ORDINALITY` are unsupported. All output columns are marked nullable.
 
 `is_valid_variant(v)` validates values using [Arrow's rules](../src/is_valid_variant.rs).
 SQL NULL propagates; Variant null is valid.

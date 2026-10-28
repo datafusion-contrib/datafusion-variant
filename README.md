@@ -285,6 +285,7 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 | Schema inference | [`schema_of_variant`][schema-of-variant-slt], [`schema_of_variant_agg`][schema-of-variant-agg-slt] |
 | Objects | [`variant_object_construct`][variant-object-construct-slt], [`variant_object_keys`][variant-object-keys-slt], [`variant_object_insert`][variant-object-insert-slt], [`variant_object_delete`][variant-object-delete-slt] |
 | Arrays | [`variant_list_construct`][variant-list-construct-slt], [`variant_list_insert`][variant-list-insert-slt], [`variant_list_delete`][variant-list-delete-slt] |
+| Row expansion | [`variant_explode`, `variant_explode_outer`][variant-explode-slt] |
 | Utilities | [`variant_normalize`][variant-normalize-src] |
 
 ## Common pitfalls
@@ -366,6 +367,7 @@ Licensed under the [Apache License, Version 2.0][license].
 [variant-list-construct-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt
 [variant-list-insert-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt
 [variant-list-delete-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt
+[variant-explode-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_explode.slt
 [variant-normalize-src]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs
 [benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files

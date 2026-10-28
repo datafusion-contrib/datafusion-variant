@@ -1,0 +1,262 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Adapted from Apache Spark at 653db2957ac7d1b18d8f0b070fe8b3b01ba34c9d:
+# https://github.com/apache/spark/blob/653db2957ac7d1b18d8f0b070fe8b3b01ba34c9d/sql/core/src/test/resources/sql-tests/inputs/variant/named-function-arguments.sql
+# https://github.com/apache/spark/blob/653db2957ac7d1b18d8f0b070fe8b3b01ba34c9d/sql/core/src/test/scala/org/apache/spark/sql/VariantSuite.scala
+# https://github.com/apache/spark/blob/653db2957ac7d1b18d8f0b070fe8b3b01ba34c9d/sql/core/src/test/scala/org/apache/spark/sql/DataFrameTableValuedFunctionsSuite.scala
+# Expectations checked against source/tests, not a Spark execution. Variant values
+# display directly; ORDER BY makes row order deterministic. Codegen settings and the
+# DataFrame TVF API are Spark-specific; their SQL behavior is covered here.
+
+# Named-function-arguments.sql cases, combining aliases with named input.
+query IT?
+SELECT num, key, val
+FROM variant_explode(input => parse_json('["hello", "world"]')) AS e(num, key, val)
+ORDER BY num;
+----
+0 NULL "hello"
+1 NULL "world"
+
+# Scramble JSON keys to check encoded field order rather than insertion order.
+query IT?
+SELECT pos, key, value
+FROM variant_explode_outer(input => parse_json('{"b": 3.14, "a": true}')) ORDER BY pos;
+----
+0 a true
+1 b 3.14
+
+query IT?IT?
+SELECT a.pos, a.key, a.value, b.pos, b.key, b.value
+FROM variant_explode(parse_json('["hello", "world"]')) AS a,
+     variant_explode(parse_json('{"a": true, "b": 3.14}')) AS b
+ORDER BY a.pos, b.pos;
+----
+0 NULL "hello" 0 a true
+0 NULL "hello" 1 b 3.14
+1 NULL "world" 0 a true
+1 NULL "world" 1 b 3.14
+
+query IT?IT?
+SELECT t.pos, t.key, t.value, e.pos, e.key, e.value
+FROM variant_explode(parse_json('{"a": ["hello", "world"], "b": {"x": true, "y": 3.14}}')) AS t,
+     LATERAL variant_explode(t.value) AS e
+ORDER BY t.pos, e.pos;
+----
+0 a ["hello","world"] 0 NULL "hello"
+0 a ["hello","world"] 1 NULL "world"
+1 b {"x":true,"y":3.14} 0 x true
+1 b {"x":true,"y":3.14} 1 y 3.14
+
+# Combine VariantSuite's cases with DataFrameTableValuedFunctionsSuite's empty
+# containers; their other mixed-input cases overlap these and the named-argument
+# tests above.
+# Materialization exercises column input and distinguishes SQL/Variant nulls.
+statement ok
+CREATE TABLE variant_suite AS
+SELECT id, parse_json(json) AS v FROM (VALUES
+  (0, CAST(NULL AS VARCHAR)), (1, '1'), (2, 'null'),
+  (3, '{"a": [1, 2, 3], "b": true}'), (4, '[null, "hello", {}]'),
+  (5, '[]'), (6, '{}')
+) AS t(id, json);
+
+query IIT?
+SELECT t.id, e.pos, e.key, e.value
+FROM variant_suite t, LATERAL variant_explode(v) AS e ORDER BY id, pos;
+----
+3 0 a [1,2,3]
+3 1 b true
+4 0 NULL null
+4 1 NULL "hello"
+4 2 NULL {}
+
+query IIT?BB
+SELECT t.id, e.pos, e.key, e.value, e.value IS NULL, is_variant_null(e.value)
+FROM variant_suite t, LATERAL variant_explode_outer(t.v) AS e ORDER BY id, pos;
+----
+0 NULL NULL NULL true false
+1 NULL NULL NULL true false
+2 NULL NULL NULL true false
+3 0 a [1,2,3] false false
+3 1 b true false false
+4 0 NULL null false true
+4 1 NULL "hello" false false
+4 2 NULL {} false false
+5 NULL NULL NULL true false
+6 NULL NULL NULL true false
+
+# Local integration regressions: SQL NULL literals, empty input,
+# duplicate parent rows, aliases, filtering, native values, and Arrow storage.
+# Exact output types and extension identity, including an outer placeholder row.
+query TTTB
+SELECT arrow_typeof(pos), arrow_typeof(key),
+       arrow_metadata(value, 'ARROW:extension:name'),
+       arrow_typeof(value) = arrow_typeof(CAST(NULL AS VARIANT))
+FROM variant_explode(parse_json('[null]'))
+UNION ALL
+SELECT arrow_typeof(pos), arrow_typeof(key),
+       arrow_metadata(value, 'ARROW:extension:name'),
+       arrow_typeof(value) = arrow_typeof(CAST(NULL AS VARIANT))
+FROM variant_explode_outer(parse_json('[]'));
+----
+Int32 Utf8 arrow.parquet.variant true
+Int32 Utf8 arrow.parquet.variant true
+
+query I
+SELECT count(*) FROM variant_explode(NULL);
+----
+0
+
+query IT?
+SELECT pos, key, value FROM variant_explode_outer(NULL);
+----
+NULL NULL NULL
+
+query I
+SELECT count(*) FROM variant_suite t, LATERAL variant_explode_outer(v) WHERE id < 0;
+----
+0
+
+statement ok
+CREATE TABLE null_inputs AS SELECT NULL AS v FROM (VALUES (1), (2)) t(id);
+
+query I
+SELECT count(*) FROM null_inputs, LATERAL variant_explode(v);
+----
+0
+
+query I
+SELECT count(*) FROM null_inputs, LATERAL variant_explode_outer(v);
+----
+2
+
+# Small batches, duplicate parents, column aliases, and a name that collides
+# with the lateral rewrite's preferred internal column name.
+statement ok
+SET datafusion.execution.batch_size = 2;
+
+query II?
+SELECT t.__variant_explode_entries AS id, num, val
+FROM (VALUES (1, '[1,2]'), (1, '[1,2]'), (2, '[]')) t(__variant_explode_entries, json),
+LATERAL variant_explode_outer(parse_json(json)) AS e(num, key, val)
+ORDER BY id, num;
+----
+1 0 1
+1 0 1
+1 1 2
+1 1 2
+2 NULL NULL
+
+statement ok
+RESET datafusion.execution.batch_size;
+
+query II?
+SELECT id, pos, value
+FROM variant_suite t INNER JOIN LATERAL variant_explode(t.v) AS e ON e.pos = t.id - 3
+ORDER BY id;
+----
+3 0 [1,2,3]
+4 1 "hello"
+
+query IR
+SELECT pos, CAST(value AS DECIMAL(10,2))
+FROM variant_explode(to_variant_object([CAST(1.23 AS DECIMAL(10,2)), NULL])) ORDER BY pos;
+----
+0 1.23
+1 NULL
+
+query T?
+SELECT key, value FROM binary_variant_inputs, LATERAL variant_explode(b);
+----
+x 7
+
+query T? rowsort
+SELECT key, value FROM binary_variant_inputs, LATERAL variant_explode_outer(l);
+----
+NULL NULL
+x 7
+
+# Both shredded layouts must produce the same rows as their original storage.
+# to_json is used for SQL value comparison here, not display.
+query I
+SELECT count(*) FROM (
+  (SELECT id, pos, key, to_json(value) FROM shredded_null_objects, LATERAL variant_explode_outer(v)
+   EXCEPT ALL
+   SELECT id, pos, key, to_json(value) FROM shredded_null_objects, LATERAL variant_explode_outer(original))
+  UNION ALL
+  (SELECT id, pos, key, to_json(value) FROM shredded_null_objects, LATERAL variant_explode_outer(original)
+   EXCEPT ALL
+   SELECT id, pos, key, to_json(value) FROM shredded_null_objects, LATERAL variant_explode_outer(v))
+) differences;
+----
+0
+
+query I
+SELECT count(*) FROM (
+  (SELECT id, pos, key, to_json(value) FROM shredded_null_lists, LATERAL variant_explode(v)
+   EXCEPT ALL
+   SELECT id, pos, key, to_json(value) FROM shredded_null_lists, LATERAL variant_explode(original))
+  UNION ALL
+  (SELECT id, pos, key, to_json(value) FROM shredded_null_lists, LATERAL variant_explode(original)
+   EXCEPT ALL
+   SELECT id, pos, key, to_json(value) FROM shredded_null_lists, LATERAL variant_explode(v))
+) differences;
+----
+0
+
+statement error requires exactly one argument
+SELECT * FROM variant_explode();
+
+statement error requires exactly one argument
+SELECT * FROM variant_explode_outer(NULL, NULL);
+
+statement error optionally named input
+SELECT * FROM variant_explode(wrong => NULL);
+
+statement error optionally named input
+SELECT * FROM variant_explode(*);
+
+statement error
+SELECT * FROM variant_explode('[1,2]');
+
+statement error WITH ORDINALITY
+SELECT * FROM variant_explode(NULL) WITH ORDINALITY;
+
+statement error table modifiers
+SELECT * FROM variant_explode(NULL) TABLESAMPLE BERNOULLI (10);
+
+statement error supports CROSS/INNER JOIN LATERAL
+SELECT * FROM variant_suite t LEFT JOIN LATERAL variant_explode(t.v) e ON true;
+
+# The planner must leave ordinary tables and CTEs with these names alone.
+query I
+WITH variant_explode AS (SELECT 7 AS n) SELECT * FROM variant_explode;
+----
+7
+
+# Fallible Arrow validation rejects malformed nested payloads instead of panicking.
+statement error
+SELECT * FROM (SELECT raw FROM variant_validation_inputs WHERE id = 2) t,
+LATERAL variant_explode(raw);
+
+# SQL NULL masks malformed storage, including a Null typed_value column.
+query IT?
+SELECT pos, key, value
+FROM (SELECT null_typed FROM variant_validation_inputs WHERE id = 7) t,
+LATERAL variant_explode_outer(null_typed);
+----
+NULL NULL NULL
