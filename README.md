@@ -280,7 +280,7 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 | --- | --- |
 | JSON conversion | [`parse_json`, `try_parse_json`, `to_json`][parse-json-slt], [`variant_get_json`][variant-get-json-slt] |
 | Type conversion | [`CAST` / `TRY_CAST` to VARIANT, `to_variant_object`][spark-variant-conversions-slt] |
-| Field and path access | [`variant_get`, `try_variant_get`][variant-get-slt], [`variant_contains`][variant-contains-slt] |
+| Field and path access | [`variant_get`, `try_variant_get`][variant-get-slt] |
 | Validation and null inspection | [`is_valid_variant`][is-valid-variant-slt], [`is_variant_null`][is-variant-null-slt] |
 | Schema inference | [`schema_of_variant`][schema-of-variant-slt], [`schema_of_variant_agg`][schema-of-variant-agg-slt] |
 | Objects | [`variant_object_construct`][variant-object-construct-slt], [`variant_object_keys`][variant-object-keys-slt], [`variant_object_insert`][variant-object-insert-slt], [`variant_object_delete`][variant-object-delete-slt] |
@@ -354,7 +354,6 @@ Licensed under the [Apache License, Version 2.0][license].
 [variant-get-json-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_json.slt
 [spark-variant-conversions-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_conversions.slt
 [variant-get-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get.slt
-[variant-contains-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_contains.slt
 [is-valid-variant-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_valid_variant.slt
 [is-variant-null-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_variant_null.slt
 [schema-of-variant-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt

@@ -14,7 +14,6 @@ mod is_variant_null;
 mod parse_json;
 mod schema_of_variant;
 mod to_json;
-mod variant_contains;
 mod variant_conversion;
 mod variant_display;
 mod variant_explode;
@@ -35,7 +34,6 @@ pub use is_variant_null::*;
 pub use parse_json::*;
 pub use schema_of_variant::*;
 pub use to_json::*;
-pub use variant_contains::*;
 pub use variant_conversion::*;
 pub use variant_explode::*;
 pub use variant_get::*;
@@ -84,7 +82,6 @@ pub fn register_all(
         ScalarUDF::new_from_impl(IsVariantNullUdf::default()),
         ScalarUDF::new_from_impl(IsValidVariantUdf::default()),
         ScalarUDF::new_from_impl(SchemaOfVariantUdf::default()),
-        ScalarUDF::new_from_impl(VariantContainsUdf::default()),
         ScalarUDF::new_from_impl(VariantGetJsonUdf::default()),
         ScalarUDF::new_from_impl(VariantObjectConstruct::default()),
         ScalarUDF::new_from_impl(VariantObjectKeys::default()),
