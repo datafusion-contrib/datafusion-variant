@@ -23,7 +23,6 @@ mod variant_get_rewrite;
 mod variant_list_construct;
 mod variant_list_delete;
 mod variant_list_insert;
-mod variant_normalize;
 mod variant_object_construct;
 mod variant_object_delete;
 mod variant_object_insert;
@@ -44,7 +43,6 @@ pub use variant_get_rewrite::*;
 pub use variant_list_construct::*;
 pub use variant_list_delete::*;
 pub use variant_list_insert::*;
-pub use variant_normalize::*;
 pub use variant_object_construct::*;
 pub use variant_object_delete::*;
 pub use variant_object_insert::*;
@@ -95,7 +93,6 @@ pub fn register_all(
         ScalarUDF::new_from_impl(VariantListConstruct::default()),
         ScalarUDF::new_from_impl(VariantListInsert::default()),
         ScalarUDF::new_from_impl(VariantListDelete::default()),
-        ScalarUDF::new_from_impl(VariantNormalizeUdf::default()),
     ] {
         ctx.register_udf(Arc::new(udf))?;
     }
