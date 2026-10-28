@@ -54,3 +54,8 @@ harness = false
 [[bench]]
 name = "schema_of_variant"
 harness = false
+
+[workspace]
+members = ["dfv"]
+# Include `dfv` so `cargo run --bin dfv` and `cargo test` work from the root.
+default-members = [".", "dfv"]
