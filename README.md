@@ -38,9 +38,10 @@ parquet = { version = "60", features = ["variant_experimental"] } # enable Parqu
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-Then, configure your DataFusion [`SessionContext`] to use the Variant functions
-and SQL type with `register_all`. See the [Apache DataFusion documentation] for
-more details on creating a session and executing queries.
+Then, configure your DataFusion [`SessionContext`] to use the Variant functions,
+SQL field access, and `VARIANT` type with `register_all`. See the
+[Apache DataFusion documentation] for more details on creating a session and
+executing queries.
 
 ```rust
 use datafusion::prelude::*;
@@ -55,7 +56,9 @@ async fn main() -> datafusion::error::Result<()> {
 ```
 
 > [!WARNING]
-> `register_all` replaces existing functions with the same names.
+> Call `register_all` during session setup, before preparing statements. It replaces
+> existing functions with the same names and the type planner, and clears prepared
+> statements. Individual UDFs remain available for selective registration.
 
 Congratulations -- you can now query semi-structured data with the Variant type!
 
@@ -226,8 +229,8 @@ ORDER BY event:status::BIGINT;
 `CAST(value AS VARIANT)` converts typed scalars and arrays, including decimals,
 to Variant, and `to_variant_object(value)` also accepts structs and string-keyed
 maps. `CAST(variant_value AS type)` converts back to a SQL type, with `TRY_CAST`
-returning SQL NULL for failed conversions. Using the SQL `VARIANT` type name
-requires the [type planner][functions-registration], which `dfv` installs.
+returning SQL NULL for failed conversions. `register_all` includes the
+[type planner][functions-registration] needed for the SQL `VARIANT` type name.
 See the [type conversion tests][spark-variant-conversions-slt] for examples.
 
 ### Inspect the schema of Variant values

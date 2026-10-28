@@ -22,7 +22,7 @@ use datafusion_cli::object_storage::{StdinCarriesCommands, is_stdin_location};
 use datafusion_cli::print_format::PrintFormat;
 use datafusion_cli::print_options::{MaxRows, PrintOptions};
 use datafusion_cli::{DATAFUSION_CLI_VERSION, exec};
-use datafusion_variant::{VariantTypePlanner, register_all};
+use datafusion_variant::register_all;
 use mimalloc::MiMalloc;
 
 #[global_allocator]
@@ -93,13 +93,11 @@ async fn main_inner() -> Result<()> {
         .with_config(session_config)
         .with_runtime_env(runtime_env)
         .with_default_features()
-        // support the SQL `VARIANT` type name (e.g. `CAST(x AS VARIANT)`)
-        .with_type_planner(Arc::new(VariantTypePlanner))
         .build();
 
     // enable dynamic file query (`SELECT .. FROM 'file.parquet'`)
     let mut ctx = SessionContext::new_with_state(state).enable_url_table();
-    // register the Variant functions and `:` field access
+    // register the Variant functions, `:` field access, and SQL `VARIANT` type
     register_all(&mut ctx)?;
     ctx.refresh_catalogs().await?;
     // install dynamic catalog provider that can register required object stores
