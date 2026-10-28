@@ -8,11 +8,11 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
   (6, '123'),
   (7, 'true');
 
-query T
-select variant_pretty(variant_get(parse_json(json_str), 'name')) from json_data;
+query ?
+select variant_get(parse_json(json_str), 'name') from json_data;
 ----
-ShortString(ShortString("Alice"))
-ShortString(ShortString("Bob"))
+"Alice"
+"Bob"
 NULL
 NULL
 NULL

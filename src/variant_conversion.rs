@@ -151,6 +151,8 @@ impl ScalarUDFImpl for ToVariantUdf {
     }
 }
 
+// TODO: replace this rewrite with registered extension casts once DataFusion
+// supports pluggable cast resolution: https://github.com/apache/datafusion/issues/20755
 #[derive(Debug)]
 struct VariantConversionRewrite;
 

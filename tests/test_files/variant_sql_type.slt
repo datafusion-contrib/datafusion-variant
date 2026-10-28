@@ -14,8 +14,8 @@ SELECT id, variant_get(v, path, 'VaRiAnT') AS hinted,
        TRY_CAST(variant_get(v, 'x') AS VARIANT) AS casted
 FROM sql_variant_inputs;
 
-query ITT rowsort
-SELECT id, to_json(hinted), to_json(casted) FROM sql_variant_results;
+query I?? rowsort
+SELECT id, hinted, casted FROM sql_variant_results;
 ----
 1 7 7
 2 {"a":[1,true]} {"a":[1,true]}
@@ -41,8 +41,8 @@ statement ok
 INSERT INTO declared_variant SELECT hinted FROM sql_variant_results WHERE id = 1;
 
 # Cast stored values through the root conversion kernel, including :: syntax.
-query TTII
-SELECT to_json(v), arrow_metadata(v, 'ARROW:extension:name'),
+query ?TII
+SELECT v, arrow_metadata(v, 'ARROW:extension:name'),
        CAST(v AS INT) AS n, v::BIGINT AS wide FROM declared_variant;
 ----
 7 arrow.parquet.variant 7 7
@@ -111,10 +111,10 @@ SELECT arrow_typeof(a) LIKE '%arrow.parquet.variant%',
 true arrow.parquet.variant
 
 # Constant folding and a scalar input with column paths use separate dispatch.
-query TTT
-SELECT to_json(try_variant_get(parse_json('{"x":7}'), 'x', 'VARIANT')),
-       to_json(CAST(variant_get(parse_json('{"x":7}'), 'x') AS VARIANT)),
-       to_json(variant_get(parse_json('{"x":7}'), path, 'VARIANT'))
+query ???
+SELECT try_variant_get(parse_json('{"x":7}'), 'x', 'VARIANT'),
+       CAST(variant_get(parse_json('{"x":7}'), 'x') AS VARIANT),
+       variant_get(parse_json('{"x":7}'), path, 'VARIANT')
 FROM sql_variant_inputs WHERE id = 1;
 ----
 7 7 7
@@ -243,8 +243,8 @@ SELECT variant_get(b, '', 'VARIANT') AS b,
 
 # TODO(#71): Enable with binary_variant_results once the UDF schema matches its output.
 skipif DataFusion
-query TT rowsort
-SELECT to_json(b), to_json(l) FROM binary_variant_results;
+query ?? rowsort
+SELECT b, l FROM binary_variant_results;
 ----
 NULL NULL
 {"x":7} {"x":7}

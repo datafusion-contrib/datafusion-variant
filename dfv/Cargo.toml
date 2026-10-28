@@ -12,6 +12,8 @@ name = "dfv"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = "0.1"
+url = "2"
 # datafusion-cli must come from the same DataFusion revision as the library so
 # that both link against a single copy of DataFusion and Arrow. The published
 # `datafusion-cli` crate currently depends on Arrow 59 and cannot be used here.

@@ -84,10 +84,10 @@ SELECT to_json(variant_get(parse_json(CAST(NULL AS VARCHAR)), 'a'));
 NULL
 
 # column_value_literal_path
-query BT
+query B?
 SELECT
   variant_get(parse_json(v), 'a') IS NULL,
-  to_json(variant_get(parse_json(v), 'a'))
+  variant_get(parse_json(v), 'a')
 FROM (VALUES
   (0, '{"a":null}'),
   (1, '{}'),
@@ -102,10 +102,10 @@ true NULL
 false 1
 
 # scalar_value_column_path
-query BT
+query B?
 SELECT
   variant_get(parse_json('{"a":null}'), p) IS NULL,
-  to_json(variant_get(parse_json('{"a":null}'), p))
+  variant_get(parse_json('{"a":null}'), p)
 FROM (VALUES
   (0, 'a'),
   (1, 'missing')
@@ -116,10 +116,10 @@ false null
 true NULL
 
 # column_value_column_path
-query BT
+query B?
 SELECT
   variant_get(parse_json(v), p) IS NULL,
-  to_json(variant_get(parse_json(v), p))
+  variant_get(parse_json(v), p)
 FROM (VALUES
   (0, '{"a":null}', 'a'),
   (1, '{"a":1}',    'missing'),
@@ -132,10 +132,10 @@ true NULL
 false 1
 
 # sql_null_scalar_column_path
-query BT
+query B?
 SELECT
   variant_get(parse_json(CAST(NULL AS VARCHAR)), p) IS NULL,
-  to_json(variant_get(parse_json(CAST(NULL AS VARCHAR)), p))
+  variant_get(parse_json(CAST(NULL AS VARCHAR)), p)
 FROM (VALUES
   (0, 'a'),
   (1, 'missing')
@@ -148,10 +148,10 @@ true NULL
 # sql_null_column_column_path
 # Strict and try agree on SQL NULL, Variant null, missing fields and valid values;
 # none of these rows contains a conversion failure.
-query BTII
+query B?II
 SELECT
   variant_get(parse_json(v), p) IS NULL,
-  to_json(variant_get(parse_json(v), p)),
+  variant_get(parse_json(v), p),
   variant_get(parse_json(v), p, 'BIGINT'),
   try_variant_get(parse_json(v), p, 'BIGINT')
 FROM (VALUES

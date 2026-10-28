@@ -11,81 +11,69 @@ CREATE TABLE test_data (id INT, name TEXT, age INT, active BOOL) AS VALUES
   (3, 'Joe', 31, true);
 
 # Test 1: Simple object with one key-value pair
-query T
-SELECT variant_pretty(variant_object_construct('name', parse_json('"Alice"')));
+query ?
+SELECT variant_object_construct('name', parse_json('"Alice"'));
 ----
-{"name": ShortString(ShortString("Alice"))}
+{"name":"Alice"}
 
 # Test 2: Object with multiple fields of different types
-query T
-SELECT variant_pretty(
-  variant_object_construct(
-    'name', parse_json('"Alice"'),
-    'age', parse_json('30'),
-    'active', parse_json('true')
-  )
+query ?
+SELECT variant_object_construct(
+  'name', parse_json('"Alice"'),
+  'age', parse_json('30'),
+  'active', parse_json('true')
 );
 ----
-{"active": BooleanTrue, "age": Int8(30), "name": ShortString(ShortString("Alice"))}
+{"active":true,"age":30,"name":"Alice"}
 
 # Test 3: Object with nested values
-query T
-SELECT variant_pretty(
-  variant_object_construct(
-    'user', parse_json('{"name": "Bob", "age": 25}'),
-    'role', parse_json('"admin"')
-  )
+query ?
+SELECT variant_object_construct(
+  'user', parse_json('{"name": "Bob", "age": 25}'),
+  'role', parse_json('"admin"')
 );
 ----
-{"role": ShortString(ShortString("admin")), "user": {"age": Int8(25), "name": ShortString(ShortString("Bob"))}}
+{"role":"admin","user":{"age":25,"name":"Bob"}}
 
 # Test 4: Object with array value
-query T
-SELECT variant_pretty(
-  variant_object_construct(
-    'items', parse_json('[1, 2, 3]'),
-    'count', parse_json('3')
-  )
+query ?
+SELECT variant_object_construct(
+  'items', parse_json('[1, 2, 3]'),
+  'count', parse_json('3')
 );
 ----
-{"count": Int8(3), "items": [Int8(1), Int8(2), Int8(3)]}
+{"count":3,"items":[1,2,3]}
 
 # Test 5: Object with null value
-query T
-SELECT variant_pretty(
-  variant_object_construct(
-    'name', parse_json('"Charlie"'),
-    'middle_name', parse_json('null')
-  )
+query ?
+SELECT variant_object_construct(
+  'name', parse_json('"Charlie"'),
+  'middle_name', parse_json('null')
 );
 ----
-{"middle_name": Null, "name": ShortString(ShortString("Charlie"))}
+{"middle_name":null,"name":"Charlie"}
 
 # todo: uncomment when we support array cases
 # # Test 6: Construct objects from table data
-# query T
-# SELECT variant_pretty(
-#   variant_object_construct(
+# query ?
+# SELECT variant_object_construct(
 #     'name', parse_json('"' || name || '"'),
 #     'age', parse_json(CAST(age AS TEXT)),
 #     'active', parse_json(CAST(active AS TEXT))
-#   )
 # ) FROM test_data ORDER BY id;
 # ----
-# {"name": ShortString(ShortString("Alice")), "age": Int32(30), "active": Bool(true)}
-# {"name": ShortString(ShortString("Bob")), "age": Int32(25), "active": Bool(false)}
-# {"name": ShortString(ShortString("Charlie")), "age": Int32(35), "active": Bool(true)}
+# {"active":true,"age":30,"name":"Alice"}
+# {"active":false,"age":25,"name":"Bob"}
+# {"active":true,"age":35,"name":"Charlie"}
 
 # Test 7: Object with numeric keys (still must be strings)
-query T
-SELECT variant_pretty(
-  variant_object_construct(
-    '0', parse_json('"first"'),
-    '1', parse_json('"second"')
-  )
+query ?
+SELECT variant_object_construct(
+  '0', parse_json('"first"'),
+  '1', parse_json('"second"')
 );
 ----
-{"0": ShortString(ShortString("first")), "1": ShortString(ShortString("second"))}
+{"0":"first","1":"second"}
 
 # Cleanup
 statement ok

@@ -16,6 +16,7 @@ mod schema_of_variant;
 mod to_json;
 mod variant_contains;
 mod variant_conversion;
+mod variant_display;
 mod variant_get;
 mod variant_get_rewrite;
 mod variant_list_construct;
@@ -26,7 +27,6 @@ mod variant_object_construct;
 mod variant_object_delete;
 mod variant_object_insert;
 mod variant_object_keys;
-mod variant_pretty;
 mod variant_type;
 
 pub use expr_planner::*;
@@ -47,15 +47,18 @@ pub use variant_object_construct::*;
 pub use variant_object_delete::*;
 pub use variant_object_insert::*;
 pub use variant_object_keys::*;
-pub use variant_pretty::*;
 pub use variant_type::*;
 
 /// Register all Variant scalar and aggregate functions, cast rewrites,
-/// `:` field access, and SQL `VARIANT` type syntax.
+/// `:` field access, SQL `VARIANT` type syntax, and JSON display of Variant values.
 ///
-/// Existing functions with the same names and the session's type planner are
-/// replaced. Call during session setup, before preparing statements: installing
-/// the type planner rebuilds the session state and clears prepared statements.
+/// JSON display applies to DataFusion's extension-aware formatters, including
+/// `DataFrame::show` and `DataFrame::to_string`.
+///
+/// Existing functions with the same names, the Variant extension registration,
+/// and the session's type planner are replaced. Call during session setup, before
+/// preparing statements: installing the type planner rebuilds the session state
+/// and clears prepared statements.
 pub fn register_all(
     ctx: &mut datafusion::prelude::SessionContext,
 ) -> datafusion::error::Result<()> {
@@ -71,6 +74,8 @@ pub fn register_all(
             .with_type_planner(Arc::new(VariantTypePlanner))
             .build();
     }
+
+    variant_display::register(ctx)?;
 
     for udf in [
         ScalarUDF::new_from_impl(ParseJsonUdf::default()),
@@ -89,7 +94,6 @@ pub fn register_all(
         ScalarUDF::new_from_impl(VariantListInsert::default()),
         ScalarUDF::new_from_impl(VariantListDelete::default()),
         ScalarUDF::new_from_impl(VariantNormalizeUdf::default()),
-        ScalarUDF::new_from_impl(VariantPretty::default()),
     ] {
         ctx.register_udf(Arc::new(udf))?;
     }

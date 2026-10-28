@@ -9,179 +9,153 @@ CREATE TABLE test_data (id INT, name TEXT, age INT, active BOOL) AS VALUES
   (3, 'Joe', 31, true);
 
 # Test 1: Insert a string into a simple list
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(parse_json('"Alice"')),
-    parse_json('"Bob"')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(parse_json('"Alice"')),
+  parse_json('"Bob"')
 );
 ----
-[ShortString(ShortString("Alice")), ShortString(ShortString("Bob"))]
+["Alice","Bob"]
 
 # Test 2: Insert a number into a list with multiple elements
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('"Alice"'),
-      parse_json('30'),
-      parse_json('true')
-    ),
-    parse_json('42')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('"Alice"'),
+    parse_json('30'),
+    parse_json('true')
+  ),
+  parse_json('42')
 );
 ----
-[ShortString(ShortString("Alice")), Int8(30), BooleanTrue, Int8(42)]
+["Alice",30,true,42]
 
 # Test 3: Insert an object into a list
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('"admin"')
-    ),
-    parse_json('{"name": "Bob", "age": 25}')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('"admin"')
+  ),
+  parse_json('{"name": "Bob", "age": 25}')
 );
 ----
-[ShortString(ShortString("admin")), {"age": Int8(25), "name": ShortString(ShortString("Bob"))}]
+["admin",{"age":25,"name":"Bob"}]
 
 # Test 4: Insert an array into a list
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('1'),
-      parse_json('2')
-    ),
-    parse_json('[3, 4, 5]')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('1'),
+    parse_json('2')
+  ),
+  parse_json('[3, 4, 5]')
 );
 ----
-[Int8(1), Int8(2), [Int8(3), Int8(4), Int8(5)]]
+[1,2,[3,4,5]]
 
 # Test 5: Insert null into a list
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('"Charlie"'),
-      parse_json('42')
-    ),
-    parse_json('null')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('"Charlie"'),
+    parse_json('42')
+  ),
+  parse_json('null')
 );
 ----
-[ShortString(ShortString("Charlie")), Int8(42), Null]
+["Charlie",42,null]
 
 # Test 6: Insert a value into a list with nulls
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('null'),
-      parse_json('null')
-    ),
-    parse_json('"test"')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('null'),
+    parse_json('null')
+  ),
+  parse_json('"test"')
 );
 ----
-[Null, Null, ShortString(ShortString("test"))]
+[null,null,"test"]
 
 # Test 7: Insert boolean into a list with booleans
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('true'),
-      parse_json('false')
-    ),
-    parse_json('true')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('true'),
+    parse_json('false')
+  ),
+  parse_json('true')
 );
 ----
-[BooleanTrue, BooleanFalse, BooleanTrue]
+[true,false,true]
 
 # Test 8: Insert a number into a numeric list
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('1'),
-      parse_json('2.5'),
-      parse_json('3')
-    ),
-    parse_json('-10')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('1'),
+    parse_json('2.5'),
+    parse_json('3')
+  ),
+  parse_json('-10')
 );
 ----
-[Int8(1), Double(2.5), Int8(3), Int8(-10)]
+[1,2.5,3,-10]
 
 # Test 9: Insert into a list with complex types
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('{"key": "value"}'),
-      parse_json('[1, 2]')
-    ),
-    parse_json('"new_item"')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('{"key": "value"}'),
+    parse_json('[1, 2]')
+  ),
+  parse_json('"new_item"')
 );
 ----
-[{"key": ShortString(ShortString("value"))}, [Int8(1), Int8(2)], ShortString(ShortString("new_item"))]
+[{"key":"value"},[1,2],"new_item"]
 
 # Test 10: Insert a string with special characters
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('"hello world"')
-    ),
-    parse_json('"foo\nbar"')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('"hello world"')
+  ),
+  parse_json('"foo\nbar"')
 );
 ----
-[ShortString(ShortString("hello world")), ShortString(ShortString("foo\nbar"))]
+["hello world","foo\nbar"]
 
 # Test 11: Insert into an empty list (single element list that we add to)
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    parse_json('[]'),
-    parse_json('"first"')
-  )
+query ?
+SELECT variant_list_insert(
+  parse_json('[]'),
+  parse_json('"first"')
 );
 ----
-[ShortString(ShortString("first"))]
+["first"]
 
 # Test 12: Chain multiple inserts
-query T
-SELECT variant_pretty(
+query ?
+SELECT variant_list_insert(
   variant_list_insert(
-    variant_list_insert(
-      variant_list_construct(parse_json('"a"')),
-      parse_json('"b"')
-    ),
-    parse_json('"c"')
-  )
+    variant_list_construct(parse_json('"a"')),
+    parse_json('"b"')
+  ),
+  parse_json('"c"')
 );
 ----
-[ShortString(ShortString("a")), ShortString(ShortString("b")), ShortString(ShortString("c"))]
+["a","b","c"]
 
 # Test 13: Insert nested objects
-query T
-SELECT variant_pretty(
-  variant_list_insert(
-    variant_list_construct(
-      parse_json('{"outer": {"inner": 1}}')
-    ),
-    parse_json('{"data": [1, 2, 3]}')
-  )
+query ?
+SELECT variant_list_insert(
+  variant_list_construct(
+    parse_json('{"outer": {"inner": 1}}')
+  ),
+  parse_json('{"data": [1, 2, 3]}')
 );
 ----
-[{"outer": {"inner": Int8(1)}}, {"data": [Int8(1), Int8(2), Int8(3)]}]
+[{"outer":{"inner":1}},{"data":[1,2,3]}]
 
 # Cleanup
 statement ok

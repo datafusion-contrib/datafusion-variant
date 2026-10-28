@@ -3,161 +3,135 @@
 # and returns a new variant object with that key removed
 
 # Test 1: Delete a key from a simple object
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{"a": 1, "b": 2, "c": 3}'),
-    'b'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{"a": 1, "b": 2, "c": 3}'),
+  'b'
 );
 ----
-{"a": Int8(1), "c": Int8(3)}
+{"a":1,"c":3}
 
 # Test 2: Delete the only key from an object
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{"a": 1}'),
-    'a'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{"a": 1}'),
+  'a'
 );
 ----
 {}
 
 # Test 3: Delete a key that doesn't exist (object unchanged)
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{"a": 1, "b": 2}'),
-    'c'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{"a": 1, "b": 2}'),
+  'c'
 );
 ----
-{"a": Int8(1), "b": Int8(2)}
+{"a":1,"b":2}
 
 # Test 4: Delete from an empty object (no-op)
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{}'),
-    'a'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{}'),
+  'a'
 );
 ----
 {}
 
 # Test 5: Delete a key with a nested object value
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{"name": "Alice", "address": {"city": "NYC"}}'),
-    'address'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{"name": "Alice", "address": {"city": "NYC"}}'),
+  'address'
 );
 ----
-{"name": ShortString(ShortString("Alice"))}
+{"name":"Alice"}
 
 # Test 6: Delete a key with an array value
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{"name": "Bob", "scores": [95, 87]}'),
-    'scores'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{"name": "Bob", "scores": [95, 87]}'),
+  'scores'
 );
 ----
-{"name": ShortString(ShortString("Bob"))}
+{"name":"Bob"}
 
 # Test 7: Delete a key with a null value
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{"a": null, "b": 2}'),
-    'a'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{"a": null, "b": 2}'),
+  'a'
 );
 ----
-{"b": Int8(2)}
+{"b":2}
 
 # Test 8: Chain multiple deletes
-query T
-SELECT variant_pretty(
+query ?
+SELECT variant_object_delete(
   variant_object_delete(
-    variant_object_delete(
-      parse_json('{"a": 1, "b": 2, "c": 3}'),
-      'a'
-    ),
-    'c'
-  )
+    parse_json('{"a": 1, "b": 2, "c": 3}'),
+    'a'
+  ),
+  'c'
 );
 ----
-{"b": Int8(2)}
+{"b":2}
 
 # Test 9: Delete then insert
-query T
-SELECT variant_pretty(
-  variant_object_insert(
-    variant_object_delete(
-      parse_json('{"a": 1, "b": 2}'),
-      'a'
-    ),
-    'c',
-    parse_json('3')
-  )
+query ?
+SELECT variant_object_insert(
+  variant_object_delete(
+    parse_json('{"a": 1, "b": 2}'),
+    'a'
+  ),
+  'c',
+  parse_json('3')
 );
 ----
-{"b": Int8(2), "c": Int8(3)}
+{"b":2,"c":3}
 
 # Test 10: Insert then delete the same key
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    variant_object_insert(
-      parse_json('{"a": 1}'),
-      'b',
-      parse_json('2')
-    ),
-    'b'
-  )
+query ?
+SELECT variant_object_delete(
+  variant_object_insert(
+    parse_json('{"a": 1}'),
+    'b',
+    parse_json('2')
+  ),
+  'b'
 );
 ----
-{"a": Int8(1)}
+{"a":1}
 
 # Test 11: Delete with numeric key name
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    parse_json('{"0": "zero", "1": "one"}'),
-    '0'
-  )
+query ?
+SELECT variant_object_delete(
+  parse_json('{"0": "zero", "1": "one"}'),
+  '0'
 );
 ----
-{"1": ShortString(ShortString("one"))}
+{"1":"one"}
 
 # Test 12: Delete key from object constructed with variant_object_construct
-query T
-SELECT variant_pretty(
-  variant_object_delete(
-    variant_object_construct(
-      'name', parse_json('"Alice"'),
-      'age', parse_json('30')
-    ),
-    'age'
-  )
+query ?
+SELECT variant_object_delete(
+  variant_object_construct(
+    'name', parse_json('"Alice"'),
+    'age', parse_json('30')
+  ),
+  'age'
 );
 ----
-{"name": ShortString(ShortString("Alice"))}
+{"name":"Alice"}
 
 # Test 13: Delete all keys one by one
-query T
-SELECT variant_pretty(
+query ?
+SELECT variant_object_delete(
   variant_object_delete(
-    variant_object_delete(
-      parse_json('{"a": 1, "b": 2}'),
-      'a'
-    ),
-    'b'
-  )
+    parse_json('{"a": 1, "b": 2}'),
+    'a'
+  ),
+  'b'
 );
 ----
 {}
