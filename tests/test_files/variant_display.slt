@@ -1,0 +1,69 @@
+# Ordinary queries use the formatter installed by register_all.
+
+# A scalar extension result must broadcast across rows. Ordinary columns retain
+# the upstream SLT normalizer, including booleans and floating values.
+query ?BR
+SELECT parse_json('{"x":1}'), true, CAST(1.25 AS DOUBLE)
+FROM (VALUES (1), (2));
+----
+{"x":1} true 1.25
+{"x":1} true 1.25
+
+# Keep qualifiers so columns with the same name remain distinct.
+query ??
+SELECT l.v, r.v FROM (SELECT parse_json('1') AS v) l
+CROSS JOIN (SELECT parse_json('2') AS v) r;
+----
+1 2
+
+# Binary and LargeBinary storage use the same logical display.
+query ??
+SELECT b, l FROM binary_variant_inputs;
+----
+{"x":7} {"x":7}
+NULL NULL
+
+# Honor the same display-error setting as DataFrame::to_string.
+query ?
+SELECT raw FROM variant_validation_inputs WHERE id = 1;
+----
+ERROR: Invalid argument error: Received empty bytes
+
+statement ok
+SET datafusion.format.safe = false;
+
+statement error Received empty bytes
+SELECT raw FROM variant_validation_inputs WHERE id = 1;
+
+statement ok
+SET datafusion.format.safe = true;
+
+# Reconstruct partial objects without losing fields left in binary storage.
+query ?
+SELECT v FROM shredded_null_objects ORDER BY id;
+----
+NULL
+null
+{}
+{"a":null}
+{"a":1}
+{"b":2}
+{"a":null,"b":2}
+
+query ?
+SELECT v FROM shredded_null_lists ORDER BY id;
+----
+NULL
+null
+[]
+[null]
+[1]
+[1,null]
+[null,2]
+
+# SQL NULL masks malformed bytes, even with an all-null typed_value column.
+query ??
+SELECT raw, null_typed FROM variant_validation_inputs WHERE id = 7;
+----
+NULL NULL
+

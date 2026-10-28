@@ -10,11 +10,11 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
   (8, 'true');
 
 # field access
-query T
-select variant_pretty(parse_json(json_str):name) from json_data;
+query ?
+select parse_json(json_str):name from json_data;
 ----
-ShortString(ShortString("Alice"))
-ShortString(ShortString("Bob"))
+"Alice"
+"Bob"
 NULL
 NULL
 NULL
@@ -23,21 +23,21 @@ NULL
 NULL
 
 # field + array access
-query T
-select variant_pretty(parse_json(json_str):items[0]) from json_data;
+query ?
+select parse_json(json_str):items[0] from json_data;
 ----
 NULL
 NULL
-Int8(1)
-{"age": Int8(33), "name": ShortString(ShortString("Sam"))}
+1
+{"age":33,"name":"Sam"}
 NULL
 NULL
 NULL
 NULL
 
 # array access with non-array
-query T
-select variant_pretty(parse_json(json_str):age[0]) from json_data;
+query ?
+select parse_json(json_str):age[0] from json_data;
 ----
 NULL
 NULL
@@ -49,26 +49,26 @@ NULL
 NULL
 
 # field -> array -> field access
-query T
-select variant_pretty(parse_json(json_str):items[0]["name"]) from json_data;
+query ?
+select parse_json(json_str):items[0]["name"] from json_data;
 ----
 NULL
 NULL
 NULL
-ShortString(ShortString("Sam"))
+"Sam"
 NULL
 NULL
 NULL
 NULL
 
 # field -> array -> field access but with single quotes
-query T
-select variant_pretty(parse_json(json_str):items[0]['name']) from json_data;
+query ?
+select parse_json(json_str):items[0]['name'] from json_data;
 ----
 NULL
 NULL
 NULL
-ShortString(ShortString("Sam"))
+"Sam"
 NULL
 NULL
 NULL

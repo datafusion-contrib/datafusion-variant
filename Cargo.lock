@@ -2193,6 +2193,7 @@ dependencies = [
  "arrow",
  "arrow-cast",
  "arrow-schema",
+ "async-trait",
  "clap",
  "criterion",
  "datafusion",
@@ -2201,7 +2202,6 @@ dependencies = [
  "datafusion-sqllogictest",
  "env_logger",
  "flate2",
- "indicatif",
  "insta",
  "mimalloc",
  "parquet",
@@ -2227,6 +2227,7 @@ name = "dfv"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
+ "async-trait",
  "clap",
  "datafusion",
  "datafusion-cli",
@@ -2237,6 +2238,7 @@ dependencies = [
  "predicates",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]

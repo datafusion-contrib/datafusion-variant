@@ -1,4 +1,8 @@
 //! `dfv`: DataFusion CLI with the Variant functions preinstalled.
+mod cli_context;
+#[path = "../../src/display_shim.rs"]
+mod display;
+
 use std::env;
 use std::path::Path;
 use std::process::ExitCode;
@@ -135,19 +139,20 @@ async fn main_inner() -> Result<()> {
         instrumented_registry,
     };
 
+    let cli_ctx = cli_context::DisplayContext(&ctx);
     if args.repl_mode() {
         print_examples();
-        return exec::exec_from_repl(&ctx, &mut print_options)
+        return exec::exec_from_repl(&cli_ctx, &mut print_options)
             .await
             .map_err(|e| DataFusionError::External(Box::new(e)));
     }
 
     if !args.file.is_empty() {
-        exec::exec_from_files(&ctx, args.file, &print_options).await?;
+        exec::exec_from_files(&cli_ctx, args.file, &print_options).await?;
     }
 
     if !args.command.is_empty() {
-        exec::exec_from_commands(&ctx, args.command, &print_options).await?;
+        exec::exec_from_commands(&cli_ctx, args.command, &print_options).await?;
     }
 
     Ok(())
@@ -175,7 +180,7 @@ Try:
   -- Write Variant to Parquet and read it back
   COPY events TO 'events.parquet' STORED AS PARQUET;
   SET datafusion.execution.parquet.skip_metadata = false;
-  SELECT to_json(event) FROM 'events.parquet';
+  SELECT event FROM 'events.parquet';
 
   -- Inspect the schema of Variant values
   SELECT schema_of_variant(event) FROM events;

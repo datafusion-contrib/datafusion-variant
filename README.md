@@ -139,30 +139,6 @@ WHERE variant_get(event, 'status', 'BIGINT') >= 400;
 +---------+------------+
 ```
 
-### Convert Variant to JSON
-
-Convert the Variant values back to JSON text using `to_json`. For example, to
-select the entire `event` column as JSON text, run:
-
-<!-- use to_json here to avoid 🤮 default output, see
-     https://github.com/datafusion-contrib/datafusion-variant/issues/114 -->
-
-```sql
-SELECT to_json(event) AS json_data
-FROM events
-ORDER BY event:status::BIGINT;
-```
-
-```text
-+------------------------------------------------------------------+
-| json_data                                                        |
-+------------------------------------------------------------------+
-| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
-| {"error":null,"latency_ms":85,"service":"api","status":500}      |
-| {"error":"Somethings not working","service":"api","status":504}  |
-+------------------------------------------------------------------+
-```
-
 ### Store Variant in Parquet
 
 You can write Variant columns to Parquet with the DataFusion `COPY` statement:
@@ -232,8 +208,8 @@ ORDER BY event:status::BIGINT;
 convert an integer and a decimal to Variant and show them as JSON, run:
 
 ```sql
-SELECT to_json(CAST(42 AS VARIANT)) AS int_value,
-       to_json(CAST(1.23 AS VARIANT)) AS decimal_value;
+SELECT CAST(42 AS VARIANT) AS int_value,
+       CAST(1.23 AS VARIANT) AS decimal_value;
 ```
 
 ```text
@@ -248,8 +224,8 @@ To convert a struct or list to Variant, use `to_variant_object`:
 
 <!-- CAST support tracked by https://github.com/datafusion-contrib/datafusion-variant/issues/112 -->
 ```sql
-SELECT to_json(to_variant_object([1, 2, 3])) AS list_value,
-       to_json(to_variant_object([{a: 1, b: 2}, {b: 3, a: 4}])) AS struct_list_value;
+SELECT to_variant_object([1, 2, 3]) AS list_value,
+       to_variant_object([{a: 1, b: 2}, {b: 3, a: 4}]) AS struct_list_value;
 ```
 
 ```text
@@ -309,7 +285,7 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 | Schema inference | [`schema_of_variant`][schema-of-variant-slt], [`schema_of_variant_agg`][schema-of-variant-agg-slt] |
 | Objects | [`variant_object_construct`][variant-object-construct-slt], [`variant_object_keys`][variant-object-keys-slt], [`variant_object_insert`][variant-object-insert-slt], [`variant_object_delete`][variant-object-delete-slt] |
 | Arrays | [`variant_list_construct`][variant-list-construct-slt], [`variant_list_insert`][variant-list-insert-slt], [`variant_list_delete`][variant-list-delete-slt] |
-| Utilities | [`variant_normalize`][variant-normalize-src], [`variant_pretty`][variant-pretty-slt] |
+| Utilities | [`variant_normalize`][variant-normalize-src] |
 
 ## Common pitfalls
 
@@ -391,7 +367,6 @@ Licensed under the [Apache License, Version 2.0][license].
 [variant-list-insert-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt
 [variant-list-delete-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt
 [variant-normalize-src]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs
-[variant-pretty-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt
 [benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
 [issue-tracker]: https://github.com/datafusion-contrib/datafusion-variant/issues

@@ -57,6 +57,44 @@ fn test_examples_banner_in_repl_only() {
         .stdout(predicates::str::contains("-- Build a table of Variant values").not());
 }
 
+/// The final output adapter applies to commands, files, and the REPL, while
+/// CREATE TABLE / INSERT and subsequent expressions retain Variant values.
+#[test]
+fn test_variant_display() {
+    let sql = r#"
+CREATE TABLE displayed AS
+SELECT parse_json(j) AS v FROM (VALUES ('{"a":1}'), ('null'), (NULL)) AS t(j);
+INSERT INTO displayed SELECT parse_json('{"a":2}');
+SET datafusion.format.null = '[NULL]';
+SELECT v, v IS NULL AS sql_null FROM displayed;
+SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
+"#;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let script = temp_dir.path().join("display.sql");
+    std::fs::write(&script, sql).unwrap();
+
+    for mode in ["command", "file", "repl"] {
+        let mut cmd = cargo_bin_cmd!("dfv");
+        match mode {
+            "command" => {
+                cmd.args(["-c", sql]);
+            }
+            "file" => {
+                cmd.arg("-f").arg(&script);
+            }
+            _ => {
+                cmd.write_stdin(format!("{sql}\\q\n"));
+            }
+        }
+        cmd.assert()
+            .success()
+            .stdout(predicates::str::contains("| {\"a\":1} | false    |"))
+            .stdout(predicates::str::contains("| null    | false    |"))
+            .stdout(predicates::str::contains("| [NULL]  | true     |"))
+            .stdout(predicates::str::contains("| 1      |"));
+    }
+}
+
 /// Only `-c` and `-f` are supported; other `datafusion-cli` options are
 /// rejected by clap before any SQL runs.
 #[test]
@@ -192,6 +230,8 @@ fn test_write_and_read_variant_parquet() {
                       variant_get(event, 'status', 'BIGINT') AS status
                FROM saved_events
                ORDER BY status"#,
+            "-c",
+            "SELECT event FROM saved_events ORDER BY event:status::BIGINT",
         ])
         .assert()
         .success()
@@ -202,6 +242,9 @@ fn test_write_and_read_variant_parquet() {
 | api     | 200    |
 | web     | 500    |
 ",
+        ))
+        .stdout(predicates::str::contains(
+            r#"{"service":"api","status":200,"tags":["cached"]}"#,
         ));
 }
 

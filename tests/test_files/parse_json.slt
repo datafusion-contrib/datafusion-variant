@@ -13,8 +13,8 @@ CREATE VIEW parsed_json AS SELECT id,
   parse_json(required_json) AS required
 FROM json_string_inputs;
 
-query ITTT
-SELECT id, to_json(utf8), to_json(large_utf8), to_json(utf8_view)
+query I???
+SELECT id, utf8, large_utf8, utf8_view
 FROM parsed_json ORDER BY id;
 ----
 1 123 123 123
@@ -23,8 +23,8 @@ FROM parsed_json ORDER BY id;
 
 # Literal arguments exercise constant evaluation; the ordinary Utf8 SQL/Variant
 # null distinction is already covered in variant_nulls.slt.
-query TBB
-SELECT to_json(parse_json(arrow_cast('123', 'LargeUtf8'))),
+query ?BB
+SELECT parse_json(arrow_cast('123', 'LargeUtf8')),
   parse_json(arrow_cast(NULL, 'Utf8View')) IS NULL,
   is_variant_null(parse_json(arrow_cast('null', 'LargeUtf8')));
 ----
@@ -244,8 +244,8 @@ CREATE VIEW try_parsed_json AS SELECT id,
   try_parse_json(required_json) AS required
 FROM try_json_inputs;
 
-query ITTT
-SELECT id, to_json(utf8), to_json(large_utf8), to_json(utf8_view)
+query I???
+SELECT id, utf8, large_utf8, utf8_view
 FROM try_parsed_json ORDER BY id;
 ----
 1 123 123 123
@@ -269,10 +269,10 @@ SELECT try_parse_json('{') IS NULL,
 ----
 true true true true false true
 
-query TTT
-SELECT to_json(try_parse_json('123')),
-  to_json(try_parse_json(arrow_cast('123', 'LargeUtf8'))),
-  to_json(try_parse_json(arrow_cast('123', 'Utf8View')));
+query ???
+SELECT try_parse_json('123'),
+  try_parse_json(arrow_cast('123', 'LargeUtf8')),
+  try_parse_json(arrow_cast('123', 'Utf8View'));
 ----
 123 123 123
 
