@@ -1,6 +1,13 @@
 //! End-to-end tests that run the `dfv` binary and check its output.
 
+use std::io::{BufRead, BufReader, Write};
+use std::process::Stdio;
+use std::sync::mpsc;
+use std::time::Duration;
+
 use assert_cmd::cargo::cargo_bin_cmd;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use predicates::prelude::PredicateBooleanExt;
 
 /// Rows of a query result as printed by the CLI (table borders omitted).
@@ -223,4 +230,116 @@ fn test_error_reporting() {
         .stderr(predicates::str::contains(
             "Invalid file 'does-not-exist.sql'",
         ));
+}
+
+/// Write `file_000<n>.json.gz` with the given JSON lines into `dir`, in the
+/// layout `load_bsky` expects.
+fn write_bsky_file(dir: &std::path::Path, n: u32, lines: &[&str]) {
+    let file = std::fs::File::create(dir.join(format!("file_{n:04}.json.gz"))).unwrap();
+    let mut encoder = GzEncoder::new(file, Compression::fast());
+    for line in lines {
+        writeln!(encoder, "{line}").unwrap();
+    }
+    encoder.finish().unwrap();
+}
+
+/// `load_bsky(n)` reads `file_000n.json.gz` from `DFV_BSKY_DIR` without
+/// downloading when the file exists, and exposes it as `json_data` rows.
+#[test]
+fn test_load_bsky_reads_local_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    write_bsky_file(
+        temp_dir.path(),
+        2,
+        &[
+            r#"{"kind":"commit","time_us":3}"#,
+            r#"{"kind":"identity","time_us":1}"#,
+            r#"{"kind":"commit","time_us":2}"#,
+        ],
+    );
+
+    cargo_bin_cmd!("dfv")
+        .env("DFV_BSKY_DIR", temp_dir.path())
+        .args([
+            "-c",
+            "SELECT count(*) AS rows FROM load_bsky(2)",
+            "-c",
+            r#"SELECT json_data:kind::VARCHAR AS kind, count(*) AS n
+               FROM (SELECT parse_json(json_data) AS json_data FROM load_bsky(2))
+               GROUP BY kind ORDER BY n DESC"#,
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "\
+| rows |
++------+
+| 3    |
+",
+        ))
+        .stdout(predicates::str::contains(
+            "\
+| kind     | n |
++----------+---+
+| commit   | 2 |
+| identity | 1 |
+",
+        ))
+        .stderr(predicates::str::contains("Loaded 3 rows"))
+        .stderr(predicates::str::contains("Downloading").not());
+}
+
+/// Wait for another process to publish the file, then reuse it without downloading.
+#[test]
+fn test_load_bsky_waits_for_download() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let lock = std::fs::File::create(temp_dir.path().join("file_0001.json.lock")).unwrap();
+    lock.lock().unwrap();
+
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin!("dfv"))
+        .env("DFV_BSKY_DIR", temp_dir.path())
+        .args(["-c", "SELECT count(*) AS rows FROM load_bsky(1)"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut stderr = BufReader::new(stderr);
+        let mut line = String::new();
+        stderr.read_line(&mut line).unwrap();
+        sender.send(line).unwrap();
+        std::io::read_to_string(stderr).unwrap()
+    });
+
+    let waiting = receiver.recv_timeout(Duration::from_secs(10));
+    if !matches!(&waiting, Ok(line) if line.contains("Waiting for download")) {
+        child.kill().unwrap();
+        child.wait().unwrap();
+        panic!("expected the CLI to wait for the download, got {waiting:?}");
+    }
+    assert!(child.try_wait().unwrap().is_none());
+    write_bsky_file(temp_dir.path(), 1, &[r#"{"kind":"commit"}"#]);
+    drop(lock);
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = reader.join().unwrap();
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("Loaded 1 rows"), "{stderr}");
+    assert!(!stderr.contains("Downloading"), "{stderr}");
+}
+
+/// `load_bsky` requires a single file number between 1 and 1000.
+#[test]
+fn test_load_bsky_rejects_bad_arguments() {
+    for args in ["0", "1001", "'x'", "1, 2"] {
+        cargo_bin_cmd!("dfv")
+            .args(["-c", &format!("SELECT * FROM load_bsky({args})")])
+            .assert()
+            .failure()
+            .stdout(predicates::str::contains(
+                "load_bsky expects a single file number between 1 and 1000",
+            ));
+    }
 }

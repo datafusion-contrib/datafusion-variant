@@ -2226,13 +2226,18 @@ checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
 name = "dfv"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "assert_cmd",
+ "async-trait",
  "clap",
  "datafusion",
  "datafusion-cli",
  "datafusion-variant",
  "env_logger",
+ "flate2",
+ "futures",
  "mimalloc",
+ "object_store",
  "parquet",
  "predicates",
  "tempfile",
