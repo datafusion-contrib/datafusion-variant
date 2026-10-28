@@ -152,12 +152,15 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         register_all(&mut ctx)?;
 
-        if relative_path == Path::new("is_valid_variant.slt") {
+        if relative_path == Path::new("is_valid_variant.slt")
+            || relative_path == Path::new("variant_explode.slt")
+        {
             register_variant_validation_fixture(&ctx)?;
         }
 
         if relative_path == Path::new("variant_sql_type.slt")
             || relative_path == Path::new("is_valid_variant.slt")
+            || relative_path == Path::new("variant_explode.slt")
         {
             register_binary_variant_fixture(&ctx)?;
         }
@@ -194,6 +197,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         if relative_path == Path::new("is_valid_variant.slt")
             || relative_path == Path::new("is_variant_null.slt")
             || relative_path == Path::new("variant_sql_type.slt")
+            || relative_path == Path::new("variant_explode.slt")
         {
             register_shredded_null_fixture(
                 &ctx,

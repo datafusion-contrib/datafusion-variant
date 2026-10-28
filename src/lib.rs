@@ -16,6 +16,7 @@ mod schema_of_variant;
 mod to_json;
 mod variant_contains;
 mod variant_conversion;
+mod variant_explode;
 mod variant_get;
 mod variant_get_rewrite;
 mod variant_list_construct;
@@ -37,6 +38,7 @@ pub use schema_of_variant::*;
 pub use to_json::*;
 pub use variant_contains::*;
 pub use variant_conversion::*;
+pub use variant_explode::*;
 pub use variant_get::*;
 pub use variant_get_rewrite::*;
 pub use variant_list_construct::*;
@@ -50,7 +52,7 @@ pub use variant_object_keys::*;
 pub use variant_pretty::*;
 pub use variant_type::*;
 
-/// Register all Variant scalar and aggregate functions, cast rewrites,
+/// Register all Variant scalar, aggregate, and table functions, cast rewrites,
 /// and `:` field access. Existing functions with the same names are replaced.
 ///
 /// For SQL `VARIANT` type syntax, also install [`VariantTypePlanner`] using
@@ -88,5 +90,6 @@ pub fn register_all(
     )))?;
     register_variant_get_functions(ctx)?;
     register_variant_conversion_functions(ctx)?;
+    register_variant_explode_functions(ctx)?;
     ctx.register_expr_planner(Arc::new(VariantExprPlanner))
 }
