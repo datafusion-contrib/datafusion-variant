@@ -1,7 +1,8 @@
 # datafusion-variant
 
-Query semi-structured data in Apache DataFusion using the Parquet Variant type.
-Parse JSON once, extract typed fields with SQL, and store the results in Parquet.
+This crate provides a [Variant] SQL type and functions for querying
+semi-structured data using [Apache DataFusion], as well as reading and writing
+such data to [Apache Parquet] files. 
 
 This crate is under active development and targets Apache Spark Variant behavior.
 Compatibility is incomplete, and APIs may change. See the
@@ -9,27 +10,19 @@ Compatibility is incomplete, and APIs may change. See the
 
 ## Quick start
 
-Create a Variant column from JSON, then filter events by a field inside each
-document.
-
-### 1. Install Variant
-
-Add the following to `Cargo.toml`:
+First, enable Variant in your project by adding the following to `Cargo.toml`:
 
 ```toml
 [dependencies]
 datafusion-variant = { git = "https://github.com/datafusion-contrib/datafusion-variant.git" }
-datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
-parquet = { version = "60", features = ["variant_experimental"] }
+datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" } # match this crate
+parquet = { version = "60", features = ["variant_experimental"] } # enable Parquet Variant support
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
-Use the same DataFusion revision as this crate. The `variant_experimental`
-feature enables reading and writing Parquet Variant files.
-
-### 2. Register Variant
-
-Create a session and register the functions and SQL field-access syntax:
+Then, configure your DataFusion [`SessionContext`] to use the Variant functions
+and SQL type with `register_all`. See the [Apache DataFusion documentation] for
+more details on creating a session and executing queries.
 
 ```rust
 use datafusion::prelude::*;
@@ -44,42 +37,48 @@ async fn main() -> datafusion::error::Result<()> {
 ```
 
 > [!WARNING]
-> `register_all` replaces existing functions with the same names. Individual UDFs
-> remain available for selective registration.
+> `register_all` replaces existing functions with the same names. 
 
-### 3. Create the events table
+Congratulations -- you can now query semi-structured data with the Variant type!
 
-Each input row is a JSON document. `parse_json` converts it to a Variant value
-in the `event` column:
+## Common tasks
+
+This section shows how to perform common tasks with the Variant type. You can
+run the SQL examples using the `SessionContext` e.g. using 
+[`ctx.sql(sql).await?.collect().await?`](Docs for session context.sql()).
+
+This repository also includes a `dfv` command-line tool with the Variant
+functions and SQL type preinstalled for you to try the examples interactively. Run it like
+```shell
+# Note you can drop --release` if you want faster compile times and aren't measuring performance.
+cargo run --release
+```
+
+### Convert JSON to Variant
+
+`parse_json` converts JSON strings to Variant. You can use it to load semi
+structured documents. For example, to create an `events` table with a Variant
+column named `event`, run:
 
 ```sql
 CREATE TABLE events AS
 SELECT parse_json(json_data) AS event
 FROM (VALUES
     ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
-    ('{"service":"api","status":500,"latency_ms":85,"error":null}')
+    ('{"service":"api","status":500,"latency_ms":85,"error":null}'),
+    ('{"service":"api","status":504,"error":"Somethings not working"}')
 ) AS input(json_data);
 ```
-
-Execute the statement with `ctx.sql(sql).await?.collect().await?`.
 
 > [!TIP]
 > For malformed input, use `try_parse_json(json_data)` to return SQL NULL instead
 > of failing the query. Valid JSON `null` remains a Variant null.
 
-### 4. Query fields
+### Query 
 
-Select the service and latency for events with an error status using the
-`variant_get` UDF:
-
-```sql
-SELECT variant_get(event, 'service', 'VARCHAR') AS service,
-       variant_get(event, 'latency_ms', 'BIGINT') AS latency_ms
-FROM events
-WHERE variant_get(event, 'status', 'BIGINT') >= 400;
-```
-
-Or use SQL's `:` field-access syntax with `::` casts:
+You can extract fields from a Variant column using the `variant_get` UDF or
+the SQL `:` field-access syntax. For example, to select the `service` and
+`latency_ms` fields from the `event` Variant column, run:
 
 ```sql
 SELECT event:service::VARCHAR AS service,
@@ -88,8 +87,25 @@ FROM events
 WHERE event:status::BIGINT >= 400;
 ```
 
-Both forms return the same result. Display it with
-`ctx.sql(sql).await?.show().await?`:
+```text
++---------+------------+
+| service | latency_ms |
++---------+------------+
+| api     | 85         |
+| api     | NULL       |
++---------+------------+
+```
+
+The `:` syntax is automatically rewritten to the `variant_get` function to the
+following equivalent query, which you can also run directly:
+
+
+```sql
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       variant_get(event, 'latency_ms', 'BIGINT') AS latency_ms
+FROM events
+WHERE variant_get(event, 'status', 'BIGINT') >= 400;
+```
 
 ```text
 +---------+------------+
@@ -98,6 +114,85 @@ Both forms return the same result. Display it with
 | api     | 85         |
 +---------+------------+
 ```
+
+### Convert Variant to JSON
+
+Convert the Variant values back to JSON text using `to_json`. For example, to
+select the entire `event` column as JSON text, run:
+
+```sql
+SELECT to_json(event) AS json_data
+FROM events
+ORDER BY event:status::BIGINT;
+```
+
+```text
++------------------------------------------------------------------+
+| json_data                                                        |
++------------------------------------------------------------------+
+| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+| {"error":null,"latency_ms":85,"service":"api","status":500}      |
+| {"error":"Somethings not working","service":"api","status":504}  |
++------------------------------------------------------------------+
+```
+
+### Store Variant in Parquet
+
+You can write the Variant column with DataFusion's `COPY` statement:
+
+```sql
+COPY events TO 'events.parquet' STORED AS PARQUET;
+```
+
+```text
++-------+
+| count |
++-------+
+| 2     |
++-------+
+```
+
+You can see the Variant column is stored in Parquet as a struct:
+
+```sql
+> select path_in_schema, type from  parquet_metadata('events.parquet');
++------------------+------------+
+| path_in_schema   | type       |
++------------------+------------+
+| "event.metadata" | BYTE_ARRAY |
+| "event.value"    | BYTE_ARRAY |
++------------------+------------+
+2 row(s) fetched.
+Elapsed 0.001 seconds.
+```
+
+### Read Variant from Parquet
+
+You can `events.parquet` with the Variant column preserved. 
+
+> [!WARNING]
+> DataFusion's Parquet reader ignores this metadata by default today,
+> so you must set `datafusion.execution.parquet.skip_metadata`
+
+```sql
+-- Preserve the schema information that identifies the Variant column.
+SET datafusion.execution.parquet.skip_metadata = false;
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       event:tags[0]::VARCHAR AS first_tag -- Array indexing via `[]` operator
+FROM 'events.parquet'
+ORDER BY event:status::BIGINT;
+```
+
+```text
++---------+-----------+
+| service | first_tag |
++---------+-----------+
+| api     | cached    |
+| api     | NULL      |
+| api     | NULL      |
++---------+-----------+
+```
+
 
 ## What is Variant?
 
@@ -130,64 +225,10 @@ use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
 For background on the encoding and shredding, see
 [Variant Type in Apache Parquet for Semi-Structured Data](https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/).
 
-## Cookbook
+## 🚧 Work in Progress 🚧
 
-These recipes build on one another in a session with `register_all` installed.
-The first recipe creates the shared `events` table. The Parquet recipes write
-a local `events.parquet` file; choose a fresh output path when repeating them.
+These features are not yet implemented:
 
-### Convert Variant back to JSON
-
-Create an `events` table, converting each JSON string to Variant. Skip this
-step if you already created the table in the quickstart:
-
-```sql
-CREATE TABLE events AS
-SELECT parse_json(json_data) AS event
-FROM (VALUES
-    ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
-    ('{"service":"api","status":500,"latency_ms":85,"error":null}')
-) AS input(json_data);
-```
-
-Convert the Variant values back to JSON:
-
-```sql
-SELECT to_json(event) AS json_data
-FROM events
-ORDER BY event:status::BIGINT;
-```
-
-```text
-+------------------------------------------------------------------+
-| json_data                                                        |
-+------------------------------------------------------------------+
-| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
-| {"error":null,"latency_ms":85,"service":"api","status":500}      |
-+------------------------------------------------------------------+
-```
-
-`to_json` returns JSON text. JSON formatting and object key order need not match
-the input text.
-
-> [!TIP]
-> JSON strings include quotes. Use `event:service::VARCHAR` for an unquoted SQL string.
-
-### Store JSON as a Variant column in Parquet
-
-Save the Variant column with DataFusion's `COPY` statement:
-
-```sql
-COPY events TO 'events.parquet' STORED AS PARQUET;
-```
-
-```text
-+-------+
-| count |
-+-------+
-| 2     |
-+-------+
-```
 
 > [!WARNING]
 > **NOT YET IMPLEMENTED:** choosing between unshredded storage, an explicit
@@ -206,37 +247,7 @@ COPY events TO 'events.parquet' (
 );
 ```
 
-### Read Parquet and select fields
 
-Read `events.parquet` from the preceding recipe using both `variant_get` and
-SQL field-access syntax:
-
-```sql
--- Preserve the schema information that identifies the Variant column.
-SET datafusion.execution.parquet.skip_metadata = false;
-CREATE EXTERNAL TABLE saved_events
-STORED AS PARQUET LOCATION 'events.parquet';
-
-SELECT variant_get(event, 'service', 'VARCHAR') AS service,
-       event:tags[0]::VARCHAR AS first_tag
-FROM saved_events
-ORDER BY event:status::BIGINT;
-```
-
-```text
-+---------+-----------+
-| service | first_tag |
-+---------+-----------+
-| api     | cached    |
-| api     |           |
-+---------+-----------+
-```
-
-Array indices start at zero. An empty cell represents SQL NULL.
-
-> [!TIP]
-> `variant_get` raises an error if a value cannot be converted to the requested
-> type. Use `try_variant_get` or `TRY_CAST` to return SQL NULL instead.
 
 > [!WARNING]
 > **NOT YET IMPLEMENTED:** reading a mixture of shredded and unshredded files
@@ -293,30 +304,6 @@ for conversion rules, SQL `VARIANT` type registration, and known limitations.
 | Objects | [`variant_object_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_construct.slt), [`variant_object_keys`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_keys.slt), [`variant_object_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_insert.slt), [`variant_object_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_delete.slt) |
 | Arrays | [`variant_list_construct`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt), [`variant_list_insert`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt), [`variant_list_delete`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt) |
 | Utilities | [`variant_normalize`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/src/variant_normalize.rs), [`variant_pretty`](https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_pretty.slt) |
-
-## Command line: `dfv`
-
-`dfv` is [datafusion-cli](https://datafusion.apache.org/user-guide/cli/) with the
-Variant functions and the SQL `VARIANT` type preinstalled. It supports the
-`-c` (run commands) and `-f` (run a SQL file) options; run it from the
-repository root:
-
-```shell
-cargo run --bin dfv -- -c "SELECT parse_json('{\"service\":\"api\",\"status\":500}'):status::BIGINT AS status"
-```
-
-```text
-+--------+
-| status |
-+--------+
-| 500    |
-+--------+
-```
-
-Without `-c`, `dfv` starts an interactive shell. The cookbook SQL above runs
-unchanged, including `COPY ... TO 'events.parquet'` and reading the file back.
-`dfv` builds `datafusion-cli` from the same pinned DataFusion revision as this
-crate, so it is not published on crates.io.
 
 ## More examples and benchmarks
 
