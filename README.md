@@ -144,6 +144,9 @@ WHERE variant_get(event, 'status', 'BIGINT') >= 400;
 Convert the Variant values back to JSON text using `to_json`. For example, to
 select the entire `event` column as JSON text, run:
 
+<!-- use to_json here to avoid 🤮 default output, see
+     https://github.com/datafusion-contrib/datafusion-variant/issues/114 -->
+
 ```sql
 SELECT to_json(event) AS json_data
 FROM events
