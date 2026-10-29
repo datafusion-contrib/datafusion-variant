@@ -19,9 +19,8 @@ use datafusion::{
 };
 
 // TODO: remove this output projection once datafusion-cli and the SLT runner
-// use registered extension formatters directly. CLI request:
-// https://github.com/datafusion-contrib/datafusion-variant/issues/114
-// SLT follow-up: https://github.com/apache/datafusion/pull/21714#discussion_r3160465335
+// use registered extension formatters directly. Upstream follow-up:
+// https://github.com/apache/datafusion/pull/21714#discussion_r3160465335
 pub fn format_for_display(df: DataFrame, options: FormatOptions) -> Result<DataFrame> {
     let (state, plan) = df.into_parts();
     let registry = state.extension_type_registry();

@@ -12,8 +12,9 @@ use datafusion::{
 };
 use datafusion_cli::cli_context::CliSessionContext;
 
-// TODO: remove this wrapper when CLI output uses the session's formatters:
-// https://github.com/datafusion-contrib/datafusion-variant/issues/114
+// TODO: remove this dfv wrapper when datafusion-cli uses the session's extension
+// formatters for output:
+// https://github.com/apache/datafusion/pull/21714#discussion_r3160465335
 pub struct DisplayContext<'a>(pub &'a SessionContext);
 
 #[async_trait::async_trait]
