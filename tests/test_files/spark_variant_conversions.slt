@@ -20,8 +20,7 @@
 # variant/VariantExpressionSuite.scala, "cast to variant/to_variant_object".
 # These cases live in Spark's unit suite, not its SQL input/output fixtures.
 # TODO: timestamp JSON formatting/time-zone parity. Temporal conversion is
-# checked by schema below instead. Arrow JSON omits the trailing
-# .0 on integral floating-point values; only that formatting is adapted here.
+# checked by schema below instead.
 # Time-zone support: https://github.com/apache/arrow-rs/issues/11945
 
 statement ok
@@ -33,7 +32,7 @@ SELECT false::VARIANT, true::VARIANT,
        2::INT::VARIANT, 3::BIGINT::VARIANT,
        4::REAL::VARIANT, 5::DOUBLE::VARIANT;
 ----
-false true 0 1 2 3 4 5
+false true 0 1 2 3 4.0 5.0
 
 query ???
 SELECT CAST(CAST('999999999' AS DECIMAL(9,0)) AS VARIANT),
