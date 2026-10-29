@@ -13,6 +13,8 @@ use datafusion::logical_expr::{
     Volatility,
 };
 use datafusion::scalar::ScalarValue;
+use datafusion_doc::Documentation;
+use datafusion_macros::user_doc;
 use parquet_variant::Variant;
 use parquet_variant_compute::{VariantArray, unshred_variant};
 
@@ -25,6 +27,26 @@ use crate::shared::try_field_as_variant_array;
 /// Arrow also accepts time/nanosecond primitive types not recognized by the pinned
 /// Spark revision. Invalid storage schemas and unsupported reconstruction remain errors.
 /// Malformed shredded metadata can still panic in Arrow (see the TODO below).
+#[user_doc(
+    doc_section(label = "Variant Functions"),
+    description = "Validates a Variant value using Arrow validation. Returns false for malformed bytes. SQL
+NULL stays SQL NULL; Variant null is valid.
+
+Invalid storage schemas and unsupported reconstruction raise errors. Arrow validation is
+stricter than Spark for metadata, UTF-8, object keys, offsets, nesting, and date/time
+ranges. Malformed shredded metadata can still panic in Arrow; see
+[#11069](https://github.com/apache/arrow-rs/issues/11069).",
+    syntax_example = "is_valid_variant(value)",
+    sql_example = r#"```sql
+> SELECT is_valid_variant(parse_json('null')) AS valid;
++-------+
+| valid |
++-------+
+| true  |
++-------+
+```"#,
+    argument(name = "value", description = "Variant expression to validate.")
+)]
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct IsValidVariantUdf {
     signature: Signature,
@@ -82,6 +104,10 @@ fn validate_array(array: &VariantArray) -> Result<BooleanArray> {
 }
 
 impl ScalarUDFImpl for IsValidVariantUdf {
+    fn documentation(&self) -> Option<&Documentation> {
+        self.doc()
+    }
+
     fn name(&self) -> &str {
         "is_valid_variant"
     }
