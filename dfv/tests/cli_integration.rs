@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! End-to-end tests that run the `dfv` binary and check its output.
 
 use std::io::{BufRead, BufReader, Write};

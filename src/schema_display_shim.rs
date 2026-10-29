@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Temporary Variant type names for schema introspection.
 
 use std::{

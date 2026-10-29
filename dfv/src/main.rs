@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! `dfv`: DataFusion CLI with the Variant functions preinstalled.
 mod cli_context;
 #[path = "../../src/display_shim.rs"]

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 macro_rules! impl_variant_get_typed {
     (
         $(#[$meta:meta])*

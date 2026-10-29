@@ -1,0 +1,20 @@
+[header]
+text = """
+SPDX-License-Identifier: Apache-2.0
+{% if attrs.filename in props.asf_files -%}
+SPDX-FileCopyrightText: See the NOTICE file distributed with this work for additional information regarding copyright ownership
+SPDX-FileContributor: Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements
+{% endif -%}
+"""
+keywords = ["SPDX-License-Identifier"]
+
+[props]
+# Preserve the ASF attribution already present in these Spark-derived tests.
+asf_files = ["schema_of_variant_agg.slt", "spark_variant_conversions.slt", "variant_explode.slt"]
+
+[files]
+includes = ["*.rs", "*.py", "*.ts", "*.slt"]
+
+[[rules]]
+extensions = ["slt"]
+style_out = "script"

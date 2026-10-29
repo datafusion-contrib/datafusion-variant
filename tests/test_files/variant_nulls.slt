@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Missing paths, SQL NULL, and Variant null (issue #70).
 # Based on the Variant spec's distinction between absent and present-null values,
 # with SQL API checks for NULL propagation and scalar/column consistency.

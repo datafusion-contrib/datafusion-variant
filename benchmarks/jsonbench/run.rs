@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Adapted from DataFusion's ClickBench runner and BenchmarkRun JSON format:
 //! https://github.com/apache/datafusion/blob/main/benchmarks/src/clickbench.rs
 //! Copyright The Apache Software Foundation, licensed under Apache-2.0.

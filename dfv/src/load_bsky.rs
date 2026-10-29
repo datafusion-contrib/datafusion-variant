@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! The `load_bsky(n)` table function: sample Bluesky JSON data.
 //!
 //! `load_bsky(n)` returns the `n`th file of the [ClickHouse Bluesky dataset]

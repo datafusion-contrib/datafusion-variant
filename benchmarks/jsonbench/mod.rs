@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! JSONBench uses the original Bluesky NDJSON data and translated Variant SQL.
 //! See README.md in this directory for provenance and timing boundaries.
 mod prepare;

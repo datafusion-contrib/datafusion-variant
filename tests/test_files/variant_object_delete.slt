@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # tests the variant_object_delete udf
 # this function takes a variant object and a string key,
 # and returns a new variant object with that key removed

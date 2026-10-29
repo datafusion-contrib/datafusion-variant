@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Ordinary queries use the formatter installed by register_all.
 
 # The DESCRIBE shim is installed by register_all, independently of the result

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # tests the variant_object_insert udf
 # this function takes a variant object, a string key, and a variant value,
 # and inserts the key-value pair into the object (or updates if key exists)

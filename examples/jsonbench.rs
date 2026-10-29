@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Parquet-only JSONBench preparation and query runner.
 #[path = "../benchmarks/jsonbench/mod.rs"]
 mod jsonbench;

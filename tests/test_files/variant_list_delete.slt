@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # tests the variant_list_delete udf
 # this function takes a variant list and an integer index,
 # and returns a new variant list with the element at that index removed

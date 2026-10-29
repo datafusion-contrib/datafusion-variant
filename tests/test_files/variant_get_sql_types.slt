@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # SQL type resolution and getter cast rewrites. Existing getter/Spark/null SLTs
 # cover conversion boundaries, paths and null propagation.
 # arrow_typeof checks exact types against DataFusion CAST without value coercion.

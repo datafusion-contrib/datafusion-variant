@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Temporary output adapter for top-level extension columns in CLI and SLT results.
 
 use std::{fmt::Write, sync::Arc};
