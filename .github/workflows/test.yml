@@ -5,6 +5,11 @@ on:
       - main
   pull_request:
 
+# Cancel in-progress runs for the same branch/PR when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     runs-on: ubuntu-latest
