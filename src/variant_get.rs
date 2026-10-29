@@ -137,6 +137,11 @@ fn invoke_variant_get(
             }
 
             let variant_paths = try_parse_string_columnar(variant_paths)?;
+            if variant_paths.is_empty() {
+                return Ok(ColumnarValue::Array(arrow::array::new_empty_array(
+                    args.return_field.data_type(),
+                )));
+            }
 
             let mut out = Vec::with_capacity(variant_array.len());
 
@@ -166,6 +171,11 @@ fn invoke_variant_get(
 
             let variant_array = Arc::clone(variant_array) as ArrayRef;
             let variant_paths = try_parse_string_columnar(variant_paths)?;
+            if variant_paths.is_empty() {
+                return Ok(ColumnarValue::Array(arrow::array::new_empty_array(
+                    args.return_field.data_type(),
+                )));
+            }
 
             let mut out = Vec::with_capacity(variant_paths.len());
 
@@ -693,5 +703,72 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert_eq!(values.value(0), 50);
         assert_eq!(values.value(1), 60);
+    }
+}
+
+#[cfg(test)]
+mod empty_paths_regression {
+    use super::*;
+    use crate::shared::build_variant_array_from_json;
+
+    fn check(scalar_input: bool, try_get: bool) {
+        let sample = build_variant_array_from_json(&serde_json::json!({"a": 1}));
+        let array: ArrayRef = Arc::new(sample.into_inner());
+        let field = Arc::new(
+            Field::new("v", array.data_type().clone(), true).with_extension_type(VariantType),
+        );
+        let value = if scalar_input {
+            ColumnarValue::Scalar(ScalarValue::try_from_array(&array, 0).unwrap())
+        } else {
+            ColumnarValue::Array(array.slice(0, 0))
+        };
+        let args = ScalarFunctionArgs {
+            args: vec![
+                value,
+                ColumnarValue::Array(Arc::new(StringViewArray::from_iter_values(
+                    std::iter::empty::<&str>(),
+                ))),
+                ColumnarValue::Scalar(ScalarValue::Utf8(Some("BIGINT".into()))),
+            ],
+            arg_fields: vec![
+                field,
+                Arc::new(Field::new("path", DataType::Utf8View, true)),
+                Arc::new(Field::new("type", DataType::Utf8, false)),
+            ],
+            return_field: Arc::new(Field::new("result", DataType::Int64, true)),
+            number_rows: 0,
+            config_options: Default::default(),
+        };
+        let output = if try_get {
+            TryVariantGetUdf::default().invoke_with_args(args)
+        } else {
+            VariantGetUdf::default().invoke_with_args(args)
+        }
+        .expect("empty path batches must return an empty array");
+        let ColumnarValue::Array(output) = output else {
+            panic!("expected array")
+        };
+        assert_eq!(output.len(), 0);
+        assert_eq!(output.data_type(), &DataType::Int64);
+    }
+
+    #[test]
+    fn getter_array() {
+        check(false, false);
+    }
+
+    #[test]
+    fn getter_scalar() {
+        check(true, false);
+    }
+
+    #[test]
+    fn try_getter_array() {
+        check(false, true);
+    }
+
+    #[test]
+    fn try_getter_scalar() {
+        check(true, true);
     }
 }
