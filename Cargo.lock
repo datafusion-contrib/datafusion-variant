@@ -2202,6 +2202,7 @@ dependencies = [
  "datafusion-sqllogictest",
  "env_logger",
  "flate2",
+ "futures",
  "insta",
  "mimalloc",
  "parquet",

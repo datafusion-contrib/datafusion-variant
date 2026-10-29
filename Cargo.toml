@@ -21,9 +21,10 @@ parquet-variant = "60.1"
 sqlparser = { version = "0.63", default-features = false, features = ["serde"] }
 serde_json = { version = "1.0.145", features = ["unbounded_depth"] }
 serde = { version = "1", features = ["derive"] }
+async-trait = "0.1"
+futures = "0.3"
 
 [dev-dependencies]
-async-trait = "0.1"
 clap = { version = "4.6", features = ["derive"] }
 parquet = { version = "60", features = ["variant_experimental"] }
 tempfile = "3"
