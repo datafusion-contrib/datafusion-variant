@@ -6,6 +6,7 @@
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+mod schema_display_shim;
 mod shared;
 mod sql_type;
 
@@ -54,6 +55,8 @@ pub use variant_type::*;
 ///
 /// JSON display applies to DataFusion's extension-aware formatters, including
 /// `DataFrame::show` and `DataFrame::to_string`.
+/// `DESCRIBE`, `SHOW COLUMNS`, and `information_schema.columns` report top-level
+/// Variant fields as `Variant`.
 ///
 /// Existing functions with the same names, the Variant extension registration,
 /// and the session's type planner are replaced. Call during session setup, before
@@ -76,6 +79,7 @@ pub fn register_all(
     }
 
     variant_display::register(ctx)?;
+    ctx.add_analyzer_rule(Arc::new(schema_display_shim::VariantSchemaDisplay));
 
     for udf in [
         ScalarUDF::new_from_impl(ParseJsonUdf::default()),

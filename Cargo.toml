@@ -14,16 +14,17 @@ datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "4841
 datafusion-macros = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
 arrow = "60"
 arrow-schema = "60"
-parquet-variant-compute = "60"
-parquet-variant-json = "60"
-parquet-variant = "60"
+parquet-variant-compute = "60.1"
+parquet-variant-json = "60.1"
+parquet-variant = "60.1"
 # Serialize the shared SQL schema AST for aggregate partial states.
 sqlparser = { version = "0.63", default-features = false, features = ["serde"] }
 serde_json = { version = "1.0.145", features = ["unbounded_depth"] }
 serde = { version = "1", features = ["derive"] }
+async-trait = "0.1"
+futures = "0.3"
 
 [dev-dependencies]
-async-trait = "0.1"
 clap = { version = "4.6", features = ["derive"] }
 parquet = { version = "60", features = ["variant_experimental"] }
 tempfile = "3"
