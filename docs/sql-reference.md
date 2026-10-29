@@ -14,6 +14,7 @@ See the [README](../README.md) for setup and common workflows.
 - [to_variant_object](#to_variant_object)
 - [try_parse_json](#try_parse_json)
 - [try_variant_get](#try_variant_get)
+- [variant_delete](#variant_delete)
 - [variant_get](#variant_get)
 
 ## `is_valid_variant`
@@ -356,6 +357,30 @@ TRY_CAST(value:field AS type)
 
 - [variant_get](#variant_get)
 - [is_variant_null](#is_variant_null)
+
+## `variant_delete`
+
+Deletes object fields or array elements at one or more JSONPaths, applied left to right. Missing targets and type mismatches leave the value unchanged. SQL NULL input returns SQL NULL; NULL paths are skipped. Paths must start with `$` and cannot select the root alone.
+
+```sql
+variant_delete(v, path1[, path2, ...])
+```
+
+### Arguments
+
+- **v**: Variant expression to update.
+- **path**: String expression identifying a field or array element.
+
+### Example
+
+```sql
+> SELECT variant_delete(parse_json('{"a":[1,2,3]}'), '$.a[0]', '$.a[0]') AS v;
++-----------+
+| v         |
++-----------+
+| {"a":[3]} |
++-----------+
+```
 
 ## `variant_get`
 

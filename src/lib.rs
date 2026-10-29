@@ -18,15 +18,14 @@ mod parse_json;
 mod schema_of_variant;
 mod to_json;
 mod variant_conversion;
+mod variant_delete;
 mod variant_display;
 mod variant_explode;
 mod variant_get;
 mod variant_get_rewrite;
 mod variant_list_construct;
-mod variant_list_delete;
 mod variant_list_insert;
 mod variant_object_construct;
-mod variant_object_delete;
 mod variant_object_insert;
 mod variant_object_keys;
 mod variant_type;
@@ -38,14 +37,13 @@ pub use parse_json::*;
 pub use schema_of_variant::*;
 pub use to_json::*;
 pub use variant_conversion::*;
+pub use variant_delete::*;
 pub use variant_explode::*;
 pub use variant_get::*;
 pub use variant_get_rewrite::*;
 pub use variant_list_construct::*;
-pub use variant_list_delete::*;
 pub use variant_list_insert::*;
 pub use variant_object_construct::*;
-pub use variant_object_delete::*;
 pub use variant_object_insert::*;
 pub use variant_object_keys::*;
 pub use variant_type::*;
@@ -92,10 +90,9 @@ pub fn register_all(
         ScalarUDF::new_from_impl(VariantObjectConstruct::default()),
         ScalarUDF::new_from_impl(VariantObjectKeys::default()),
         ScalarUDF::new_from_impl(VariantObjectInsert::default()),
-        ScalarUDF::new_from_impl(VariantObjectDelete::default()),
+        ScalarUDF::new_from_impl(VariantDeleteUdf::default()),
         ScalarUDF::new_from_impl(VariantListConstruct::default()),
         ScalarUDF::new_from_impl(VariantListInsert::default()),
-        ScalarUDF::new_from_impl(VariantListDelete::default()),
     ] {
         ctx.register_udf(Arc::new(udf))?;
     }

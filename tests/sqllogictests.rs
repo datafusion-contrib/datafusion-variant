@@ -195,6 +195,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         register_all(&mut ctx)?;
 
         if relative_path == Path::new("is_valid_variant.slt")
+            || relative_path == Path::new("variant_delete.slt")
             || relative_path == Path::new("variant_explode.slt")
             || relative_path == Path::new("variant_display.slt")
         {
@@ -202,6 +203,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if relative_path == Path::new("variant_sql_type.slt")
+            || relative_path == Path::new("variant_delete.slt")
             || relative_path == Path::new("is_valid_variant.slt")
             || relative_path == Path::new("variant_explode.slt")
             || relative_path == Path::new("variant_display.slt")
@@ -239,6 +241,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if relative_path == Path::new("is_valid_variant.slt")
+            || relative_path == Path::new("variant_delete.slt")
             || relative_path == Path::new("is_variant_null.slt")
             || relative_path == Path::new("variant_sql_type.slt")
             || relative_path == Path::new("variant_explode.slt")

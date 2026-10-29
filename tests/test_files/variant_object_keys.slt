@@ -78,9 +78,9 @@ SELECT variant_object_keys(
 # Test 11: Keys after object delete
 query ?
 SELECT variant_object_keys(
-  variant_object_delete(
+  variant_delete(
     parse_json('{"a": 1, "b": 2, "c": 3}'),
-    'b'
+    '$.b'
   )
 );
 ----

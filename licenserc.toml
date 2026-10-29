@@ -9,8 +9,8 @@ SPDX-FileContributor: Licensed to the Apache Software Foundation (ASF) under one
 keywords = ["SPDX-License-Identifier"]
 
 [props]
-# Preserve the ASF attribution already present in these Spark-derived tests.
-asf_files = ["schema_of_variant_agg.slt", "spark_variant_conversions.slt", "variant_explode.slt"]
+# Preserve the ASF attribution in Spark-derived code and tests.
+asf_files = ["schema_of_variant_agg.slt", "spark_variant_conversions.slt", "variant_explode.slt", "variant_delete.rs", "variant_delete.slt"]
 
 [files]
 includes = ["*.rs", "*.py", "*.ts", "*.slt"]

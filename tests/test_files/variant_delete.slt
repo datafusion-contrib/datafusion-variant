@@ -1,0 +1,221 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: See the NOTICE file distributed with this work for additional information regarding copyright ownership
+# SPDX-FileContributor: Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements
+
+# Adapted from Spark VariantExpressionSuite's variant_delete and path-parser cases:
+# https://github.com/apache/spark/blob/046f574fce3ffd93925f7bcdd459221fa11a730d/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionSuite.scala
+# Source/test-checked expectations, not a Spark execution. Default escaped-path
+# mode; Spark's legacy literal-backslash setting is not exposed here.
+# Direct Variant display replaces Spark's string cast. The table also exercises
+# column paths; scalar and mixed paths are covered separately below.
+query I?
+SELECT id, variant_delete(parse_json(v), p1, p2, p3)
+FROM (VALUES
+  (1, '{"a":1,"b":2}', '$.a', NULL, NULL),
+  (2, '{"a":1,"b":2,"c":3}', '$.a', '$.c', NULL),
+  (3, '{"a":1}', '$.missing', NULL, NULL),
+  (4, '[1,2,3]', '$[1]', NULL, NULL),
+  (5, '[1,2,3]', '$[10]', NULL, NULL),
+  (6, '[1,2,3]', '$[0]', '$[0]', '$[0]'),
+  (7, '{"a":[1,2,3]}', '$.a[0]', '$.a[0]', '$.a[0]'),
+  (8, '{"a":{"b":1}}', '$.a.b', NULL, NULL),
+  (9, '{"a":[]}', '$.a[0]', NULL, NULL),
+  (10, '{"a":[{"b":1,"c":2},{"b":3}]}', '$.a[0].b', NULL, NULL),
+  (11, '[[10,20],[30,40]]', '$[0][1]', NULL, NULL),
+  (12, '{"a":{"b":{"c":1,"d":2}}}', '$[''a''].b["c"]', NULL, NULL),
+  (13, '{"":1,"a":2}', '$['''']', NULL, NULL),
+  (14, '{"key with spaces":1,"a":2}', '$[''key with spaces'']', NULL, NULL),
+  (15, '{"fb:testid":1,"a":2}', '$.fb:testid', NULL, NULL),
+  (16, '{"a":1,"b":2}', NULL, '$.a', NULL),
+  (17, '{"a":{"b":1}}', '$.a', '$.a.b', NULL),
+  (18, '{"a":5}', '$.a.b', NULL, NULL),
+  (19, '[1,2,3]', '$.a', NULL, NULL),
+  (20, '{"a":1}', '$[0]', NULL, NULL),
+  (21, '{"a":1,"b":2}', NULL, NULL, NULL),
+  (22, '{"a":null,"b":2}', '$.a', NULL, NULL),
+  (23, '[null,1,null]', '$[0]', NULL, NULL)
+) t(id, v, p1, p2, p3)
+ORDER BY id;
+----
+1 {"b":2}
+2 {"b":2}
+3 {"a":1}
+4 [1,3]
+5 [1,2,3]
+6 []
+7 {"a":[]}
+8 {"a":{}}
+9 {"a":[]}
+10 {"a":[{"c":2},{"b":3}]}
+11 [[10],[30,40]]
+12 {"a":{"b":{"d":2}}}
+13 {"a":2}
+14 {"a":2}
+15 {"a":2}
+16 {"b":2}
+17 {}
+18 {"a":5}
+19 [1,2,3]
+20 {"a":1}
+21 {"a":1,"b":2}
+22 {"b":2}
+23 [1,null]
+
+# Scalar arguments and repeated deletion of the same shifted array index.
+query ???
+SELECT variant_delete(parse_json('[1,2,3]'), '$[0]', '$[0]'),
+       variant_delete(parse_json('{"a":1}'), NULL),
+       variant_delete(NULL, '$.a');
+----
+[3] {"a":1} NULL
+
+# Mixed literal/dynamic paths, and a scalar Variant broadcast over a path column.
+query I?
+SELECT id, variant_delete(parse_json('{"a":1,"b":2,"c":3}'), '$.a', p)
+FROM (VALUES (1, '$.c'), (2, NULL), (3, '$.b')) t(id, p) ORDER BY id;
+----
+1 {"b":2}
+2 {"b":2,"c":3}
+3 {"c":3}
+
+# Path parser: bracket keys decode escapes, dot keys retain them. Unknown escapes
+# and unpaired Unicode surrogates stay literal; a surrogate pair decodes to a key.
+query I?
+SELECT id, variant_delete(parse_json(v), p)
+FROM (VALUES
+  (1, '{"a]b":1}', '$[''a]b'']'),
+  (2, '{"a.b":1}', '$["a.b"]'),
+  (3, '{"a''b":1}', '$[''a\''b'']'),
+  (4, '{"a\"b":1}', '$["a\"b"]'),
+  (5, '{"a\\b":1}', '$[''a\\b'']'),
+  (6, '{"a\nb":1}', '$[''a\nb'']'),
+  (7, '{"a\\nb":1}', '$.a\nb'),
+  (8, '{"a":1}', '$[''\u0061'']'),
+  (9, '{"😀":1}', '$[''\uD83D\uDE00'']'),
+  (10, '{"\\q":1}', '$[''\q'']'),
+  (11, '{"\\uD800":1}', '$[''\uD800'']'),
+  (12, '{"a]b":1}', '$.a]b'),
+  (13, '{"a/b":1}', '$[''a\/b'']'),
+  (14, '{"a\\" :1}', '$["a\\"]'),
+  (15, '{"a\\\"b":1}', '$[''a\"b'']')
+) t(id, v, p) ORDER BY id;
+----
+1 {}
+2 {}
+3 {}
+4 {}
+5 {}
+6 {}
+7 {}
+8 {}
+9 {}
+10 {}
+11 {}
+12 {}
+13 {}
+14 {}
+15 {}
+
+# Root/scalar input is preserved; NULL paths never remove Variant nulls.
+query ???
+SELECT variant_delete(parse_json('null'), '$.a'),
+       variant_delete(parse_json('42'), '$[0]'),
+       variant_delete(parse_json('[null]'), NULL);
+----
+null 42 [null]
+
+statement error invalid path
+SELECT variant_delete(parse_json('{"a":1}'), '$');
+
+statement error invalid path
+SELECT variant_delete(parse_json('{"a":1}'), '.a');
+
+statement error invalid path
+SELECT variant_delete(parse_json('{"a":1}'), '$[''a\'']');
+
+statement error invalid path
+SELECT variant_delete(parse_json('[1,2,3]'), '$[2147483648]');
+
+statement error at least one path
+SELECT variant_delete(parse_json('{}'));
+
+# Local integration: planning type checks, dynamic errors, SQL-null masking,
+# output field metadata and native typed children.
+statement error
+SELECT variant_delete();
+
+statement error extension type
+SELECT variant_delete('{}', '$.a');
+
+statement error paths must be strings
+SELECT variant_delete(parse_json('{}'), 1);
+
+statement error invalid path
+SELECT variant_delete(parse_json('{}'), p) FROM (VALUES ('$[-1]')) t(p);
+
+statement error invalid path
+SELECT variant_delete(parse_json('{}'), p) FROM (VALUES ('$[*]')) t(p);
+
+statement error invalid path
+SELECT variant_delete(parse_json('{}'), p) FROM (VALUES ('$..a')) t(p);
+
+query I?
+SELECT id, variant_delete(parse_json(v), p)
+FROM (VALUES (1, NULL, 'invalid'), (2, '{}', NULL)) t(id, v, p) ORDER BY id;
+----
+1 NULL
+2 {}
+
+# Literal-path errors follow Spark generated execution, even for NULL input.
+statement error invalid path
+SELECT variant_delete(NULL, '$');
+
+query ?T
+SELECT variant_delete(to_variant_object([CAST(1.23 AS DECIMAL(10,2)), NULL]), '$[1]'),
+       schema_of_variant(variant_delete(to_variant_object([CAST(1.23 AS DECIMAL(10,2)), NULL]), '$[1]'));
+----
+[1.23] ARRAY<DECIMAL(3,2)>
+
+# Copied siblings retain their original field IDs across successive deletions.
+query ?
+SELECT variant_delete(parse_json('{"drop":0,"left":{"x":1},"items":[{"y":2},{"z":3}]}'), '$.drop', '$.items[0]');
+----
+{"items":[{"z":3}],"left":{"x":1}}
+
+# Reuse storage fixtures: both binary widths, SQL NULL, shredded containers,
+# and nullable encoded values. The SQL comparison uses to_json for equality.
+query ??
+SELECT variant_delete(b, '$.x'), variant_delete(l, '$.x') FROM binary_variant_inputs;
+----
+{} {}
+NULL NULL
+
+query T
+SELECT arrow_metadata(variant_delete(b, '$.x'), 'ARROW:extension:name')
+FROM binary_variant_inputs LIMIT 1;
+----
+arrow.parquet.variant
+
+query I
+SELECT count(*) FROM shredded_null_objects
+WHERE to_json(variant_delete(v, '$.a')) IS DISTINCT FROM
+      to_json(variant_delete(original, '$.a'));
+----
+0
+
+query I
+SELECT count(*) FROM shredded_null_lists
+WHERE to_json(variant_delete(v, '$[0]')) IS DISTINCT FROM
+      to_json(variant_delete(original, '$[0]'));
+----
+0
+
+# Local validation policy: Arrow rejects the malformed child even when deletion
+# would discard it; Spark's lazy traversal need not decode that child.
+statement error
+SELECT variant_delete(raw, '$[0]') FROM variant_validation_inputs WHERE id = 2;
+
+query ?
+SELECT variant_delete(null_typed, '$.x') FROM variant_validation_inputs WHERE id = 7;
+----
+NULL
