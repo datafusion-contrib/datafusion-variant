@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Resolve type hints through DataFusion's public SQL cast planner.
 
 use std::sync::Arc;

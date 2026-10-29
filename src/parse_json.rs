@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // https://docs.databricks.com/gcp/en/sql/language-manual/functions/parse_json
 
 use std::sync::Arc;

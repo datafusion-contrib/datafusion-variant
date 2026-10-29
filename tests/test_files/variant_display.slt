@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Ordinary queries use the formatter installed by register_all.
 
 # A scalar extension result must broadcast across rows. Ordinary columns retain

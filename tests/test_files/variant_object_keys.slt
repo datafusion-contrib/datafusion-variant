@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # tests the variant_object_keys udf
 # this function takes a variant and an optional path,
 # and returns a list of all keys of the (resolved) object

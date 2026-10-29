@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 use arrow::array::{
     Array, ArrayRef, BinaryViewArray, Int32Array, Int64Array, StringArray, StructArray,
     new_null_array,

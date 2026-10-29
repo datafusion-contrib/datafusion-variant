@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # tests the variant_object_construct udf
 # this function takes alternating key-value pairs where keys are strings
 # values are variants, and constructs a variant object

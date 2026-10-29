@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{hint::black_box, sync::Arc};
 
 use arrow::array::{Array, ArrayRef, AsArray, NullArray, StringArray};

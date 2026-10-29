@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Ported from Apache Spark at 0aa4f9136bccc40856a5af688e3d16f8b38ebfc4:
 # SQL examples and Boolean return type:
 # https://github.com/apache/spark/blob/0aa4f9136bccc40856a5af688e3d16f8b38ebfc4/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala

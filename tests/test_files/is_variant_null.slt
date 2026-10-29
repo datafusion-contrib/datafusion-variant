@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Ported from Apache Spark at c470f3dce544ad46ffb748949b6476d3cbc8d443:
 # SQL examples: https://github.com/apache/spark/blob/c470f3dce544ad46ffb748949b6476d3cbc8d443/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
 # Value matrix (test "isVariantNull"): https://github.com/apache/spark/blob/c470f3dce544ad46ffb748949b6476d3cbc8d443/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionEvalUtilsSuite.scala

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Arrow-specific conversion inputs; Spark semantics are in spark_variant_conversions.slt.
 
 # TODO: enable UUID SQL syntax (https://github.com/apache/datafusion/pull/21714)

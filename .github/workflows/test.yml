@@ -6,6 +6,20 @@ on:
   pull_request:
 
 jobs:
+  license-header-check:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+
+      - name: Install Hawkeye
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: hawkeye@7.2.0
+
+      - name: Check license headers
+        run: hawkeye check --fail-on-unknown
+
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -26,7 +40,7 @@ jobs:
         run: cargo test
 
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Checkout
         uses: actions/checkout@master
@@ -34,10 +48,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
+          components: rustfmt
 
-      - run: |
-          rustup component add rustfmt
-          cargo fmt --all -- --check
+      - run: cargo fmt --all -- --check
 
   clippy:
     runs-on: ubuntu-latest

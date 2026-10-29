@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! JSONBench preparation: download gzip NDJSON and convert to Parquet Variant.
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};

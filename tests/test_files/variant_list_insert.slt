@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # tests the variant_list_insert udf
 # this function takes a variant list and a variant value, and inserts the value into the list
 

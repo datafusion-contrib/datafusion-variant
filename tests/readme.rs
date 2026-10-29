@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Execute README SQL fences and compare their results with the next `text` fence.
 //! Each level-two section starts a fresh session. Multiple queries may share one
 //! expected table; setup statements return no table. Proposed SQL is explicitly

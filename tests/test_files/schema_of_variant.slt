@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Ported from Apache Spark (Apache-2.0), HEAD pinned to
 # 4ccf07b6d91e2b126b7001741778ee28f22c6609.
 # https://github.com/apache/spark/blob/4ccf07b6d91e2b126b7001741778ee28f22c6609/sql/core/src/test/scala/org/apache/spark/sql/VariantEndToEndSuite.scala

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Exercise each accepted physical string type on a materialized nullable column.
 statement ok
 CREATE TABLE json_string_inputs(id INT, json VARCHAR, required_json VARCHAR NOT NULL);

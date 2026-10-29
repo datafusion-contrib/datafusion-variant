@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Ported from Apache Spark variant-field-extractions.sql.
 # Source commit: 5c63836176a2a15a5d43a61f2e18890eb4ac7ece
 # SQL: https://github.com/apache/spark/blob/5c63836176a2a15a5d43a61f2e18890eb4ac7ece/sql/core/src/test/resources/sql-tests/inputs/variant-field-extractions.sql

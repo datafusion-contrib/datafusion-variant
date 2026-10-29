@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # tests the variant_list_construct udf
 # this function takes variant values and constructs a variant list
 
