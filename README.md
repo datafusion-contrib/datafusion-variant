@@ -63,6 +63,17 @@ async fn main() -> datafusion::error::Result<()> {
 
 Congratulations -- you can now query semi-structured data with the Variant type!
 
+### Selective registration
+
+To register individual functions, wrap implementations with `ScalarUDF::new_from_impl`
+or `AggregateUDF::new_from_impl`, then call `ctx.register_udf` or `ctx.register_udaf`.
+Use `register_variant_get_functions` for getters and casts from VARIANT,
+`register_variant_conversion_functions` for casts to VARIANT and `to_variant_object`,
+and `register_variant_explode_functions` for table functions.
+Install `VariantExprPlanner` with `ctx.register_expr_planner(Arc::new(VariantExprPlanner))`
+for `:` access, and `VariantTypePlanner` with `SessionStateBuilder::with_type_planner`
+for SQL `VARIANT` syntax.
+
 ## Common tasks
 
 This section shows common queries with the Variant type. You can run the SQL
@@ -272,26 +283,17 @@ SELECT schema_of_variant_agg(event) AS schema FROM events;
 
 ## Functions
 
-Links lead to executable SQL examples.
-See [function behavior and SQL compatibility][functions-doc]
-for conversion rules, SQL `VARIANT` type registration, and known limitations.
-
-| Area | Functions and examples |
-| --- | --- |
-| JSON conversion | [`parse_json`, `try_parse_json`, `to_json`][parse-json-slt], [`variant_get_json`][variant-get-json-slt] |
-| Type conversion | [`CAST` / `TRY_CAST` to VARIANT, `to_variant_object`][spark-variant-conversions-slt] |
-| Field and path access | [`variant_get`, `try_variant_get`][variant-get-slt] |
-| Validation and null inspection | [`is_valid_variant`][is-valid-variant-slt], [`is_variant_null`][is-variant-null-slt] |
-| Schema inference | [`schema_of_variant`][schema-of-variant-slt], [`schema_of_variant_agg`][schema-of-variant-agg-slt] |
-| Objects | [`variant_object_construct`][variant-object-construct-slt], [`variant_object_keys`][variant-object-keys-slt], [`variant_object_insert`][variant-object-insert-slt], [`variant_object_delete`][variant-object-delete-slt] |
-| Arrays | [`variant_list_construct`][variant-list-construct-slt], [`variant_list_insert`][variant-list-insert-slt], [`variant_list_delete`][variant-list-delete-slt] |
-| Row expansion | [`variant_explode`, `variant_explode_outer`][variant-explode-slt] |
+See the generated [SQL reference](docs/sql-reference.md) for signatures, arguments,
+and examples for documented scalar and aggregate functions.
 
 ## Common pitfalls
 
 Extract a field as a SQL type before filtering, aggregating, or joining on it.
 A missing field returns SQL NULL. A JSON `null` is a distinct Variant null
 value: use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
+
+`CAST(value AS VARIANT)` accepts scalars and arrays; structs and string-keyed maps
+require `to_variant_object`.
 
 ## More examples and benchmarks
 
@@ -320,6 +322,13 @@ cargo clippy -- -D warnings
 
 `cargo test` also checks this README's Rust example and SQL results.
 
+Regenerate the SQL reference and check its examples:
+
+```sh
+cargo run --example generate_function_docs
+cargo test --example generate_function_docs
+```
+
 For Spark compatibility changes, reference the upstream behavior and add
 regression coverage in the [SQL tests][sql-tests].
 
@@ -347,25 +356,7 @@ Licensed under the [Apache License, Version 2.0][license].
 [roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [session-context-sql]: https://docs.rs/datafusion/latest/datafusion/execution/context/struct.SessionContext.html#method.sql
 [parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/
-[functions-registration]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md#registration
 [parquet-variant-blog]: https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/
-[functions-doc]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/functions.md
-[parse-json-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt
-[variant-get-json-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_json.slt
-[spark-variant-conversions-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_conversions.slt
-[variant-get-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get.slt
-[is-valid-variant-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_valid_variant.slt
-[is-variant-null-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_variant_null.slt
-[schema-of-variant-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt
-[schema-of-variant-agg-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant_agg.slt
-[variant-object-construct-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_construct.slt
-[variant-object-keys-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_keys.slt
-[variant-object-insert-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_insert.slt
-[variant-object-delete-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_object_delete.slt
-[variant-list-construct-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_construct.slt
-[variant-list-insert-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_insert.slt
-[variant-list-delete-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_list_delete.slt
-[variant-explode-slt]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_explode.slt
 [benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
 [issue-tracker]: https://github.com/datafusion-contrib/datafusion-variant/issues

@@ -36,6 +36,11 @@ jobs:
       - name: version info
         run: rustc --version; cargo --version;
 
+      - name: Check generated function reference
+        run: |
+          cargo run --example generate_function_docs -- --check
+          cargo test --example generate_function_docs
+
       - name: Run all tests
         run: cargo test
 

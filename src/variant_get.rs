@@ -239,7 +239,10 @@ Nested Variant target types are not supported.
 
 Register with `register_variant_get_functions` to enable SQL casts of getters.
 Also register `VariantExprPlanner` for `:` field access. A cast of an untyped
-getter or colon access performs the same conversion as an explicit type hint.",
+getter or colon access performs the same conversion as an explicit type hint.
+Casts of already typed getters retain the intermediate conversion. The registration
+helper follows session type settings, including `SET` / `RESET`. Use `VARIANT` as the
+type hint or cast target to retain a Variant result.",
     syntax_example = "variant_get(value, path[, type])",
     alternative_syntax = "CAST(variant_get(value, path) AS type)",
     alternative_syntax = "value:field",
