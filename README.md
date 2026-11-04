@@ -150,6 +150,27 @@ WHERE variant_get(event, 'status', 'BIGINT') >= 400;
 +---------+------------+
 ```
 
+### Convert Variant to JSON
+
+`to_json` converts Variant values to JSON strings. To return the entire `event`
+column as JSON text, run:
+
+```sql
+SELECT to_json(event) AS json_data
+FROM events
+ORDER BY event:status::BIGINT;
+```
+
+```text
++------------------------------------------------------------------+
+| json_data                                                        |
++------------------------------------------------------------------+
+| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+| {"error":null,"latency_ms":85,"service":"api","status":500}      |
+| {"error":"Somethings not working","service":"api","status":504}  |
++------------------------------------------------------------------+
+```
+
 ### Store Variant in Parquet
 
 You can write Variant columns to Parquet with the DataFusion `COPY` statement:
