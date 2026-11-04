@@ -111,6 +111,8 @@ impl AnalyzerRule for VariantShredding {
                     return plan_err!("SHREDDING column '{name}' must be VARIANT");
                 }
                 let target = type_config.resolve(&sql_type)?;
+                // TODO: Allow Variant children once Arrow's shredding kernel supports them:
+                // https://github.com/apache/arrow-rs/issues/12078
                 if contains_variant(&target) {
                     return plan_err!("SHREDDING layout cannot contain VARIANT; omit fields to keep them in residual data");
                 }
