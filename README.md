@@ -169,13 +169,12 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 The Variant column is stored in Parquet as a struct with `metadata` and `value`
 fields, as you can see with the `parquet_metadata` table function:
 
-<!-- readme-test: skip: parquet_metadata is provided by dfv, not this crate -->
 ```sql
 -- Note: parquet_metadata is part of dfv and datafusion-cli, not this crate.
 SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
 ```
 
-```console
+```text
 +------------------+------------+
 | path_in_schema   | type       |
 +------------------+------------+
@@ -184,9 +183,41 @@ SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
 +------------------+------------+
 ```
 
+#### Write with shredding
+
+Choose which fields to store as typed Parquet columns with the `variant.shredding` option,
+a JSON object mapping top-level Variant column names to SQL types:
+
+```sql
+COPY events TO 'shredded_events.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+```
+
+```text
++-------+
+| count |
++-------+
+| 3     |
++-------+
+```
+
+`event` remains a Variant. Its physical layout now includes
+`event.typed_value.service.typed_value` and `event.typed_value.status.typed_value`.
+Other fields and incompatible values remain in binary residuals. The layout is
+fixed across batches; SQL NULL, Variant null, and missing fields are preserved.
+
+Layouts can also be scalar types or contain nested structs and arrays supported
+by Arrow's [`shred_variant`](https://docs.rs/parquet-variant-compute/60.1.0/parquet_variant_compute/fn.shred_variant.html).
+Column names in the JSON map match the COPY output names exactly. Selected
+columns must be unshredded Variants and cannot be partition columns. Automatic
+layout inference and layouts containing `VARIANT` are not supported.
+Use normal Variant display or typed getters when reading; `to_json` does not yet
+support shredded containers.
+
 ### Read Variant from Parquet
 
-You can read `events.parquet` back with the Variant column preserved.
+You can read `events.parquet` back with the Variant column preserved. The same
+query works with `shredded_events.parquet`.
 
 > [!WARNING]
 > DataFusion's Parquet reader ignores the schema metadata that identifies the

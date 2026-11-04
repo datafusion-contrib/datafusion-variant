@@ -2197,6 +2197,7 @@ dependencies = [
  "clap",
  "criterion",
  "datafusion",
+ "datafusion-cli",
  "datafusion-doc",
  "datafusion-macros",
  "datafusion-sqllogictest",

@@ -9,16 +9,11 @@ use anyhow::{Context, Result, ensure};
 use datafusion::prelude::*;
 use datafusion::sql::parser::DFParser;
 use datafusion_variant::register_all;
-use std::io::Write;
+use std::{io::Write, sync::Arc};
 
 #[tokio::test]
 async fn readme_sql() -> Result<()> {
     let output = tempfile::tempdir()?;
-    let parquet_path = output.path().join("events.parquet");
-    let parquet_literal = format!(
-        "'{}'",
-        parquet_path.display().to_string().replace('\'', "''")
-    );
     let mut ctx = SessionContext::new();
     let mut pending = Vec::<(usize, String)>::new();
     let mut skip = None;
@@ -40,6 +35,10 @@ async fn readme_sql() -> Result<()> {
             let config = SessionConfig::new().set_str("datafusion.format.null", "NULL");
             ctx = SessionContext::new_with_config(config).enable_url_table();
             register_all(&mut ctx)?;
+            ctx.register_udtf(
+                "parquet_metadata",
+                Arc::new(datafusion_cli::functions::ParquetMetadataFunc {}),
+            );
         }
         if let Some(reason) = line
             .strip_prefix("<!-- readme-test: skip:")
@@ -79,7 +78,12 @@ async fn readme_sql() -> Result<()> {
             "sql" => {
                 executed += 1;
                 // Keep documented relative filenames without changing the process cwd.
-                let sql = block.replace("'events.parquet'", &parquet_literal);
+                let mut sql = block;
+                for file in ["events.parquet", "shredded_events.parquet"] {
+                    let path = output.path().join(file);
+                    let literal = format!("'{}'", path.display().to_string().replace('\'', "''"));
+                    sql = sql.replace(&format!("'{file}'"), &literal);
+                }
                 let statements = DFParser::parse_sql(&sql)
                     .with_context(|| format!("README:{line_number}: parsing SQL"))?;
                 for statement in statements {

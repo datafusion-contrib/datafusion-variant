@@ -8,6 +8,7 @@ struct ReadmeDoctests;
 
 mod schema_display_shim;
 mod shared;
+mod shredding;
 mod sql_type;
 
 mod expr_planner;
@@ -55,6 +56,7 @@ pub use variant_type::*;
 /// `DataFrame::show` and `DataFrame::to_string`.
 /// `DESCRIBE`, `SHOW COLUMNS`, and `information_schema.columns` report top-level
 /// Variant fields as `Variant`.
+/// Parquet `COPY` supports `variant.shredding`, mapping column names to SQL types.
 ///
 /// Existing functions with the same names, the Variant extension registration,
 /// and the session's type planner are replaced. Call during session setup, before
@@ -78,6 +80,8 @@ pub fn register_all(
 
     variant_display::register(ctx)?;
     ctx.add_analyzer_rule(Arc::new(schema_display_shim::VariantSchemaDisplay));
+    ctx.add_analyzer_rule(Arc::new(shredding::VariantShredding));
+    ctx.register_table_options_extension(shredding::VariantWriteOptions::default());
 
     for udf in [
         ScalarUDF::new_from_impl(ParseJsonUdf::default()),
