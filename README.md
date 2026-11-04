@@ -201,19 +201,8 @@ OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"
 +-------+
 ```
 
-`event` remains a Variant. Its physical layout now includes
-`event.typed_value.service.typed_value` and `event.typed_value.status.typed_value`.
-Other fields and incompatible values remain in binary residuals. The layout is
-fixed across batches; SQL NULL, Variant null, and missing fields are preserved.
-
-Layouts can also be scalar types or contain nested structs and arrays supported
-by Arrow's [`shred_variant`](https://docs.rs/parquet-variant-compute/60.1.0/parquet_variant_compute/fn.shred_variant.html).
-Column names in the JSON map match the COPY output names exactly. Selected
-columns must be Variants and cannot be partition columns. Already-shredded input
-is reconstructed before applying the new layout. Automatic
-layout inference and layouts containing `VARIANT` are not supported.
-Use normal Variant display or typed getters when reading; `to_json` does not yet
-support shredded containers.
+The column remains a Variant, preserving values, nulls, and missing fields.
+Unselected fields and incompatible values stay in binary residuals.
 
 ### Read Variant from Parquet
 
