@@ -155,8 +155,9 @@ SELECT v, is_variant_null(v), n IS NULL, is_variant_null(n) FROM constant_saved;
 ----
 {"a":1} false true false
 
+# Derive the new schema from already-shredded input even without any rows.
 query I
-COPY (SELECT "Event" FROM events WHERE false) TO '$__TEST_DIR__/empty.parquet'
+COPY (SELECT "Event" FROM saved WHERE false) TO '$__TEST_DIR__/empty.parquet'
 OPTIONS ('variant.shredding' '{"Event":"STRUCT<a BIGINT>"}');
 ----
 0
