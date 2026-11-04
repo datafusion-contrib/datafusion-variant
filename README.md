@@ -209,7 +209,8 @@ fixed across batches; SQL NULL, Variant null, and missing fields are preserved.
 Layouts can also be scalar types or contain nested structs and arrays supported
 by Arrow's [`shred_variant`](https://docs.rs/parquet-variant-compute/60.1.0/parquet_variant_compute/fn.shred_variant.html).
 Column names in the JSON map match the COPY output names exactly. Selected
-columns must be unshredded Variants and cannot be partition columns. Automatic
+columns must be Variants and cannot be partition columns. Already-shredded input
+is reconstructed before applying the new layout. Automatic
 layout inference and layouts containing `VARIANT` are not supported.
 Use normal Variant display or typed getters when reading; `to_json` does not yet
 support shredded containers.

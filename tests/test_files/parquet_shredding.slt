@@ -103,9 +103,40 @@ FROM saved s JOIN parallel_saved p USING (id) JOIN events e USING (id);
 ----
 6 true
 
-statement error already shredded
-COPY saved TO '$__TEST_DIR__/rejected.parquet'
-OPTIONS ('variant.shredding' '{"Event":"BIGINT"}');
+# Change layouts after reading shredded input. Move old typed fields into
+# residuals and promote residual fields into typed columns, including nested
+# fields and arrays. Reuse the rows covering SQL NULL, Variant null and missing fields.
+query I
+COPY saved TO '$__TEST_DIR__/reshredded.parquet'
+OPTIONS ('variant.shredding' '{"Event":"STRUCT<status VARCHAR, extra BIGINT[], detail STRUCT<extra BOOLEAN>>","metric":"VARCHAR"}');
+----
+6
+
+statement ok
+CREATE EXTERNAL TABLE reshredded STORED AS PARQUET LOCATION '$__TEST_DIR__/reshredded.parquet';
+
+# Root Variant extraction reconstructs a common representation before JSON
+# comparison; DataFusion cannot directly compare different physical layouts.
+query IB
+SELECT count(*), bool_and(to_json(variant_get(s."Event", '', 'VARIANT'))
+                           IS NOT DISTINCT FROM to_json(variant_get(r."Event", '', 'VARIANT'))
+                         AND to_json(variant_get(s.metric, '', 'VARIANT'))
+                           IS NOT DISTINCT FROM to_json(variant_get(r.metric, '', 'VARIANT'))
+                         AND s.original IS NOT DISTINCT FROM r.original)
+FROM saved s JOIN reshredded r USING (id);
+----
+6 true
+
+query TT
+SELECT DISTINCT replace(path_in_schema, '"', '') AS path, type
+FROM parquet_metadata('$__TEST_DIR__/reshredded.parquet')
+WHERE replace(path_in_schema, '"', '') LIKE '%typed_value'
+ORDER BY path;
+----
+Event.typed_value.detail.typed_value.extra.typed_value BOOLEAN
+Event.typed_value.extra.typed_value.list.item.typed_value INT64
+Event.typed_value.status.typed_value BYTE_ARRAY
+metric.typed_value BYTE_ARRAY
 
 # Constant object and SQL NULL inputs exercise optimizer folding while
 # retaining the Variant extension metadata and SQL NULL validity.

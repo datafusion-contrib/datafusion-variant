@@ -21,7 +21,7 @@ use datafusion::{
     },
     optimizer::AnalyzerRule,
 };
-use parquet_variant_compute::{VariantArray, shred_variant};
+use parquet_variant_compute::{VariantArray, shred_variant, unshred_variant};
 
 use crate::{
     sql_type::SqlTypeConfig,
@@ -138,6 +138,17 @@ struct ShredVariant {
     target: DataType,
 }
 
+impl ShredVariant {
+    fn shred(&self, mut input: VariantArray) -> Result<VariantArray> {
+        if input.typed_value_column().is_some() {
+            // TODO: Avoid this binary reconstruction once Arrow supports direct reshredding:
+            // https://github.com/apache/arrow-rs/issues/8153
+            input = unshred_variant(&input)?;
+        }
+        Ok(shred_variant(&input, &self.target)?)
+    }
+}
+
 impl ScalarUDFImpl for ShredVariant {
     fn name(&self) -> &str {
         "__shred_variant"
@@ -156,7 +167,7 @@ impl ScalarUDFImpl for ShredVariant {
         let input = VariantArray::try_new(new_empty_array(field.data_type()).as_ref())?;
         // The kernel validates input and target layouts and provides the output
         // schema even for empty input. Preserve extension metadata and nullability.
-        let output = shred_variant(&input, &self.target)?;
+        let output = self.shred(input)?;
         Ok(Arc::new(
             field
                 .as_ref()
@@ -170,7 +181,7 @@ impl ScalarUDFImpl for ShredVariant {
             |arrays| {
                 let [array] = take_function_args(self.name(), arrays)?;
                 let input = VariantArray::try_new(array.as_ref())?;
-                Ok(shred_variant(&input, &self.target)?.into())
+                Ok(self.shred(input)?.into())
             },
             vec![],
         )(&args.args)
