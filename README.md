@@ -213,6 +213,37 @@ ORDER BY event:status::BIGINT;
 +---------+-----------+
 ```
 
+#### Files with different shredding layouts
+
+Parquet writers may [shred](https://github.com/apache/parquet-format/blob/master/VariantShredding.md)
+some fields of a Variant column into typed columns. When the files of one table
+disagree, for example an older file is unshredded and a newer one shreds
+`service` and `status`, DataFusion merges the file schemas and its default
+schema adapter fills the missing `typed_value` columns with nulls. The shredding
+specification reads that as "this value is not an object", so every shredded
+field of the unshredded file comes back as SQL NULL, with no error
+([apache/datafusion#27089](https://github.com/apache/datafusion/issues/27089)).
+
+`VariantExprAdapterFactory` reads each file in its own layout and converts it to
+the table's layout per batch. Install it on the table:
+
+```rust,ignore
+use datafusion::datasource::listing::{
+    ListingTable, ListingTableConfig, ListingTableConfigExt, ListingTableUrl,
+};
+use datafusion_variant::VariantExprAdapterFactory;
+
+let config = ListingTableConfig::new(ListingTableUrl::parse("events/")?)
+    .infer_options(&ctx.state())
+    .await?
+    .infer_schema(&ctx.state())
+    .await?
+    .with_expr_adapter_factory(Arc::new(VariantExprAdapterFactory::default()));
+ctx.register_table("events", Arc::new(ListingTable::try_new(config)?))?;
+```
+
+Files whose layout already matches the table are read unchanged.
+
 ### Convert between Variant and other SQL types
 
 `CAST(value AS VARIANT)` converts SQL values to Variant. For example, to
