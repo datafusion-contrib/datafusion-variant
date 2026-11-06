@@ -184,7 +184,6 @@ Try:
 
   -- Write the values to the events.parquet file
   COPY events TO 'events.parquet' STORED AS PARQUET;
-  SET datafusion.execution.parquet.skip_metadata = false;
   SELECT event FROM 'events.parquet';
 
   -- Write to shredded_events.parquet, shredding the `service` and `status` fields into typed columns

@@ -86,7 +86,7 @@ fn snapshot_output(cmd: &mut assert_cmd::Command) -> String {
 /// Extract the SQL examples in the CLI example output
 ///
 /// ```text
-/// dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+/// dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
 ///
 /// Try:
 ///   -- Build a table of Variant values by parsing JSON    <--- Captured
@@ -165,7 +165,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         === command ===
         exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
         0 row(s) fetched. 
         Elapsed [ELAPSED] seconds.
 
@@ -208,7 +208,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         === file ===
         exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
         0 row(s) fetched. 
         Elapsed [ELAPSED] seconds.
 
@@ -251,7 +251,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         === repl ===
         exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
 
         [EXAMPLES]
 
@@ -446,8 +446,7 @@ fn test_sql_variant_type() {
         ));
 }
 
-/// Exercise CLI option validation before analysis: `-f` writes a shredded
-/// Variant column to Parquet; a second process reads it back
+/// `-f` writes a Variant column to Parquet; a second process reads it back
 /// with several `-c` commands, keeping the Variant extension metadata during
 /// schema inference.
 #[test]
@@ -456,11 +455,7 @@ fn test_write_and_read_variant_parquet() {
     let script = temp_dir.path().join("write.sql");
     std::fs::write(
         &script,
-        format!(
-            r#"COPY ({EVENTS_JSON}) TO 'events.parquet' STORED AS PARQUET
-               OPTIONS ('variant.shredding' '{{"event":"STRUCT<service VARCHAR, status BIGINT>"}}');
-"#
-        ),
+        format!("COPY ({EVENTS_JSON}) TO 'events.parquet' STORED AS PARQUET;\n"),
     )
     .unwrap();
 
@@ -482,8 +477,6 @@ fn test_write_and_read_variant_parquet() {
     cargo_bin_cmd!("dfv")
         .current_dir(temp_dir.path())
         .args([
-            "-c",
-            "SET datafusion.execution.parquet.skip_metadata = false",
             "-c",
             "CREATE EXTERNAL TABLE saved_events STORED AS PARQUET LOCATION 'events.parquet'",
             "-c",
@@ -595,7 +588,6 @@ fn test_banner_examples_run_end_to_end() {
 
           -- Write the values to the events.parquet file
           COPY events TO 'events.parquet' STORED AS PARQUET;
-          SET datafusion.execution.parquet.skip_metadata = false;
           SELECT event FROM 'events.parquet';
 
           -- Write to shredded_events.parquet, shredding the `service` and `status` fields into typed columns
@@ -612,7 +604,7 @@ fn test_banner_examples_run_end_to_end() {
           SELECT event:kind::VARCHAR AS kind, count(*) FROM bsky GROUP BY kind ORDER BY 2 DESC;
 
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
         0 row(s) fetched. 
         Elapsed [ELAPSED] seconds.
 
@@ -631,9 +623,6 @@ fn test_banner_examples_run_end_to_end() {
         | 3     |
         +-------+
         1 row(s) fetched. 
-        Elapsed [ELAPSED] seconds.
-
-        0 row(s) fetched. 
         Elapsed [ELAPSED] seconds.
 
         +------------------------------------------------------------------+
@@ -742,7 +731,7 @@ fn test_load_bsky_reads_local_file() {
     dfv_snapshot_settings().bind(|| {
         insta::assert_snapshot!(context, @r"
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
         +------+
         | rows |
         +------+

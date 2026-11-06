@@ -25,29 +25,42 @@ jobs:
       - name: Check license headers
         run: hawkeye check --fail-on-unknown
 
+  # Uses the stable Rust toolchain preinstalled on the ubuntu-latest runner
   tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@master
 
-      - uses: dtolnay/rust-toolchain@master
+      # Cache cargo's git database and checkouts so git
+      # dependencies (e.g. the 1GB+ datafusion-testing submodule) is not
+      # re-fetched on every run.
+      - name: Cache cargo git dependencies
+        uses: actions/cache@v4
         with:
-          toolchain: "stable"
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install nextest
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: nextest
 
       - name: version info
-        run: rustc --version; cargo --version;
+        run: rustc --version; cargo --version; cargo nextest --version
 
-      - name: Check generated function reference
+      - name: Check generated function reference is up to date
         run: |
-          cargo run --example generate_function_docs -- --check
-          cargo test --example generate_function_docs
+          cargo run --bin generate_function_docs
+          git diff --exit-code
 
       - name: Run all tests
-        run: cargo test
+        # nextest does not run doctests (the README example in src/lib.rs)
+        run: |
+          cargo nextest run
+          cargo test --doc
 
   fmt:
     runs-on: ubuntu-slim
@@ -62,19 +75,20 @@ jobs:
 
       - run: cargo fmt --all -- --check
 
+  # Uses the stable Rust toolchain preinstalled on the ubuntu-latest runner
   clippy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@master
 
-      - uses: dtolnay/rust-toolchain@master
+      # See comments above
+      - name: Cache cargo git dependencies
+        uses: actions/cache@v4
         with:
-          toolchain: "stable"
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
-      - run: |
-          rustup component add clippy
-          cargo clippy -- -D warnings
+      - run: cargo clippy -- -D warnings

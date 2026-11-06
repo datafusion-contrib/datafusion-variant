@@ -230,15 +230,7 @@ Unselected fields and incompatible values stay in binary residuals.
 You can read `events.parquet` back with the Variant column preserved. The same
 query works with `shredded_events.parquet`.
 
-> [!WARNING]
-> DataFusion's Parquet reader ignores the schema metadata that identifies the
-> Variant column by default today, so you must set
-> `datafusion.execution.parquet.skip_metadata` to `false` first.
-
 ```sql
--- Preserve the schema information that identifies the Variant column.
-SET datafusion.execution.parquet.skip_metadata = false;
-
 SELECT variant_get(event, 'service', 'VARCHAR') AS service,
        event:tags[0]::VARCHAR AS first_tag -- Array indexing via `[]` operator
 FROM 'events.parquet'
@@ -364,11 +356,11 @@ cargo clippy -- -D warnings
 
 `cargo test` also checks this README's Rust example and SQL results.
 
-Regenerate the SQL reference and check its examples:
+Regenerate the SQL reference after changing function documentation.
+`cargo test` checks its examples, and CI fails if the committed file is stale:
 
 ```sh
-cargo run --example generate_function_docs
-cargo test --example generate_function_docs
+cargo run --bin generate_function_docs
 ```
 
 For Spark compatibility changes, reference the upstream behavior and add

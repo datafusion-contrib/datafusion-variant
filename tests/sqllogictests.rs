@@ -219,8 +219,9 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if relative_path == Path::new("schema_of_variant.slt") {
-            // UUID casting is pending upstream; variant_list_construct accepts
-            // only scalar arguments, so also build the UUID array cases here.
+            // UUID-to-Variant conversion is pending in Arrow (arrow-rs#11937);
+            // variant_list_construct accepts only scalar arguments, so also
+            // build the UUID array cases here.
             let uuid = Variant::Uuid(Uuid::from_bytes([1; 16]));
             let mut builder = VariantArrayBuilder::new(3);
             builder.append_variant(uuid.clone());
