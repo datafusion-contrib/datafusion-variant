@@ -194,6 +194,13 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         register_all(&mut ctx)?;
 
+        if relative_path == Path::new("parquet_shredding.slt") {
+            ctx.register_udtf(
+                "parquet_metadata",
+                Arc::new(datafusion_cli::functions::ParquetMetadataFunc {}),
+            );
+        }
+
         if relative_path == Path::new("is_valid_variant.slt")
             || relative_path == Path::new("variant_delete.slt")
             || relative_path == Path::new("variant_explode.slt")

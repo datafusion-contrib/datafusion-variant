@@ -1,0 +1,206 @@
+# SPDX-License-Identifier: Apache-2.0
+
+control substitution on
+
+# Separate inserts create batches of two rows; VALUES alone ignores batch_size.
+# Later batches introduce SQL NULL, Variant null, missing fields, incompatible
+# values and fields outside the chosen layout.
+statement ok
+SET datafusion.execution.batch_size = 2;
+
+statement ok
+CREATE TABLE raw_events (id BIGINT, j VARCHAR, m VARCHAR);
+
+statement ok
+INSERT INTO raw_events VALUES
+  (0, '{"service":"api","status":200,"detail":{"latency":12,"extra":true},"tags":["a",null]}', '1'),
+  (1, '{"service":"web","status":500}', '2');
+
+statement ok
+INSERT INTO raw_events VALUES
+  (2, NULL, NULL),
+  (3, 'null', 'null');
+
+statement ok
+INSERT INTO raw_events VALUES
+  (4, '{}', '3'),
+  (5, '{"service":null,"status":"unknown","detail":false,"tags":[1,"b"],"extra":[1,2]}', '"fallback"');
+
+statement ok
+CREATE VIEW events AS
+SELECT id, parse_json(j) AS "Event", parse_json(m) AS metric, parse_json(j) AS original
+FROM raw_events;
+
+# Both writer implementations receive the same explicit layout. Names in the
+# JSON map are case-sensitive; unselected columns retain their original storage.
+query I
+COPY events TO '$__TEST_DIR__/sequential.parquet' STORED AS PARQUET
+OPTIONS (
+  'variant.shredding' '{"Event":"STRUCT<service VARCHAR, status BIGINT, detail STRUCT<latency BIGINT>, tags VARCHAR[]>","metric":"BIGINT"}',
+  'compression' 'snappy',
+  'allow_single_file_parallelism' 'false'
+);
+----
+6
+
+query I
+COPY events TO '$__TEST_DIR__/parallel.parquet' STORED AS PARQUET
+OPTIONS (
+  'variant.shredding' '{"Event":"STRUCT<service VARCHAR, status BIGINT, detail STRUCT<latency BIGINT>, tags VARCHAR[]>","metric":"BIGINT"}',
+  'compression' 'snappy',
+  'allow_single_file_parallelism' 'true'
+);
+----
+6
+
+# Inspect the physical typed leaves, including the scalar Variant column, and
+# confirm that the unselected Variant column still has only metadata and value.
+query TT
+SELECT DISTINCT replace(path_in_schema, '"', '') AS path, type
+FROM parquet_metadata('$__TEST_DIR__/sequential.parquet')
+WHERE replace(path_in_schema, '"', '') LIKE '%typed_value'
+   OR replace(path_in_schema, '"', '') LIKE 'original.%'
+ORDER BY path;
+----
+Event.typed_value.detail.typed_value.latency.typed_value INT64
+Event.typed_value.service.typed_value BYTE_ARRAY
+Event.typed_value.status.typed_value INT64
+Event.typed_value.tags.typed_value.list.item.typed_value BYTE_ARRAY
+metric.typed_value INT64
+original.metadata BYTE_ARRAY
+original.value BYTE_ARRAY
+
+statement ok
+SET datafusion.execution.parquet.skip_metadata = false;
+
+statement ok
+CREATE EXTERNAL TABLE saved STORED AS PARQUET LOCATION '$__TEST_DIR__/sequential.parquet';
+
+statement ok
+CREATE EXTERNAL TABLE parallel_saved STORED AS PARQUET LOCATION '$__TEST_DIR__/parallel.parquet';
+
+# Full display reconstructs shredded and residual fields. is_variant_null also
+# verifies that the read schema retains the Variant extension metadata.
+query I??BB
+SELECT id, "Event", metric, "Event" IS NULL, is_variant_null("Event")
+FROM saved ORDER BY id;
+----
+0 {"detail":{"extra":true,"latency":12},"service":"api","status":200,"tags":["a",null]} 1 false false
+1 {"service":"web","status":500} 2 false false
+2 NULL NULL true false
+3 null null false true
+4 {} 3 false false
+5 {"detail":false,"extra":[1,2],"service":null,"status":"unknown","tags":[1,"b"]} "fallback" false false
+
+# Compare the two writer paths without duplicating expected JSON, and check the
+# unselected column against its input. Both files must retain every row.
+query IB
+SELECT count(*), bool_and(s."Event" IS NOT DISTINCT FROM p."Event"
+                         AND s.metric IS NOT DISTINCT FROM p.metric
+                         AND s.original IS NOT DISTINCT FROM e.original
+                         AND p.original IS NOT DISTINCT FROM e.original)
+FROM saved s JOIN parallel_saved p USING (id) JOIN events e USING (id);
+----
+6 true
+
+# Change layouts after reading shredded input. Move old typed fields into
+# residuals and promote residual fields into typed columns, including nested
+# fields and arrays. Reuse the rows covering SQL NULL, Variant null and missing fields.
+query I
+COPY saved TO '$__TEST_DIR__/reshredded.parquet'
+OPTIONS ('variant.shredding' '{"Event":"STRUCT<status VARCHAR, extra BIGINT[], detail STRUCT<extra BOOLEAN>>","metric":"VARCHAR"}');
+----
+6
+
+statement ok
+CREATE EXTERNAL TABLE reshredded STORED AS PARQUET LOCATION '$__TEST_DIR__/reshredded.parquet';
+
+# Root Variant extraction reconstructs a common representation before JSON
+# comparison; DataFusion cannot directly compare different physical layouts.
+query IB
+SELECT count(*), bool_and(to_json(variant_get(s."Event", '', 'VARIANT'))
+                           IS NOT DISTINCT FROM to_json(variant_get(r."Event", '', 'VARIANT'))
+                         AND to_json(variant_get(s.metric, '', 'VARIANT'))
+                           IS NOT DISTINCT FROM to_json(variant_get(r.metric, '', 'VARIANT'))
+                         AND s.original IS NOT DISTINCT FROM r.original)
+FROM saved s JOIN reshredded r USING (id);
+----
+6 true
+
+query TT
+SELECT DISTINCT replace(path_in_schema, '"', '') AS path, type
+FROM parquet_metadata('$__TEST_DIR__/reshredded.parquet')
+WHERE replace(path_in_schema, '"', '') LIKE '%typed_value'
+ORDER BY path;
+----
+Event.typed_value.detail.typed_value.extra.typed_value BOOLEAN
+Event.typed_value.extra.typed_value.list.item.typed_value INT64
+Event.typed_value.status.typed_value BYTE_ARRAY
+metric.typed_value BYTE_ARRAY
+
+# Constant object and SQL NULL inputs exercise optimizer folding while
+# retaining the Variant extension metadata and SQL NULL validity.
+query I
+COPY (SELECT parse_json('{"a":1}') AS v, parse_json(NULL) AS n)
+TO '$__TEST_DIR__/constant.parquet'
+OPTIONS ('variant.shredding' '{"v":"STRUCT<a BIGINT>","n":"STRUCT<a BIGINT>"}');
+----
+1
+
+statement ok
+CREATE EXTERNAL TABLE constant_saved STORED AS PARQUET LOCATION '$__TEST_DIR__/constant.parquet';
+
+query ?BBB
+SELECT v, is_variant_null(v), n IS NULL, is_variant_null(n) FROM constant_saved;
+----
+{"a":1} false true false
+
+# Derive the new schema from already-shredded input even without any rows.
+query I
+COPY (SELECT "Event" FROM saved WHERE false) TO '$__TEST_DIR__/empty.parquet'
+OPTIONS ('variant.shredding' '{"Event":"STRUCT<a BIGINT>"}');
+----
+0
+
+statement ok
+CREATE EXTERNAL TABLE empty_saved STORED AS PARQUET LOCATION '$__TEST_DIR__/empty.parquet';
+
+query I
+SELECT count(*) FROM empty_saved;
+----
+0
+
+# Validate COPY options, including unsupported layouts with no input rows.
+
+statement error Unknown Variant write option
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding_typo' '{}');
+
+statement error SHREDDING must be a JSON object mapping column names to SQL types
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' 'not json');
+
+statement error SHREDDING must be a JSON object mapping column names to SQL types
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event": 1}');
+
+statement error No field named absent
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"absent":"BIGINT"}');
+
+statement error SHREDDING column 'id' must be VARIANT
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"id":"BIGINT"}');
+
+statement error SHREDDING is only supported for COPY to Parquet
+COPY events TO '$__TEST_DIR__/unused.json' OPTIONS ('variant.shredding' '{"Event":"BIGINT"}');
+
+statement error SHREDDING column 'metric' cannot be a partition column
+COPY events TO '$__TEST_DIR__/unused.parquet' PARTITIONED BY (metric) OPTIONS ('variant.shredding' '{"metric":"BIGINT"}');
+
+statement error not a valid variant shredding type
+COPY (SELECT * FROM events WHERE false) TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"INTERVAL"}');
+
+statement error Expected end of SQL type
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"BIGINT; SELECT 1"}');
+
+statement error SHREDDING layout cannot contain VARIANT
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"VARIANT"}');
+
+statement error SHREDDING layout cannot contain VARIANT
+COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"STRUCT<a VARIANT>"}');

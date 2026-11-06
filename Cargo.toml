@@ -25,6 +25,7 @@ async-trait = "0.1"
 futures = "0.3"
 
 [dev-dependencies]
+datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
 clap = { version = "4.6", features = ["derive"] }
 parquet = { version = "60", features = ["variant_experimental"] }
 tempfile = "3"
