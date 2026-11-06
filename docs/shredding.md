@@ -1,14 +1,15 @@
 # Variant shredding
 
 The standard Variant binary encoding is efficient and compact, but it must still
-be read and decoded for every query. the [Parquet Variant shredding
-specification][parquet-variant-shredding] describes an optional on-disk layout for
-Variant columns that stores some fields in typed Parquet columns. Queries on the
-shredded fields read the typed columns directly which is significantly faster.
+be read and decoded for every query. The [Parquet Variant shredding
+specification][parquet-variant-shredding] describes an optional on-disk layout
+for Variant columns that stores some fields in typed Parquet columns. Queries on
+the shredded fields read the typed columns directly, which is significantly
+faster.
 
-## Writing Shredded Parquet columns
+## Writing shredded Parquet columns
 
-## Top-level fields
+### Top-level fields
 
 Given the following table:
 
@@ -23,7 +24,7 @@ FROM (VALUES
 ```
 
 You can store the `service` and `status` fields in typed columns by providing a
-`variant.shredding` option to the `COPY` statement.
+`variant.shredding` option to the `COPY` statement:
 
 ```sql
 COPY events TO 'shredded_events.parquet' STORED AS PARQUET
@@ -31,8 +32,8 @@ OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"
 ```
 
 The `variant.shredding` option is a JSON object that maps the name of the
-Variant column to a SQL type and the full format is described [below]
-(#format-of-the-variantshredding-option).
+Variant column to a SQL type. The full format is described
+[below](#format-of-the-variantshredding-option).
 
 Storing the shredded column is logically equivalent to storing the Variant
 values as three columns:
@@ -43,12 +44,10 @@ values as three columns:
 | `{"service":"api","status":500,"latency_ms":85,"error":null}`      | `api`                     | `500`                   |
 | `{"service":"api","status":504,"error":"Somethings not working"}`  | `api`                     | `504`                   |
 
-
-> [!INFO]
-> Note that the actual encoding is more complicated: the typed columns and the
-> binary residual are stored together in a single struct, as described in the
+> [!NOTE]
+> The actual encoding is more complicated: the typed columns and the binary
+> residual are stored together in a single struct, as described in the
 > [Parquet Variant shredding specification][parquet-variant-shredding].
-
 
 ### Nested fields
 
@@ -65,7 +64,8 @@ FROM (VALUES
 ) AS input(json_data);
 ```
 
-To shred the `detail:latency_ms` field and the `tags` array, use the following `COPY` statement:
+To shred the `detail:latency_ms` field and the `tags` array, use the following
+`COPY` statement:
 
 ```sql
 COPY requests TO 'shredded_requests.parquet' STORED AS PARQUET
@@ -75,8 +75,8 @@ OPTIONS ('variant.shredding' '{
 ```
 
 This is logically equivalent to storing the Variant column as three columns.
-Fields that are not in the layout, such as `service` stay in the Variant column,
-and rows without a shredded field have `NULL` in its typed column:
+Fields that are not in the layout, such as `service`, stay in the Variant
+column, and rows without a shredded field have `NULL` in its typed column:
 
 | `request` (Variant)                                                                 | `request.detail.latency_ms` (BIGINT) | `request.tags` (VARCHAR[]) |
 |-------------------------------------------------------------------------------------|--------------------------------------|----------------------------|
@@ -84,80 +84,86 @@ and rows without a shredded field have `NULL` in its typed column:
 | `{"service":"api","detail":{"latency_ms":85},"tags":[]}`                            | `85`                                 | `[]`                       |
 | `{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}`                 | `NULL`                               | `NULL`                     |
 
-
 ## Format of the `variant.shredding` option
 
-`variant.shredding` is a JSON object. Each key is the case-sensitive name of a
-top-level Variant column in the `COPY` input, and each value is the SQL type to
-shred that column into. Columns that are not listed keep their existing
-storage. The option is only accepted when copying to Parquet, and partition
-columns cannot be shredded.
+`variant.shredding` is parsed as JSON, and its value must be a JSON object.
 
-Layouts can nest structs and arrays, and one statement can shred several
-columns. For example, create an `events` table with two Variant columns,
-`event` and `metric`:
+Each key is the case-sensitive name of a top-level Variant column in the `COPY`
+input that will be shredded. The value of each field is the SQL type used to
+store the shredded column.
+
+Note this option only applies when copying to Parquet, and partition columns
+cannot be shredded.
+
+One statement can shred several Variant columns. For example, given a table
+with two Variant columns, `event` and `metric`:
 
 ```sql
-CREATE TABLE events AS
+CREATE TABLE metrics AS
 SELECT parse_json(event) AS event, parse_json(metric) AS metric
 FROM (VALUES
-    ('{"service":"api","detail":{"latency":12},"tags":["cached"]}', '42'),
-    ('{"service":"api","detail":{"latency":85},"error":null}', '7'),
-    ('{"service":"web","tags":["retry","slow"],"error":"timeout"}', '"n/a"')
+    ('{"service":"api","status":200}', '42'),
+    ('{"service":"api","status":500}', '7'),
+    ('{"service":"web","status":504}', '"n/a"')
 ) AS input(event, metric);
 ```
 
-To shred the `service` field, the `latency` field of the nested `detail`
-object, and the `tags` array of `event`, nest the SQL types the same way as the
-JSON. The whole `metric` column is shredded as a `BIGINT`:
+The following `COPY` statement shreds the `status` field of `event` and the
+whole `metric` column:
 
 ```sql
-COPY events TO 'shredded_events.parquet' STORED AS PARQUET
+COPY metrics TO 'shredded_metrics.parquet' STORED AS PARQUET
 OPTIONS ('variant.shredding' '{
-  "event":  "STRUCT<service VARCHAR, detail STRUCT<latency BIGINT>, tags VARCHAR[]>",
+  "event":  "STRUCT<status BIGINT>",
   "metric": "BIGINT"
 }');
 ```
 
-The `parquet_metadata` table function (part of `dfv` and `datafusion-cli`)
-shows the resulting Parquet schema. Each shredded field has a `typed_value`
-column for values that match the layout and a `value` column for values that
-do not:
+The shredding is described as SQL types, which are parsed by DataFusion's SQL
+parser. The `COPY` statement attempts to "shred" the matching parts of the
+Variant into values of that Parquet type. If the Variant value can be converted
+to the specified type, the shredded column is populated with that value,
+otherwise, a `NULL` is stored in the shredded column and the value remains in
+the residual Variant column.
 
-```sql
-SELECT path_in_schema, type FROM parquet_metadata('shredded_events.parquet');
+For example, if you try to shred this Variant object as a `BIGINT`
+
+```json
+{
+  "service": "api",
+  "status": "200"
+}
 ```
 
-```text
-+------------------------------------------------------------+------------+
-| path_in_schema                                             | type       |
-+------------------------------------------------------------+------------+
-| "event.metadata"                                           | BYTE_ARRAY |
-| "event.value"                                              | BYTE_ARRAY |
-| "event.typed_value.service.value"                          | BYTE_ARRAY |
-| "event.typed_value.service.typed_value"                    | BYTE_ARRAY |
-| "event.typed_value.detail.value"                           | BYTE_ARRAY |
-| "event.typed_value.detail.typed_value.latency.value"       | BYTE_ARRAY |
-| "event.typed_value.detail.typed_value.latency.typed_value" | INT64      |
-| "event.typed_value.tags.value"                             | BYTE_ARRAY |
-| "event.typed_value.tags.typed_value.list.item.value"       | BYTE_ARRAY |
-| "event.typed_value.tags.typed_value.list.item.typed_value" | BYTE_ARRAY |
-| "metric.metadata"                                          | BYTE_ARRAY |
-| "metric.value"                                             | BYTE_ARRAY |
-| "metric.typed_value"                                       | INT64      |
-+------------------------------------------------------------+------------+
+The shredded column will be `NULL`:
+
+| residual Variant                   | shredded BIGINT |
+|------------------------------------|-----------------|
+| `{"service":"api","status":"200"}` | `NULL`          |
+
+If a Variant object is shredded into a `STRUCT`, fields in the Variant that are
+not in the `STRUCT` remain in the residual Variant column. For example, if
+you shred a Variant object like
+
+```json
+{
+  "a": 1,
+  "b": 2,
+  "c": 3
+}
 ```
 
-Fields that are not in the layout, such as `error`, are stored in the
-top-level `event.value` column. Values that do not match their type, such as
-the string `"n/a"` in the third `metric`, are stored in the `value` column next
-to their `typed_value` column. Nothing is lost either way.
+into a `STRUCT` with only fields `a` and `b` (`STRUCT<a BIGINT, b BIGINT>`), the
+result is logically:
+
+| residual Variant | shredded STRUCT |
+|------------------|-----------------|
+| `{"c":3}`        | `{"a":1,"b":2}` |
 
 ## Supported types
 
-Any SQL type that DataFusion can `CAST` to is accepted as long as the
-[shredding specification][parquet-variant-shredding] has a shredded encoding
-for the resulting Arrow type:
+You can use any SQL type supported by DataFusion and listed in the [shredding
+specification][parquet-variant-shredding]. For example:
 
 * `BOOLEAN`
 * `TINYINT`, `SMALLINT`, `INT`, `BIGINT`
@@ -166,8 +172,7 @@ for the resulting Arrow type:
 * `VARCHAR`, `BYTEA`
 * `STRUCT<name type, ...>` and `type[]`, nested to any depth
 
-`VARIANT` cannot appear inside a layout; leave a field out to keep it in the
-residual instead. Unsigned integers, intervals, and other types without a
-shredded Parquet representation are rejected.
+Types such as unsigned integers, intervals, and other types without a shredded
+Parquet representation are rejected.
 
 [parquet-variant-shredding]: https://parquet.apache.org/docs/file-format/types/variantshredding/

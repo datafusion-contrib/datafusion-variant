@@ -164,7 +164,7 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
         pending.is_empty(),
         "{name}: query result has no expected table"
     );
-    ensure!(checked > 0, "{name}: no query results checked");
+    ensure!(executed > 0, "{name}: no SQL blocks run");
     // Write directly so the summary is visible even with libtest's default capture.
     let mut report = std::io::stderr().lock();
     writeln!(
