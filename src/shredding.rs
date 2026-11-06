@@ -1,41 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Explicit Variant storage layouts for Parquet COPY statements.
-//!
-//! The `variant.shredding` COPY option is a JSON object whose keys are output
-//! column names and whose values are SQL types. Each named column must be a
-//! top-level `VARIANT` column of the COPY input; its values are stored with the
-//! given type as typed Parquet columns ("shredded") while anything that does not
-//! fit stays in the binary `value` residual. Column names are case-sensitive,
-//! and columns that are not listed keep their existing storage.
-//!
-//! ```sql
-//! -- Shred two fields of an object; other fields stay in the residual.
-//! COPY events TO 'events.parquet' STORED AS PARQUET
-//! OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
-//!
-//! -- Nested objects, arrays, and several columns in one statement.
-//! COPY events TO 'events.parquet' STORED AS PARQUET
-//! OPTIONS ('variant.shredding' '{
-//!   "event":  "STRUCT<service VARCHAR, detail STRUCT<latency BIGINT>, tags VARCHAR[]>",
-//!   "metric": "BIGINT"
-//! }');
-//! ```
-//!
-//! A type is any SQL type DataFusion can `CAST` to, as long as the resulting
-//! Arrow type is one the Parquet Variant shredding kernel supports:
-//!
-//! * `BOOLEAN`
-//! * `TINYINT`, `SMALLINT`, `INT`, `BIGINT`
-//! * `FLOAT`, `DOUBLE`, `DECIMAL(p, s)`
-//! * `DATE`, `TIME`, `TIMESTAMP`, `TIMESTAMP WITH TIME ZONE`
-//! * `VARCHAR`, `BYTEA`
-//! * `STRUCT<name type, ...>` and `type[]`, nested to any depth
-//!
-//! `VARIANT` is not allowed anywhere in a layout; omit a field instead to keep
-//! it in the residual. Unsigned integers, intervals, and other types without a
-//! shredded Parquet representation are rejected. Partition columns cannot be
-//! shredded, and the option is only accepted when copying to Parquet.
 
 use std::{any::Any, collections::BTreeMap, sync::Arc};
 
@@ -65,11 +30,21 @@ use crate::{
 
 const SHREDDING_OPTION: &str = "variant.shredding";
 
-// datafusion-cli validates table options while registering the destination
-// object store, before analyzer rules run. Declare the option in its own
-// namespace; the COPY analyzer below owns its interpretation.
-// TableOptions passes fully qualified keys, unlike the extensions_options!
-// macro, which expects bare field names.
+/// Extension for processing the `variant.shredding` COPY option.
+///
+/// For example:
+/// ```sql
+/// COPY events TO 'events.parquet' STORED AS PARQUET
+/// OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+/// ```
+///
+/// The value is a JSON object with:
+/// 1. keys that are names of top-level `VARIANT` columns in the input schema
+/// 2. values that are SQL types describing the desired shredding layout for each column
+///
+/// See the [shredding guide] for more details.
+///
+/// [shredding guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/shredding.md
 #[derive(Debug, Clone, Default)]
 pub(crate) struct VariantWriteOptions {
     shredding: Option<String>,
@@ -109,7 +84,13 @@ impl ExtensionOptions for VariantWriteOptions {
     }
 }
 
-/// Consume the COPY option before DataFusion validates Parquet format options.
+/// Analyzer rule that interprets variant shredding in the COPY statement and
+/// rewrites the plan to project the shredded columns before writing to Parquet.
+///
+/// See the [shredding guide] for more details.
+///
+/// [shredding guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/shredding.md
+
 #[derive(Debug)]
 pub(crate) struct VariantShredding;
 
@@ -166,7 +147,9 @@ impl AnalyzerRule for VariantShredding {
     }
 }
 
-// Embedded by the analyzer only; this is not a new SQL scalar function.
+/// `shred_variant` function.
+///
+/// Note this is added by the [VariantShredding] rule only, it can not be called directly by the user.
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct ShredVariant {
     signature: Signature,
