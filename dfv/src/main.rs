@@ -188,6 +188,11 @@ Try:
   SET datafusion.execution.parquet.skip_metadata = false;
   SELECT event FROM 'events.parquet';
 
+  -- Write Variant to Parquet, shredding selected fields into typed columns
+  COPY events TO 'shredded_events.parquet' STORED AS PARQUET
+  OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+  SELECT path_in_schema, type FROM parquet_metadata('shredded_events.parquet');
+
   -- Inspect the schema of Variant values
   SELECT schema_of_variant(event) FROM events;
 
