@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Generate the SQL reference from the documentation attached to registered UDFs.
-//!
-//! Run `cargo run --bin generate_function_docs` to rewrite `docs/sql-reference.md`.
-//! CI regenerates the file and fails if `git diff` reports changes.
 
 use std::{collections::BTreeMap, error::Error, fmt::Write, path::Path};
 
