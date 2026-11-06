@@ -61,11 +61,11 @@ members = ["dfv"]
 default-members = [".", "dfv"]
 
 [workspace.dependencies]
-datafusion = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-datafusion-macros = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+datafusion = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
+datafusion-cli = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
+datafusion-doc = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
+datafusion-macros = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
+datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
 arrow = "60"
 parquet = { version = "60", features = ["variant_experimental"] }
 async-trait = "0.1"
