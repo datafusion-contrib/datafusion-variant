@@ -57,7 +57,10 @@ jobs:
           git diff --exit-code
 
       - name: Run all tests
-        run: cargo nextest run
+        # nextest does not run doctests (the README example in src/lib.rs)
+        run: |
+          cargo nextest run
+          cargo test --doc
 
   fmt:
     runs-on: ubuntu-slim
