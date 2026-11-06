@@ -16,12 +16,12 @@ in each row.
 
 For example, a single Variant column can contain all of these values, shown as JSON:
 
-| Value | Type |
-| --- | --- |
-| `{"service":"api","status":200}` | Object |
-| `["cached","retry"]` | Array |
-| `42` | Integer |
-| `"api"` | String |
+| Value                            | Type    |
+|----------------------------------|---------|
+| `{"service":"api","status":200}` | Object  |
+| `["cached","retry"]`             | Array   |
+| `42`                             | Integer |
+| `"api"`                          | String  |
 
 Variants are stored using an efficient binary encoding, similar to BSON, with
 optimizations for repeated field names. For more background, see [Variant Type
@@ -71,7 +71,7 @@ async fn main() -> datafusion::error::Result<()> {
 
 Congratulations -- you can now query semi-structured data with the Variant type!
 
-## Common tasks
+## Cookbook of Common tasks
 
 This section contains examples of common queries using the Variant type.
 
@@ -179,14 +179,6 @@ DataFusion `COPY` statement:
 COPY events TO 'events.parquet' STORED AS PARQUET;
 ```
 
-```text
-+-------+
-| count |
-+-------+
-| 3     |
-+-------+
-```
-
 The Variant column is stored in Parquet following the [Parquet Variant
 encoding specification][parquet-variant-encoding] as a struct with `metadata`
 and `value` fields. You can see the structure using the
@@ -217,46 +209,20 @@ COPY events TO 'shredded_events.parquet' STORED AS PARQUET
 OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
 ```
 
-```text
-+-------+
-| count |
-+-------+
-| 3     |
-+-------+
-```
-
 This is logically equivalent to storing the Variant column as three columns:
 
-| `event` (Variant) | `event.service` (VARCHAR) | `event.status` (BIGINT) |
-| --- | --- | --- |
-| `{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}` | `api` | `200` |
-| `{"service":"api","status":500,"latency_ms":85,"error":null}` | `api` | `500` |
-| `{"service":"api","status":504,"error":"Somethings not working"}` | `api` | `504` |
+| `event` (Variant)                                                  | `event.service` (VARCHAR) | `event.status` (BIGINT) |
+|--------------------------------------------------------------------|---------------------------|-------------------------|
+| `{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}` | `api`                     | `200`                   |
+| `{"service":"api","status":500,"latency_ms":85,"error":null}`      | `api`                     | `500`                   |
+| `{"service":"api","status":504,"error":"Somethings not working"}`  | `api`                     | `504`                   |
 
 Note that the actual encoding is more complicated: the typed columns and the
 binary residual are stored together in a single struct, as described in the
 [Parquet Variant shredding specification][parquet-variant-shredding].
 
-Layouts can nest structs and arrays, and one statement can shred several
-columns. Keys are the case-sensitive names of top-level Variant columns in the
-COPY input; any column not listed keeps its existing storage:
-
-<!-- readme-test: skip: illustrative layout; the events table has no metric column -->
-```sql
-COPY events TO 'shredded_events.parquet' STORED AS PARQUET
-OPTIONS ('variant.shredding' '{
-  "event":  "STRUCT<service VARCHAR, detail STRUCT<latency BIGINT>, tags VARCHAR[]>",
-  "metric": "BIGINT"
-}');
-```
-
-Any SQL type that DataFusion can `CAST` to is accepted as long as the
-[Parquet Variant shredding specification][parquet-variant-shredding] has a
-shredded encoding for it: `BOOLEAN`, the signed
-integer types, `FLOAT`, `DOUBLE`, `DECIMAL`, `DATE`, `TIME`, `TIMESTAMP` with or
-without a time zone, `VARCHAR`, `BYTEA`, `STRUCT<...>`, and `type[]` arrays.
-`VARIANT` cannot appear inside a layout; leave a field out to keep it in the
-residual instead. Partition columns cannot be shredded.
+See the [shredding guide](docs/shredding.md) for the full format of the
+`variant.shredding` option.
 
 ### Read Variant from Parquet
 
@@ -356,6 +322,47 @@ SELECT schema_of_variant_agg(event) AS schema FROM events;
 +-------------------------------------------------------------------------------------------------+
 ```
 
+## Cookbook: Advanced Usage
+
+#### Write shredded Parquet columns
+
+
+Layouts can also shred nested objects and arrays. For example, if you have a
+`requests` table with a nested `detail` object and `tags` array:
+
+```sql
+CREATE TABLE requests AS
+SELECT parse_json(json_data) AS request
+FROM (VALUES
+    ('{"service":"api","detail":{"latency_ms":12,"region":"us-east"},"tags":["cached"]}'),
+    ('{"service":"api","detail":{"latency_ms":85},"tags":[]}'),
+    ('{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}')
+) AS input(json_data);
+```
+
+To shred the `latency_ms` field of the nested `detail` object and the `tags`
+array, nest the SQL types the same way as the JSON:
+
+```sql
+COPY requests TO 'shredded_requests.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{
+  "request": "STRUCT<detail STRUCT<latency_ms BIGINT>, tags VARCHAR[]>"
+}');
+```
+
+This is logically equivalent to storing the Variant column as three columns,
+where the nested `latency_ms` field and the `tags` array get their own typed
+columns. Fields that are not in the layout, such as `service`, `detail.region`,
+and `error`, stay only in the Variant column, and rows without a shredded
+field have `NULL` in its typed column:
+
+| `request` (Variant)                                                                 | `request.detail.latency_ms` (BIGINT) | `request.tags` (VARCHAR[]) |
+|-------------------------------------------------------------------------------------|--------------------------------------|----------------------------|
+| `{"service":"api","detail":{"latency_ms":12,"region":"us-east"},"tags":["cached"]}` | `12`                                 | `["cached"]`               |
+| `{"service":"api","detail":{"latency_ms":85},"tags":[]}`                            | `85`                                 | `[]`                       |
+| `{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}`                 | `NULL`                               | `NULL`                     |
+
+
 ## Functions
 
 See the generated [SQL reference](docs/sql-reference.md) for signatures, arguments,
@@ -395,7 +402,8 @@ cargo fmt --all -- --check
 cargo clippy -- -D warnings
 ```
 
-`cargo test` also checks this README's Rust example and SQL results.
+`cargo test` also checks the Rust example and the SQL results in this README
+and in `docs/shredding.md`.
 
 Regenerate the SQL reference and check its examples:
 

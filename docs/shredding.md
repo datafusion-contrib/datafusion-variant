@@ -46,14 +46,6 @@ OPTIONS ('variant.shredding' '{
 }');
 ```
 
-```text
-+-------+
-| count |
-+-------+
-| 3     |
-+-------+
-```
-
 The `parquet_metadata` table function (part of `dfv` and `datafusion-cli`)
 shows the resulting Parquet schema. Each shredded field has a `typed_value`
 column for values that match the layout and a `value` column for values that
