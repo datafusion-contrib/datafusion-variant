@@ -225,6 +225,25 @@ OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"
 The column remains a Variant, preserving values, nulls, and missing fields.
 Unselected fields and incompatible values stay in binary residuals.
 
+Layouts can nest structs and arrays, and one statement can shred several
+columns. Keys are the case-sensitive names of top-level Variant columns in the
+COPY input; any column not listed keeps its existing storage:
+
+```sql
+COPY events TO 'shredded_events.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{
+  "event":  "STRUCT<service VARCHAR, detail STRUCT<latency BIGINT>, tags VARCHAR[]>",
+  "metric": "BIGINT"
+}');
+```
+
+Any SQL type that DataFusion can `CAST` to is accepted as long as the Parquet
+Variant specification has a shredded encoding for it: `BOOLEAN`, the signed
+integer types, `FLOAT`, `DOUBLE`, `DECIMAL`, `DATE`, `TIME`, `TIMESTAMP` with or
+without a time zone, `VARCHAR`, `BYTEA`, `STRUCT<...>`, and `type[]` arrays.
+`VARIANT` cannot appear inside a layout; leave a field out to keep it in the
+residual instead. Partition columns cannot be shredded.
+
 ### Read Variant from Parquet
 
 You can read `events.parquet` back with the Variant column preserved. The same

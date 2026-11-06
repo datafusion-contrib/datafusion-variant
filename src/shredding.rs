@@ -1,6 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Explicit Variant storage layouts for Parquet COPY statements.
+//!
+//! The `variant.shredding` COPY option is a JSON object whose keys are output
+//! column names and whose values are SQL types. Each named column must be a
+//! top-level `VARIANT` column of the COPY input; its values are stored with the
+//! given type as typed Parquet columns ("shredded") while anything that does not
+//! fit stays in the binary `value` residual. Column names are case-sensitive,
+//! and columns that are not listed keep their existing storage.
+//!
+//! ```sql
+//! -- Shred two fields of an object; other fields stay in the residual.
+//! COPY events TO 'events.parquet' STORED AS PARQUET
+//! OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+//!
+//! -- Nested objects, arrays, and several columns in one statement.
+//! COPY events TO 'events.parquet' STORED AS PARQUET
+//! OPTIONS ('variant.shredding' '{
+//!   "event":  "STRUCT<service VARCHAR, detail STRUCT<latency BIGINT>, tags VARCHAR[]>",
+//!   "metric": "BIGINT"
+//! }');
+//! ```
+//!
+//! A type is any SQL type DataFusion can `CAST` to, as long as the resulting
+//! Arrow type is one the Parquet Variant shredding kernel supports:
+//!
+//! * `BOOLEAN`
+//! * `TINYINT`, `SMALLINT`, `INT`, `BIGINT`
+//! * `FLOAT`, `DOUBLE`, `DECIMAL(p, s)`
+//! * `DATE`, `TIME`, `TIMESTAMP`, `TIMESTAMP WITH TIME ZONE`
+//! * `VARCHAR`, `BYTEA`
+//! * `STRUCT<name type, ...>` and `type[]`, nested to any depth
+//!
+//! `VARIANT` is not allowed anywhere in a layout; omit a field instead to keep
+//! it in the residual. Unsigned integers, intervals, and other types without a
+//! shredded Parquet representation are rejected. Partition columns cannot be
+//! shredded, and the option is only accepted when copying to Parquet.
 
 use std::{any::Any, collections::BTreeMap, sync::Arc};
 
