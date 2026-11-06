@@ -33,5 +33,6 @@ tokio = { version = "1", features = ["fs", "io-util", "macros", "parking_lot", "
 
 [dev-dependencies]
 assert_cmd = "2.0"
+insta = { version = "1.43.2", features = ["filters"] }
 predicates = "3.0"
 tempfile = "3"

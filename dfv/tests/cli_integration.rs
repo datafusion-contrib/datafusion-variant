@@ -332,9 +332,10 @@ const BSKY_ROWS: [&str; 3] = [
 ];
 
 /// Every example printed in the `Try:` banner runs successfully, in order,
-/// through `dfv -f`, and prints the expected results. The Bluesky example
-/// reads a local file holding [`BSKY_ROWS`] via `DFV_BSKY_DIR` instead of
-/// downloading.
+/// through `dfv -f`. The script and the resulting stdout and stderr are
+/// compared against an inline snapshot (update with `cargo insta test
+/// --accept -p dfv`). The Bluesky example reads a local file holding
+/// [`BSKY_ROWS`] via `DFV_BSKY_DIR` instead of downloading.
 #[test]
 fn test_banner_examples_run_end_to_end() {
     let temp_dir = tempfile::tempdir().unwrap();
@@ -343,12 +344,6 @@ fn test_banner_examples_run_end_to_end() {
     // Capture the examples from the interactive shell's banner.
     let banner = run_dfv(temp_dir.path(), &[], "\\q\n");
     let sql = banner_examples(&banner).expect("REPL prints the examples banner");
-    // Every statement in the banner ends its line with `;`.
-    let statements = sql
-        .lines()
-        .filter(|line| line.trim_end().ends_with(';'))
-        .count();
-    assert!(statements >= 10, "unexpected banner:\n{banner}");
     let script = temp_dir.path().join("examples.sql");
     std::fs::write(&script, &sql).unwrap();
 
@@ -363,71 +358,143 @@ fn test_banner_examples_run_end_to_end() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     let context = format!("script:\n{sql}\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(output.status.success(), "{context}");
-    assert!(!stdout.contains("Error"), "{context}");
-    // The CLI stops at the first failing statement, so one result per
-    // statement means every example ran.
-    assert_eq!(
-        stdout.matches("row(s) fetched.").count(),
-        statements,
-        "{context}"
-    );
-    assert!(!stderr.contains("Downloading"), "{context}");
-    assert!(stderr.contains("Loaded 3 rows"), "{context}");
-    assert!(temp_dir.path().join("events.parquet").is_file());
-    assert!(temp_dir.path().join("shredded_events.parquet").is_file());
 
-    let expected = [
-        // `:` field access and filtering
-        "\
-| service |
-+---------+
-| \"api\"   |
-| \"api\"   |
-+---------+
-2 row(s) fetched.",
-        // COPY (plain and shredded) report the row count
-        "\
-| count |
-+-------+
-| 3     |
-+-------+
-1 row(s) fetched.",
-        // Reading events.parquet and shredded_events.parquet both show the
-        // original Variant values
-        r#"| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
-| {"error":null,"latency_ms":85,"service":"api","status":500}      |
-| {"error":"Somethings not working","service":"api","status":504}  |
-+------------------------------------------------------------------+
-3 row(s) fetched."#,
-        // The shredded file has typed columns for `service` and `status`
-        r#"| "event.metadata"                        | BYTE_ARRAY |
-| "event.value"                           | BYTE_ARRAY |
-| "event.typed_value.service.value"       | BYTE_ARRAY |
-| "event.typed_value.service.typed_value" | BYTE_ARRAY |
-| "event.typed_value.status.value"        | BYTE_ARRAY |
-| "event.typed_value.status.typed_value"  | INT64      |
-+-----------------------------------------+------------+
-6 row(s) fetched."#,
-        // schema_of_variant
-        "\
-| OBJECT<latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
-| OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT>         |
-| OBJECT<error: STRING, service: STRING, status: BIGINT>                           |
-+----------------------------------------------------------------------------------+
-3 row(s) fetched.",
-        // Bluesky events grouped by kind
-        "\
-| kind     | count(*) |
-+----------+----------+
-| commit   | 2        |
-| identity | 1        |
-+----------+----------+
-2 row(s) fetched.",
-    ];
-    for table in expected {
-        assert!(stdout.contains(table), "missing:\n{table}\n\n{context}");
-    }
-    assert_eq!(stdout.matches("3 row(s) fetched.").count(), 3, "{context}");
+    insta::with_settings!({
+        filters => vec![
+            // Query timings vary between runs
+            (r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds."),
+            // The Bluesky file lives in a temporary directory
+            (r"Loading .*/file_0001\.json\.gz", "Loading [BSKY_DIR]/file_0001.json.gz"),
+        ],
+    }, {
+        insta::assert_snapshot!(context, @r#"
+        script:
+          -- Build a table of Variant values by parsing JSON
+          CREATE TABLE events AS
+          SELECT parse_json(json_data) AS event
+          FROM (VALUES
+              ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
+              ('{"service":"api","status":500,"latency_ms":85,"error":null}'),
+              ('{"service":"api","status":504,"error":"Somethings not working"}')
+          ) AS input(json_data);
+
+          -- Select fields from the Variant values using the `:` operator and filter by a field value
+          SELECT event:service AS service
+          FROM events
+          WHERE event:status::BIGINT >= 400;
+
+          -- Write the values to the events.parquet file
+          COPY events TO 'events.parquet' STORED AS PARQUET;
+          SET datafusion.execution.parquet.skip_metadata = false;
+          SELECT event FROM 'events.parquet';
+
+          -- Write to shredded_events.parquet, shredding the `service` and `status` fields into typed columns
+          COPY events TO 'shredded_events.parquet' STORED AS PARQUET
+          OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+          SELECT path_in_schema, type FROM parquet_metadata('shredded_events.parquet');
+          SELECT * FROM 'shredded_events.parquet';
+
+          -- Show the schema (fields and types in each variant value)
+          SELECT schema_of_variant(event) FROM events;
+
+          -- Load 1M real Bluesky events (downloads ~135MB to data/bluesky on first use)
+          CREATE TABLE bsky AS SELECT parse_json(json_data) AS event FROM load_bsky(1);
+          SELECT event:kind::VARCHAR AS kind, count(*) FROM bsky GROUP BY kind ORDER BY 2 DESC;
+
+        stdout:
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +---------+
+        | service |
+        +---------+
+        | "api"   |
+        | "api"   |
+        +---------+
+        2 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-------+
+        | count |
+        +-------+
+        | 3     |
+        +-------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +------------------------------------------------------------------+
+        | event                                                            |
+        +------------------------------------------------------------------+
+        | {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+        | {"error":null,"latency_ms":85,"service":"api","status":500}      |
+        | {"error":"Somethings not working","service":"api","status":504}  |
+        +------------------------------------------------------------------+
+        3 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-------+
+        | count |
+        +-------+
+        | 3     |
+        +-------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-----------------------------------------+------------+
+        | path_in_schema                          | type       |
+        +-----------------------------------------+------------+
+        | "event.metadata"                        | BYTE_ARRAY |
+        | "event.value"                           | BYTE_ARRAY |
+        | "event.typed_value.service.value"       | BYTE_ARRAY |
+        | "event.typed_value.service.typed_value" | BYTE_ARRAY |
+        | "event.typed_value.status.value"        | BYTE_ARRAY |
+        | "event.typed_value.status.typed_value"  | INT64      |
+        +-----------------------------------------+------------+
+        6 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +------------------------------------------------------------------+
+        | event                                                            |
+        +------------------------------------------------------------------+
+        | {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+        | {"error":null,"latency_ms":85,"service":"api","status":500}      |
+        | {"error":"Somethings not working","service":"api","status":504}  |
+        +------------------------------------------------------------------+
+        3 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +----------------------------------------------------------------------------------+
+        | schema_of_variant(events.event)                                                  |
+        +----------------------------------------------------------------------------------+
+        | OBJECT<latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
+        | OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT>         |
+        | OBJECT<error: STRING, service: STRING, status: BIGINT>                           |
+        +----------------------------------------------------------------------------------+
+        3 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +----------+----------+
+        | kind     | count(*) |
+        +----------+----------+
+        | commit   | 2        |
+        | identity | 1        |
+        +----------+----------+
+        2 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        Loading [BSKY_DIR]/file_0001.json.gz
+        Loaded 3 rows
+        "#);
+    });
 }
 
 /// `load_bsky(n)` reads `file_000n.json.gz` from `DFV_BSKY_DIR` without
