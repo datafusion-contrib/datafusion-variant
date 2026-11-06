@@ -10,7 +10,6 @@ use std::time::Duration;
 use assert_cmd::cargo::cargo_bin_cmd;
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use predicates::prelude::PredicateBooleanExt;
 
 /// Rows of a query result as printed by the CLI (table borders omitted).
 const EVENTS_JSON: &str = r#"
@@ -67,12 +66,35 @@ fn dfv_snapshot_settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     settings.add_filter(r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds.");
     settings.add_filter(r"Loading .*/(file_\d+\.json\.gz)", "Loading [BSKY_DIR]/$1");
+    // The REPL prints the examples banner, which has its own tests
+    settings.add_filter(r"(?s)\nTry:\n.*?\nEnter \\q to exit\.\n", "\n[EXAMPLES]\n");
     settings
 }
 
-/// The SQL examples in the `Try:` banner of the given CLI output: the lines
-/// between `Try:` and the `See https://...` link, or `None` if the output has
-/// no examples banner.
+/// Run the command and return its exit code, stdout, and stderr formatted for
+/// snapshotting.
+fn snapshot_output(cmd: &mut assert_cmd::Command) -> String {
+    let output = cmd.output().unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    format!(
+        "exit code: {}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code().unwrap()
+    )
+}
+
+/// Extract the SQL examples in the CLI example output
+///
+/// ```text
+/// dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+///
+/// Try:
+///   -- Build a table of Variant values by parsing JSON    <--- Captured
+/// ...                                                     <--- Captured
+/// See https://github.com/datafusion-contrib/datafusion-variant#functions for all functions.
+/// ```
+///
+/// Return  `None` if the output has no examples banner.
 fn banner_examples(stdout: &str) -> Option<String> {
     let mut lines = stdout.lines().skip_while(|line| *line != "Try:");
     lines.next()?;
@@ -121,6 +143,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
     let script = temp_dir.path().join("display.sql");
     std::fs::write(&script, sql).unwrap();
 
+    let mut context = String::new();
     for mode in ["command", "file", "repl"] {
         let mut cmd = cargo_bin_cmd!("dfv");
         match mode {
@@ -134,38 +157,223 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
                 cmd.write_stdin(format!("{sql}\\q\n"));
             }
         }
-        cmd.assert()
-            .success()
-            .stdout(predicates::str::contains("| {\"a\":1} | false    |"))
-            .stdout(predicates::str::contains("| null    | false    |"))
-            .stdout(predicates::str::contains("| [NULL]  | true     |"))
-            .stdout(predicates::str::contains("| 1      |"));
+        context += &format!("=== {mode} ===\n{}\n", snapshot_output(&mut cmd));
     }
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r#"
+        === command ===
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-------+
+        | count |
+        +-------+
+        | 1     |
+        +-------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +---------+----------+
+        | v       | sql_null |
+        +---------+----------+
+        | {"a":1} | false    |
+        | null    | false    |
+        | [NULL]  | true     |
+        | {"a":2} | false    |
+        +---------+----------+
+        4 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +--------+
+        | a      |
+        +--------+
+        | 1      |
+        | [NULL] |
+        | [NULL] |
+        | 2      |
+        +--------+
+        4 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+
+        === file ===
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-------+
+        | count |
+        +-------+
+        | 1     |
+        +-------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +---------+----------+
+        | v       | sql_null |
+        +---------+----------+
+        | {"a":1} | false    |
+        | null    | false    |
+        | [NULL]  | true     |
+        | {"a":2} | false    |
+        +---------+----------+
+        4 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +--------+
+        | a      |
+        +--------+
+        | 1      |
+        | [NULL] |
+        | [NULL] |
+        | 2      |
+        +--------+
+        4 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+
+        === repl ===
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+
+        [EXAMPLES]
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-------+
+        | count |
+        +-------+
+        | 1     |
+        +-------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +---------+----------+
+        | v       | sql_null |
+        +---------+----------+
+        | {"a":1} | false    |
+        | null    | false    |
+        | [NULL]  | true     |
+        | {"a":2} | false    |
+        +---------+----------+
+        4 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +--------+
+        | a      |
+        +--------+
+        | 1      |
+        | [NULL] |
+        | [NULL] |
+        | 2      |
+        +--------+
+        4 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        "#);
+    });
 }
 
 /// Only `-c` and `-f` are supported; other `datafusion-cli` options are
 /// rejected by clap before any SQL runs.
 #[test]
 fn test_help_and_unsupported_options() {
-    cargo_bin_cmd!("dfv")
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Usage: dfv [OPTIONS]"))
-        .stdout(predicates::str::contains("-c, --command"))
-        .stdout(predicates::str::contains("-f, --file"))
-        .stdout(predicates::str::contains("--format").not())
-        .stdout(predicates::str::contains("--memory-limit").not());
-
+    let mut context = format!(
+        "=== --help ===\n{}\n",
+        snapshot_output(cargo_bin_cmd!("dfv").arg("--help"))
+    );
     for option in ["--format", "--quiet", "--memory-limit", "--spark"] {
-        cargo_bin_cmd!("dfv")
-            .args([option, "-c", "SELECT 1"])
-            .assert()
-            .code(2)
-            .stderr(predicates::str::contains(format!(
-                "unexpected argument '{option}' found"
-            )));
+        context += &format!(
+            "=== {option} -c 'SELECT 1' ===\n{}\n",
+            snapshot_output(cargo_bin_cmd!("dfv").args([option, "-c", "SELECT 1"]))
+        );
     }
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r"
+        === --help ===
+        exit code: 0
+        stdout:
+        datafusion-cli with the DataFusion Variant functions preinstalled
+
+        Usage: dfv [OPTIONS]
+
+        Options:
+          -c, --command [<COMMAND>...]  Execute the given command string(s), then exit. Commands are expected to be non empty.
+          -f, --file [<FILE>...]        Execute commands from file(s), then exit
+          -h, --help                    Print help
+          -V, --version                 Print version
+
+        stderr:
+
+        === --format -c 'SELECT 1' ===
+        exit code: 2
+        stdout:
+
+        stderr:
+        error: unexpected argument '--format' found
+
+        Usage: dfv [OPTIONS]
+
+        For more information, try '--help'.
+
+        === --quiet -c 'SELECT 1' ===
+        exit code: 2
+        stdout:
+
+        stderr:
+        error: unexpected argument '--quiet' found
+
+        Usage: dfv [OPTIONS]
+
+        For more information, try '--help'.
+
+        === --memory-limit -c 'SELECT 1' ===
+        exit code: 2
+        stdout:
+
+        stderr:
+        error: unexpected argument '--memory-limit' found
+
+        Usage: dfv [OPTIONS]
+
+        For more information, try '--help'.
+
+        === --spark -c 'SELECT 1' ===
+        exit code: 2
+        stdout:
+
+        stderr:
+        error: unexpected argument '--spark' found
+
+        Usage: dfv [OPTIONS]
+
+        For more information, try '--help'.
+        ");
+    });
 }
 
 /// `parse_json` converts JSON text to Variant and `variant_get` extracts
