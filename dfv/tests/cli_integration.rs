@@ -44,26 +44,56 @@ fn test_version_and_banner() {
         )));
 }
 
+/// Run `dfv` with the given arguments and stdin in `dir`, asserting success,
+/// and return its stdout.
+fn run_dfv(dir: &std::path::Path, args: &[&str], stdin: &str) -> String {
+    let output = cargo_bin_cmd!("dfv")
+        .current_dir(dir)
+        .args(args)
+        .write_stdin(stdin)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "dfv {args:?} failed:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// The SQL examples in the `Try:` banner of the given CLI output: the lines
+/// between `Try:` and the `See https://...` link, or `None` if the output has
+/// no examples banner.
+fn banner_examples(stdout: &str) -> Option<String> {
+    let mut lines = stdout.lines().skip_while(|line| *line != "Try:");
+    lines.next()?;
+    Some(
+        lines
+            .take_while(|line| !line.starts_with("See https://"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
 /// The interactive shell (no `-c`/`-f`, SQL piped on stdin) prints example
 /// commands after the banner; `-c` does not.
 #[test]
 fn test_examples_banner_in_repl_only() {
-    cargo_bin_cmd!("dfv")
-        .write_stdin("SELECT 1 AS one;\n\\q\n")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("\nTry:\n"))
-        .stdout(predicates::str::contains(
-            "-- Build a table of Variant values and query it",
-        ))
-        .stdout(predicates::str::contains("| one |"));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let stdout = run_dfv(temp_dir.path(), &[], "SELECT 1 AS one;\n\\q\n");
+    let examples = banner_examples(&stdout).expect("REPL prints the examples banner");
+    assert!(
+        examples.contains("-- Build a table of Variant values by parsing JSON"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("| one |"), "{stdout}");
 
-    cargo_bin_cmd!("dfv")
-        .args(["-c", "SELECT 1"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("\nTry:\n").not())
-        .stdout(predicates::str::contains("-- Build a table of Variant values").not());
+    let stdout = run_dfv(temp_dir.path(), &["-c", "SELECT 1"], "");
+    assert!(banner_examples(&stdout).is_none(), "{stdout}");
+    assert!(
+        !stdout.contains("-- Build a table of Variant values"),
+        "{stdout}"
+    );
 }
 
 /// The final output adapter applies to commands, files, and the REPL, while
@@ -284,6 +314,180 @@ fn write_bsky_file(dir: &std::path::Path, n: u32, lines: &[&str]) {
         writeln!(encoder, "{line}").unwrap();
     }
     encoder.finish().unwrap();
+}
+
+/// Real rows from the Bluesky dataset (`file_0001.json.gz`): the first two
+/// `commit` events and the first `identity` event (line 99).
+const BSKY_ROWS: [&str; 3] = [
+    r#"{"did":"did:plc:yj3sjq3blzpynh27cumnp5ks","time_us":1732206349000167,"kind":"commit","commit":{"rev":"3lbhtytnn2k2f","operation":"create","collection":"app.bsky.feed.post","rkey":"3lbhtyteurk2y","record":{"$type":"app.bsky.feed.post","createdAt":"2024-11-21T16:09:27.095Z","langs":["en"],"reply":{"parent":{"cid":"bafyreibfglofvqou2yiqvwzk4rcgkhhxrbunyemshdjledgwymimqkg24e","uri":"at://did:plc:6tr6tuzlx2db3rduzr2d6r24/app.bsky.feed.post/3lbhqo2rtys2z"},"root":{"cid":"bafyreibfglofvqou2yiqvwzk4rcgkhhxrbunyemshdjledgwymimqkg24e","uri":"at://did:plc:6tr6tuzlx2db3rduzr2d6r24/app.bsky.feed.post/3lbhqo2rtys2z"}},"text":"aaaaah.  LIght shines in a corner of WTF...."},"cid":"bafyreidblutgvj75o4q4akzyyejedjj6l3it6hgqwee6jpwv2wqph5fsgm"}}"#,
+    r#"{"did":"did:plc:3i4xf2v4wcnyktgv6satke64","time_us":1732206349000644,"kind":"commit","commit":{"rev":"3lbhuvzds6d2a","operation":"create","collection":"app.bsky.feed.like","rkey":"3lbhuvzdked2a","record":{"$type":"app.bsky.feed.like","createdAt":"2024-11-21T16:25:46.221Z","subject":{"cid":"bafyreidjvrcmckkm765mct5fph36x7kupkfo35rjklbf2k76xkzwyiauge","uri":"at://did:plc:azrv4rcbws6kmcga4fsbphg2/app.bsky.feed.post/3lbgjdpbiec2l"}},"cid":"bafyreia5l5vrkh5oj4cjyhcqby2dprhyvcyofo2q5562tijlae2pzih23m"}}"#,
+    r#"{"did":"did:plc:2dtvzdnwwhikc4i62eh47uir","time_us":1732206349164509,"kind":"identity","identity":{"did":"did:plc:2dtvzdnwwhikc4i62eh47uir","handle":"cjackson292.bsky.social","seq":4148295340,"time":"2024-11-21T16:25:48.604Z"}}"#,
+];
+
+/// Every example printed in the `Try:` banner runs successfully, in order,
+/// through `dfv -f`. The script and the resulting stdout and stderr are
+/// compared against an inline snapshot (update with `cargo insta test
+/// --accept -p dfv`). The Bluesky example reads a local file holding
+/// [`BSKY_ROWS`] via `DFV_BSKY_DIR` instead of downloading.
+#[test]
+fn test_banner_examples_run_end_to_end() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    write_bsky_file(temp_dir.path(), 1, &BSKY_ROWS);
+
+    // Capture the examples from the interactive shell's banner.
+    let banner = run_dfv(temp_dir.path(), &[], "\\q\n");
+    let sql = banner_examples(&banner).expect("REPL prints the examples banner");
+    let script = temp_dir.path().join("examples.sql");
+    std::fs::write(&script, &sql).unwrap();
+
+    let output = cargo_bin_cmd!("dfv")
+        .current_dir(temp_dir.path())
+        .env("DFV_BSKY_DIR", temp_dir.path())
+        .arg("-f")
+        .arg(&script)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let context = format!("script:\n{sql}\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(output.status.success(), "{context}");
+
+    insta::with_settings!({
+        filters => vec![
+            // Query timings vary between runs
+            (r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds."),
+            // The Bluesky file lives in a temporary directory
+            (r"Loading .*/file_0001\.json\.gz", "Loading [BSKY_DIR]/file_0001.json.gz"),
+        ],
+    }, {
+        insta::assert_snapshot!(context, @r#"
+        script:
+          -- Build a table of Variant values by parsing JSON
+          CREATE TABLE events AS
+          SELECT parse_json(json_data) AS event
+          FROM (VALUES
+              ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
+              ('{"service":"api","status":500,"latency_ms":85,"error":null}'),
+              ('{"service":"api","status":504,"error":"Somethings not working"}')
+          ) AS input(json_data);
+
+          -- Select fields from the Variant values using the `:` operator and filter by a field value
+          SELECT event:service AS service
+          FROM events
+          WHERE event:status::BIGINT >= 400;
+
+          -- Write the values to the events.parquet file
+          COPY events TO 'events.parquet' STORED AS PARQUET;
+          SET datafusion.execution.parquet.skip_metadata = false;
+          SELECT event FROM 'events.parquet';
+
+          -- Write to shredded_events.parquet, shredding the `service` and `status` fields into typed columns
+          COPY events TO 'shredded_events.parquet' STORED AS PARQUET
+          OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+          SELECT path_in_schema, type FROM parquet_metadata('shredded_events.parquet');
+          SELECT * FROM 'shredded_events.parquet';
+
+          -- Show the schema (fields and types in each variant value)
+          SELECT schema_of_variant(event) FROM events;
+
+          -- Load 1M real Bluesky events (downloads ~135MB to data/bluesky on first use)
+          CREATE TABLE bsky AS SELECT parse_json(json_data) AS event FROM load_bsky(1);
+          SELECT event:kind::VARCHAR AS kind, count(*) FROM bsky GROUP BY kind ORDER BY 2 DESC;
+
+        stdout:
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +---------+
+        | service |
+        +---------+
+        | "api"   |
+        | "api"   |
+        +---------+
+        2 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-------+
+        | count |
+        +-------+
+        | 3     |
+        +-------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +------------------------------------------------------------------+
+        | event                                                            |
+        +------------------------------------------------------------------+
+        | {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+        | {"error":null,"latency_ms":85,"service":"api","status":500}      |
+        | {"error":"Somethings not working","service":"api","status":504}  |
+        +------------------------------------------------------------------+
+        3 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-------+
+        | count |
+        +-------+
+        | 3     |
+        +-------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +-----------------------------------------+------------+
+        | path_in_schema                          | type       |
+        +-----------------------------------------+------------+
+        | "event.metadata"                        | BYTE_ARRAY |
+        | "event.value"                           | BYTE_ARRAY |
+        | "event.typed_value.service.value"       | BYTE_ARRAY |
+        | "event.typed_value.service.typed_value" | BYTE_ARRAY |
+        | "event.typed_value.status.value"        | BYTE_ARRAY |
+        | "event.typed_value.status.typed_value"  | INT64      |
+        +-----------------------------------------+------------+
+        6 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +------------------------------------------------------------------+
+        | event                                                            |
+        +------------------------------------------------------------------+
+        | {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+        | {"error":null,"latency_ms":85,"service":"api","status":500}      |
+        | {"error":"Somethings not working","service":"api","status":504}  |
+        +------------------------------------------------------------------+
+        3 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +----------------------------------------------------------------------------------+
+        | schema_of_variant(events.event)                                                  |
+        +----------------------------------------------------------------------------------+
+        | OBJECT<latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
+        | OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT>         |
+        | OBJECT<error: STRING, service: STRING, status: BIGINT>                           |
+        +----------------------------------------------------------------------------------+
+        3 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        0 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +----------+----------+
+        | kind     | count(*) |
+        +----------+----------+
+        | commit   | 2        |
+        | identity | 1        |
+        +----------+----------+
+        2 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        Loading [BSKY_DIR]/file_0001.json.gz
+        Loaded 3 rows
+        "#);
+    });
 }
 
 /// `load_bsky(n)` reads `file_000n.json.gz` from `DFV_BSKY_DIR` without
