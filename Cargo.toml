@@ -60,12 +60,7 @@ members = ["dfv"]
 # Include `dfv` so `cargo run --bin dfv` and `cargo test` work from the root.
 default-members = [".", "dfv"]
 
-# Dependencies shared by the library and `dfv`. Members inherit these with
-# `workspace = true` and add only crate-specific features.
 [workspace.dependencies]
-# Pin DataFusion to a revision that uses Arrow 60. `dfv` must use the same
-# revision as the library so both link against a single copy of DataFusion and
-# Arrow; the published `datafusion-cli` crate still depends on Arrow 59.
 datafusion = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
 datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
 datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }

@@ -13,7 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 url = "2"
-# Versions shared with the library come from the workspace table in ../Cargo.toml.
 datafusion = { workspace = true }
 datafusion-cli = { workspace = true }
 datafusion-variant = { path = ".." }
