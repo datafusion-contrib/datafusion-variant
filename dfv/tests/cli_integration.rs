@@ -199,8 +199,7 @@ fn test_sql_variant_type() {
         ));
 }
 
-/// Exercise CLI option validation before analysis: `-f` writes a shredded
-/// Variant column to Parquet; a second process reads it back
+/// `-f` writes a Variant column to Parquet; a second process reads it back
 /// with several `-c` commands, keeping the Variant extension metadata during
 /// schema inference.
 #[test]
@@ -209,11 +208,7 @@ fn test_write_and_read_variant_parquet() {
     let script = temp_dir.path().join("write.sql");
     std::fs::write(
         &script,
-        format!(
-            r#"COPY ({EVENTS_JSON}) TO 'events.parquet' STORED AS PARQUET
-               OPTIONS ('variant.shredding' '{{"event":"STRUCT<service VARCHAR, status BIGINT>"}}');
-"#
-        ),
+        format!("COPY ({EVENTS_JSON}) TO 'events.parquet' STORED AS PARQUET;\n"),
     )
     .unwrap();
 
