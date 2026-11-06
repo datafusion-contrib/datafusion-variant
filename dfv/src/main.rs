@@ -182,17 +182,17 @@ Try:
   FROM events
   WHERE event:status::BIGINT >= 400;
 
-  -- Write values to a the events.parquet file
+  -- Write the values to the events.parquet file
   COPY events TO 'events.parquet' STORED AS PARQUET;
   SET datafusion.execution.parquet.skip_metadata = false;
   SELECT event FROM 'events.parquet';
 
-  -- Write Variant shredded_events.parquet, shredding `service` and `status` fields
+  -- Write to shredded_events.parquet, shredding the `service` and `status` fields
   -- into typed columns
   COPY events TO 'shredded_events.parquet' STORED AS PARQUET
   OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
   SELECT path_in_schema, type FROM parquet_metadata('shredded_events.parquet');
-  SELECT * from 'shredded_events.parquet';
+  SELECT * FROM 'shredded_events.parquet';
 
   -- Show the schema (The fields and types in each variant value)
   SELECT schema_of_variant(event) FROM events;

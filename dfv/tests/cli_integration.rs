@@ -54,7 +54,7 @@ fn test_examples_banner_in_repl_only() {
         .success()
         .stdout(predicates::str::contains("\nTry:\n"))
         .stdout(predicates::str::contains(
-            "-- Build a table of Variant values and query it",
+            "-- Build a table of Variant values by parsing JSON",
         ))
         .stdout(predicates::str::contains("| one |"));
 
@@ -291,6 +291,127 @@ fn write_bsky_file(dir: &std::path::Path, n: u32, lines: &[&str]) {
         writeln!(encoder, "{line}").unwrap();
     }
     encoder.finish().unwrap();
+}
+
+/// Every example printed in the `Try:` banner runs successfully, in order,
+/// through `dfv -f`, and prints the expected results. The banner is taken from
+/// the CLI's own output so the test covers exactly what users see. The
+/// Bluesky example reads a small local file via `DFV_BSKY_DIR` instead of
+/// downloading.
+#[test]
+fn test_banner_examples_run_end_to_end() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    write_bsky_file(
+        temp_dir.path(),
+        1,
+        &[
+            r#"{"did":"did:plc:a","kind":"commit","time_us":3}"#,
+            r#"{"did":"did:plc:b","kind":"identity","time_us":1}"#,
+            r#"{"did":"did:plc:a","kind":"commit","time_us":2}"#,
+        ],
+    );
+
+    // Capture the banner from the interactive shell and keep the SQL between
+    // `Try:` and the trailing `See https://...` line.
+    let banner = cargo_bin_cmd!("dfv")
+        .current_dir(temp_dir.path())
+        .write_stdin("\\q\n")
+        .output()
+        .unwrap();
+    assert!(banner.status.success());
+    let banner = String::from_utf8(banner.stdout).unwrap();
+    let sql = banner
+        .lines()
+        .skip_while(|line| *line != "Try:")
+        .skip(1)
+        .take_while(|line| !line.starts_with("See https://"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Every statement in the banner ends its line with `;`.
+    let statements = sql
+        .lines()
+        .filter(|line| line.trim_end().ends_with(';'))
+        .count();
+    assert!(statements >= 10, "unexpected banner:\n{banner}");
+    let script = temp_dir.path().join("examples.sql");
+    std::fs::write(&script, &sql).unwrap();
+
+    let output = cargo_bin_cmd!("dfv")
+        .current_dir(temp_dir.path())
+        .env("DFV_BSKY_DIR", temp_dir.path())
+        .arg("-f")
+        .arg(&script)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let context = format!("script:\n{sql}\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(output.status.success(), "{context}");
+    assert!(!stdout.contains("Error"), "{context}");
+    // The CLI stops at the first failing statement, so one result per
+    // statement means every example ran.
+    assert_eq!(
+        stdout.matches("row(s) fetched.").count(),
+        statements,
+        "{context}"
+    );
+    assert!(!stderr.contains("Downloading"), "{context}");
+    assert!(stderr.contains("Loaded 3 rows"), "{context}");
+    assert!(temp_dir.path().join("events.parquet").is_file());
+    assert!(temp_dir.path().join("shredded_events.parquet").is_file());
+
+    let expected = [
+        // `:` field access and filtering
+        "\
+| service |
++---------+
+| \"api\"   |
+| \"api\"   |
++---------+
+2 row(s) fetched.",
+        // COPY (plain and shredded) report the row count
+        "\
+| count |
++-------+
+| 3     |
++-------+
+1 row(s) fetched.",
+        // Reading events.parquet and shredded_events.parquet both show the
+        // original Variant values
+        r#"| {"latency_ms":12,"service":"api","status":200,"tags":["cached"]} |
+| {"error":null,"latency_ms":85,"service":"api","status":500}      |
+| {"error":"Somethings not working","service":"api","status":504}  |
++------------------------------------------------------------------+
+3 row(s) fetched."#,
+        // The shredded file has typed columns for `service` and `status`
+        r#"| "event.metadata"                        | BYTE_ARRAY |
+| "event.value"                           | BYTE_ARRAY |
+| "event.typed_value.service.value"       | BYTE_ARRAY |
+| "event.typed_value.service.typed_value" | BYTE_ARRAY |
+| "event.typed_value.status.value"        | BYTE_ARRAY |
+| "event.typed_value.status.typed_value"  | INT64      |
++-----------------------------------------+------------+
+6 row(s) fetched."#,
+        // schema_of_variant
+        "\
+| OBJECT<latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
+| OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT>         |
+| OBJECT<error: STRING, service: STRING, status: BIGINT>                           |
++----------------------------------------------------------------------------------+
+3 row(s) fetched.",
+        // Bluesky events grouped by kind
+        "\
+| kind     | count(*) |
++----------+----------+
+| commit   | 2        |
+| identity | 1        |
++----------+----------+
+2 row(s) fetched.",
+    ];
+    for table in expected {
+        assert!(stdout.contains(table), "missing:\n{table}\n\n{context}");
+    }
+    assert_eq!(stdout.matches("3 row(s) fetched.").count(), 3, "{context}");
 }
 
 /// `load_bsky(n)` reads `file_000n.json.gz` from `DFV_BSKY_DIR` without
