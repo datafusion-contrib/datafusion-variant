@@ -378,7 +378,6 @@ fn test_banner_examples_run_end_to_end() {
 
           -- Write the values to the events.parquet file
           COPY events TO 'events.parquet' STORED AS PARQUET;
-          SET datafusion.execution.parquet.skip_metadata = false;
           SELECT event FROM 'events.parquet';
 
           -- Write to shredded_events.parquet, shredding the `service` and `status` fields into typed columns
@@ -395,7 +394,7 @@ fn test_banner_examples_run_end_to_end() {
           SELECT event:kind::VARCHAR AS kind, count(*) FROM bsky GROUP BY kind ORDER BY 2 DESC;
 
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
         0 row(s) fetched. 
         Elapsed [ELAPSED] seconds.
 
@@ -414,9 +413,6 @@ fn test_banner_examples_run_end_to_end() {
         | 3     |
         +-------+
         1 row(s) fetched. 
-        Elapsed [ELAPSED] seconds.
-
-        0 row(s) fetched. 
         Elapsed [ELAPSED] seconds.
 
         +------------------------------------------------------------------+
