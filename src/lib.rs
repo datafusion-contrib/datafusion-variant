@@ -6,7 +6,6 @@
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
-mod schema_display_shim;
 mod shared;
 mod shredding;
 mod sql_type;
@@ -79,7 +78,6 @@ pub fn register_all(
     }
 
     variant_display::register(ctx)?;
-    ctx.add_analyzer_rule(Arc::new(schema_display_shim::VariantSchemaDisplay));
     ctx.add_analyzer_rule(Arc::new(shredding::VariantShredding));
     ctx.register_table_options_extension(shredding::VariantWriteOptions::default());
 

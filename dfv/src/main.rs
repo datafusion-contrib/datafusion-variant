@@ -185,7 +185,6 @@ Try:
 
   -- Write Variant to Parquet and read it back
   COPY events TO 'events.parquet' STORED AS PARQUET;
-  SET datafusion.execution.parquet.skip_metadata = false;
   SELECT event FROM 'events.parquet';
 
   -- Inspect the schema of Variant values
