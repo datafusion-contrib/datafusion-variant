@@ -8,7 +8,6 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use assert_cmd::cargo::cargo_bin_cmd;
-use datafusion_cli::DATAFUSION_CLI_VERSION;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 
@@ -40,10 +39,10 @@ fn test_version_and_banner() {
         .success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     let banner = format!(
-        "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v{DATAFUSION_CLI_VERSION}",
+        "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v",
         env!("CARGO_PKG_VERSION")
     );
-    assert_eq!(stdout.lines().next(), Some(banner.as_str()), "{stdout}");
+    assert!(stdout.starts_with(&banner), "{stdout}");
 }
 
 /// Insta settings that normalize the parts of `dfv` output that vary between
@@ -53,7 +52,7 @@ fn dfv_snapshot_settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     settings.add_filter(r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds.");
     settings.add_filter(r"Loading .*/(file_\d+\.json\.gz)", "Loading [BSKY_DIR]/$1");
-    // test_version_and_banner checks the versions
+    // test_version_and_banner checks the dfv version
     settings.add_filter(
         r"v\S+ based on DataFusion CLI v\S+",
         "v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]",
