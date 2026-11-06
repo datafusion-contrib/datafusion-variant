@@ -6,6 +6,7 @@ edition = "2024"
 rust-version = "1.95.0"
 license = "Apache-2.0"
 publish = false
+default-run = "dfv"
 
 [[bin]]
 name = "dfv"
@@ -13,25 +14,23 @@ path = "src/main.rs"
 
 [dependencies]
 url = "2"
-# datafusion-cli must come from the same DataFusion revision as the library so
-# that both link against a single copy of DataFusion and Arrow. The published
-# `datafusion-cli` crate currently depends on Arrow 59 and cannot be used here.
-datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
-datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+datafusion = { workspace = true }
+datafusion-cli = { workspace = true }
 datafusion-variant = { path = ".." }
-parquet = { version = "60", features = ["variant_experimental"] }
+parquet = { workspace = true }
 
-arrow = "60"
-async-trait = "0.1"
-clap = { version = "4.5", features = ["cargo", "derive"] }
-env_logger = "0.11"
-flate2 = "1"
-futures = "0.3"
-mimalloc = { version = "0.1", default-features = false }
+arrow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["cargo"] }
+env_logger = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true }
+mimalloc = { workspace = true }
 object_store = { version = "0.14", features = ["http"] }
-tokio = { version = "1", features = ["fs", "io-util", "macros", "parking_lot", "rt", "rt-multi-thread", "signal", "sync"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "parking_lot", "rt", "rt-multi-thread", "signal", "sync"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"
+insta = { version = "1.43.2", features = ["filters"] }
 predicates = "3.0"
-tempfile = "3"
+tempfile = { workspace = true }

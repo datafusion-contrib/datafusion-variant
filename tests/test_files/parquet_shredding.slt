@@ -71,9 +71,6 @@ original.metadata BYTE_ARRAY
 original.value BYTE_ARRAY
 
 statement ok
-SET datafusion.execution.parquet.skip_metadata = false;
-
-statement ok
 CREATE EXTERNAL TABLE saved STORED AS PARQUET LOCATION '$__TEST_DIR__/sequential.parquet';
 
 statement ok
