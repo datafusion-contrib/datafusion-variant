@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use assert_cmd::cargo::cargo_bin_cmd;
+use datafusion_cli::DATAFUSION_CLI_VERSION;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 
@@ -39,10 +40,10 @@ fn test_version_and_banner() {
         .success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     let banner = format!(
-        "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v",
+        "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v{DATAFUSION_CLI_VERSION}",
         env!("CARGO_PKG_VERSION")
     );
-    assert!(stdout.starts_with(&banner), "{stdout}");
+    assert_eq!(stdout.lines().next(), Some(banner.as_str()), "{stdout}");
 }
 
 /// Insta settings that normalize the parts of `dfv` output that vary between
@@ -79,7 +80,7 @@ fn snapshot_output(cmd: &mut assert_cmd::Command) -> String {
 /// Extract the SQL examples in the CLI example output
 ///
 /// ```text
-/// dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
+/// dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
 ///
 /// Try:
 ///   -- Build a table of Variant values by parsing JSON    <--- Captured
