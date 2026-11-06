@@ -44,26 +44,56 @@ fn test_version_and_banner() {
         )));
 }
 
+/// Run `dfv` with the given arguments and stdin in `dir`, asserting success,
+/// and return its stdout.
+fn run_dfv(dir: &std::path::Path, args: &[&str], stdin: &str) -> String {
+    let output = cargo_bin_cmd!("dfv")
+        .current_dir(dir)
+        .args(args)
+        .write_stdin(stdin)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "dfv {args:?} failed:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// The SQL examples in the `Try:` banner of the given CLI output: the lines
+/// between `Try:` and the `See https://...` link, or `None` if the output has
+/// no examples banner.
+fn banner_examples(stdout: &str) -> Option<String> {
+    let mut lines = stdout.lines().skip_while(|line| *line != "Try:");
+    lines.next()?;
+    Some(
+        lines
+            .take_while(|line| !line.starts_with("See https://"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
 /// The interactive shell (no `-c`/`-f`, SQL piped on stdin) prints example
 /// commands after the banner; `-c` does not.
 #[test]
 fn test_examples_banner_in_repl_only() {
-    cargo_bin_cmd!("dfv")
-        .write_stdin("SELECT 1 AS one;\n\\q\n")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("\nTry:\n"))
-        .stdout(predicates::str::contains(
-            "-- Build a table of Variant values by parsing JSON",
-        ))
-        .stdout(predicates::str::contains("| one |"));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let stdout = run_dfv(temp_dir.path(), &[], "SELECT 1 AS one;\n\\q\n");
+    let examples = banner_examples(&stdout).expect("REPL prints the examples banner");
+    assert!(
+        examples.contains("-- Build a table of Variant values by parsing JSON"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("| one |"), "{stdout}");
 
-    cargo_bin_cmd!("dfv")
-        .args(["-c", "SELECT 1"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("\nTry:\n").not())
-        .stdout(predicates::str::contains("-- Build a table of Variant values").not());
+    let stdout = run_dfv(temp_dir.path(), &["-c", "SELECT 1"], "");
+    assert!(banner_examples(&stdout).is_none(), "{stdout}");
+    assert!(
+        !stdout.contains("-- Build a table of Variant values"),
+        "{stdout}"
+    );
 }
 
 /// The final output adapter applies to commands, files, and the REPL, while
@@ -293,40 +323,26 @@ fn write_bsky_file(dir: &std::path::Path, n: u32, lines: &[&str]) {
     encoder.finish().unwrap();
 }
 
+/// Real rows from the Bluesky dataset (`file_0001.json.gz`): the first two
+/// `commit` events and the first `identity` event (line 99).
+const BSKY_ROWS: [&str; 3] = [
+    r#"{"did":"did:plc:yj3sjq3blzpynh27cumnp5ks","time_us":1732206349000167,"kind":"commit","commit":{"rev":"3lbhtytnn2k2f","operation":"create","collection":"app.bsky.feed.post","rkey":"3lbhtyteurk2y","record":{"$type":"app.bsky.feed.post","createdAt":"2024-11-21T16:09:27.095Z","langs":["en"],"reply":{"parent":{"cid":"bafyreibfglofvqou2yiqvwzk4rcgkhhxrbunyemshdjledgwymimqkg24e","uri":"at://did:plc:6tr6tuzlx2db3rduzr2d6r24/app.bsky.feed.post/3lbhqo2rtys2z"},"root":{"cid":"bafyreibfglofvqou2yiqvwzk4rcgkhhxrbunyemshdjledgwymimqkg24e","uri":"at://did:plc:6tr6tuzlx2db3rduzr2d6r24/app.bsky.feed.post/3lbhqo2rtys2z"}},"text":"aaaaah.  LIght shines in a corner of WTF...."},"cid":"bafyreidblutgvj75o4q4akzyyejedjj6l3it6hgqwee6jpwv2wqph5fsgm"}}"#,
+    r#"{"did":"did:plc:3i4xf2v4wcnyktgv6satke64","time_us":1732206349000644,"kind":"commit","commit":{"rev":"3lbhuvzds6d2a","operation":"create","collection":"app.bsky.feed.like","rkey":"3lbhuvzdked2a","record":{"$type":"app.bsky.feed.like","createdAt":"2024-11-21T16:25:46.221Z","subject":{"cid":"bafyreidjvrcmckkm765mct5fph36x7kupkfo35rjklbf2k76xkzwyiauge","uri":"at://did:plc:azrv4rcbws6kmcga4fsbphg2/app.bsky.feed.post/3lbgjdpbiec2l"}},"cid":"bafyreia5l5vrkh5oj4cjyhcqby2dprhyvcyofo2q5562tijlae2pzih23m"}}"#,
+    r#"{"did":"did:plc:2dtvzdnwwhikc4i62eh47uir","time_us":1732206349164509,"kind":"identity","identity":{"did":"did:plc:2dtvzdnwwhikc4i62eh47uir","handle":"cjackson292.bsky.social","seq":4148295340,"time":"2024-11-21T16:25:48.604Z"}}"#,
+];
+
 /// Every example printed in the `Try:` banner runs successfully, in order,
-/// through `dfv -f`, and prints the expected results. The banner is taken from
-/// the CLI's own output so the test covers exactly what users see. The
-/// Bluesky example reads a small local file via `DFV_BSKY_DIR` instead of
+/// through `dfv -f`, and prints the expected results. The Bluesky example
+/// reads a local file holding [`BSKY_ROWS`] via `DFV_BSKY_DIR` instead of
 /// downloading.
 #[test]
 fn test_banner_examples_run_end_to_end() {
     let temp_dir = tempfile::tempdir().unwrap();
-    write_bsky_file(
-        temp_dir.path(),
-        1,
-        &[
-            r#"{"did":"did:plc:a","kind":"commit","time_us":3}"#,
-            r#"{"did":"did:plc:b","kind":"identity","time_us":1}"#,
-            r#"{"did":"did:plc:a","kind":"commit","time_us":2}"#,
-        ],
-    );
+    write_bsky_file(temp_dir.path(), 1, &BSKY_ROWS);
 
-    // Capture the banner from the interactive shell and keep the SQL between
-    // `Try:` and the trailing `See https://...` line.
-    let banner = cargo_bin_cmd!("dfv")
-        .current_dir(temp_dir.path())
-        .write_stdin("\\q\n")
-        .output()
-        .unwrap();
-    assert!(banner.status.success());
-    let banner = String::from_utf8(banner.stdout).unwrap();
-    let sql = banner
-        .lines()
-        .skip_while(|line| *line != "Try:")
-        .skip(1)
-        .take_while(|line| !line.starts_with("See https://"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    // Capture the examples from the interactive shell's banner.
+    let banner = run_dfv(temp_dir.path(), &[], "\\q\n");
+    let sql = banner_examples(&banner).expect("REPL prints the examples banner");
     // Every statement in the banner ends its line with `;`.
     let statements = sql
         .lines()
