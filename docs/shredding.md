@@ -1,18 +1,91 @@
 # Variant shredding
 
-Shredding stores some fields of a Variant column as typed Parquet columns while
-keeping the remaining fields in the standard Variant binary encoding. Queries on
-the shredded fields read the typed columns directly, and all other fields are
-preserved. The on-disk layout is defined by the [Parquet Variant shredding
-specification][parquet-variant-shredding].
+The standard Variant binary encoding is efficient and compact, but it must still
+be read and decoded for every query. the [Parquet Variant shredding
+specification][parquet-variant-shredding] describes an optional on-disk layout for
+Variant columns that stores some fields in typed Parquet columns. Queries on the
+shredded fields read the typed columns directly which is significantly faster.
 
-This document describes the `variant.shredding` option of the DataFusion `COPY`
-statement, which chooses the layout. See [Write shredded Parquet
-columns](../README.md#write-shredded-parquet-columns) in the README for an
-introduction. You can run the examples interactively with the `dfv`
-command-line tool in this repository.
+## Writing Shredded Parquet columns
 
-## The `variant.shredding` option
+## Top-level fields
+
+Given the following table:
+
+```sql
+CREATE TABLE events AS
+SELECT parse_json(json_data) AS event
+FROM (VALUES
+    ('{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}'),
+    ('{"service":"api","status":500,"latency_ms":85,"error":null}'),
+    ('{"service":"api","status":504,"error":"Somethings not working"}')
+) AS input(json_data);
+```
+
+You can store the `service` and `status` fields in typed columns by providing a
+`variant.shredding` option to the `COPY` statement.
+
+```sql
+COPY events TO 'shredded_events.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+```
+
+The `variant.shredding` option is a JSON object that maps the name of the
+Variant column to a SQL type and the full format is described [below]
+(#format-of-the-variantshredding-option).
+
+Storing the shredded column is logically equivalent to storing the Variant
+values as three columns:
+
+| `event` (Variant)                                                  | `event.service` (VARCHAR) | `event.status` (BIGINT) |
+|--------------------------------------------------------------------|---------------------------|-------------------------|
+| `{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}` | `api`                     | `200`                   |
+| `{"service":"api","status":500,"latency_ms":85,"error":null}`      | `api`                     | `500`                   |
+| `{"service":"api","status":504,"error":"Somethings not working"}`  | `api`                     | `504`                   |
+
+
+> [!INFO]
+> Note that the actual encoding is more complicated: the typed columns and the
+> binary residual are stored together in a single struct, as described in the
+> [Parquet Variant shredding specification][parquet-variant-shredding].
+
+
+### Nested fields
+
+You can also shred nested objects and arrays. For example, if you have a
+`requests` table with a nested `detail` object and `tags` array:
+
+```sql
+CREATE TABLE requests AS
+SELECT parse_json(json_data) AS request
+FROM (VALUES
+    ('{"service":"api","detail":{"latency_ms":12,"region":"us-east"},"tags":["cached"]}'),
+    ('{"service":"api","detail":{"latency_ms":85},"tags":[]}'),
+    ('{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}')
+) AS input(json_data);
+```
+
+To shred the `detail:latency_ms` field and the `tags` array, use the following `COPY` statement:
+
+```sql
+COPY requests TO 'shredded_requests.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{
+  "request": "STRUCT<detail STRUCT<latency_ms BIGINT>, tags VARCHAR[]>"
+}');
+```
+
+This is logically equivalent to storing the Variant column as three columns.
+Fields that are not in the layout, such as `service` stay in the Variant column,
+and rows without a shredded field have `NULL` in its typed column:
+
+| `request` (Variant)                                                                 | `request.detail.latency_ms` (BIGINT) | `request.tags` (VARCHAR[]) |
+|-------------------------------------------------------------------------------------|--------------------------------------|----------------------------|
+| `{"service":"api","detail":{"latency_ms":12,"region":"us-east"},"tags":["cached"]}` | `12`                                 | `["cached"]`               |
+| `{"service":"api","detail":{"latency_ms":85},"tags":[]}`                            | `85`                                 | `[]`                       |
+| `{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}`                 | `NULL`                               | `NULL`                     |
+
+
+## Format of the `variant.shredding` option
 
 `variant.shredding` is a JSON object. Each key is the case-sensitive name of a
 top-level Variant column in the `COPY` input, and each value is the SQL type to

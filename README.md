@@ -209,18 +209,6 @@ COPY events TO 'shredded_events.parquet' STORED AS PARQUET
 OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
 ```
 
-This is logically equivalent to storing the Variant column as three columns:
-
-| `event` (Variant)                                                  | `event.service` (VARCHAR) | `event.status` (BIGINT) |
-|--------------------------------------------------------------------|---------------------------|-------------------------|
-| `{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}` | `api`                     | `200`                   |
-| `{"service":"api","status":500,"latency_ms":85,"error":null}`      | `api`                     | `500`                   |
-| `{"service":"api","status":504,"error":"Somethings not working"}`  | `api`                     | `504`                   |
-
-Note that the actual encoding is more complicated: the typed columns and the
-binary residual are stored together in a single struct, as described in the
-[Parquet Variant shredding specification][parquet-variant-shredding].
-
 See the [shredding guide](docs/shredding.md) for the full format of the
 `variant.shredding` option.
 
@@ -321,46 +309,6 @@ SELECT schema_of_variant_agg(event) AS schema FROM events;
 | OBJECT<error: STRING, latency_ms: BIGINT, service: STRING, status: BIGINT, tags: ARRAY<STRING>> |
 +-------------------------------------------------------------------------------------------------+
 ```
-
-## Cookbook: Advanced Usage
-
-#### Write shredded Parquet columns
-
-
-Layouts can also shred nested objects and arrays. For example, if you have a
-`requests` table with a nested `detail` object and `tags` array:
-
-```sql
-CREATE TABLE requests AS
-SELECT parse_json(json_data) AS request
-FROM (VALUES
-    ('{"service":"api","detail":{"latency_ms":12,"region":"us-east"},"tags":["cached"]}'),
-    ('{"service":"api","detail":{"latency_ms":85},"tags":[]}'),
-    ('{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}')
-) AS input(json_data);
-```
-
-To shred the `latency_ms` field of the nested `detail` object and the `tags`
-array, nest the SQL types the same way as the JSON:
-
-```sql
-COPY requests TO 'shredded_requests.parquet' STORED AS PARQUET
-OPTIONS ('variant.shredding' '{
-  "request": "STRUCT<detail STRUCT<latency_ms BIGINT>, tags VARCHAR[]>"
-}');
-```
-
-This is logically equivalent to storing the Variant column as three columns,
-where the nested `latency_ms` field and the `tags` array get their own typed
-columns. Fields that are not in the layout, such as `service`, `detail.region`,
-and `error`, stay only in the Variant column, and rows without a shredded
-field have `NULL` in its typed column:
-
-| `request` (Variant)                                                                 | `request.detail.latency_ms` (BIGINT) | `request.tags` (VARCHAR[]) |
-|-------------------------------------------------------------------------------------|--------------------------------------|----------------------------|
-| `{"service":"api","detail":{"latency_ms":12,"region":"us-east"},"tags":["cached"]}` | `12`                                 | `["cached"]`               |
-| `{"service":"api","detail":{"latency_ms":85},"tags":[]}`                            | `85`                                 | `[]`                       |
-| `{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}`                 | `NULL`                               | `NULL`                     |
 
 
 ## Functions
