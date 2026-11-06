@@ -61,6 +61,15 @@ fn run_dfv(dir: &std::path::Path, args: &[&str], stdin: &str) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+/// Insta settings that normalize the parts of `dfv` output that vary between
+/// runs: query timings and the temporary directory holding Bluesky files.
+fn dfv_snapshot_settings() -> insta::Settings {
+    let mut settings = insta::Settings::clone_current();
+    settings.add_filter(r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds.");
+    settings.add_filter(r"Loading .*/(file_\d+\.json\.gz)", "Loading [BSKY_DIR]/$1");
+    settings
+}
+
 /// The SQL examples in the `Try:` banner of the given CLI output: the lines
 /// between `Try:` and the `See https://...` link, or `None` if the output has
 /// no examples banner.
@@ -359,14 +368,7 @@ fn test_banner_examples_run_end_to_end() {
     let context = format!("script:\n{sql}\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(output.status.success(), "{context}");
 
-    insta::with_settings!({
-        filters => vec![
-            // Query timings vary between runs
-            (r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds."),
-            // The Bluesky file lives in a temporary directory
-            (r"Loading .*/file_0001\.json\.gz", "Loading [BSKY_DIR]/file_0001.json.gz"),
-        ],
-    }, {
+    dfv_snapshot_settings().bind(|| {
         insta::assert_snapshot!(context, @r#"
         script:
           -- Build a table of Variant values by parsing JSON
@@ -512,7 +514,7 @@ fn test_load_bsky_reads_local_file() {
         ],
     );
 
-    cargo_bin_cmd!("dfv")
+    let output = cargo_bin_cmd!("dfv")
         .env("DFV_BSKY_DIR", temp_dir.path())
         .args([
             "-c",
@@ -522,25 +524,42 @@ fn test_load_bsky_reads_local_file() {
                FROM (SELECT parse_json(json_data) AS json_data FROM load_bsky(2))
                GROUP BY kind ORDER BY n DESC"#,
         ])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "\
-| rows |
-+------+
-| 3    |
-",
-        ))
-        .stdout(predicates::str::contains(
-            "\
-| kind     | n |
-+----------+---+
-| commit   | 2 |
-| identity | 1 |
-",
-        ))
-        .stderr(predicates::str::contains("Loaded 3 rows"))
-        .stderr(predicates::str::contains("Downloading").not());
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let context = format!("stdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(output.status.success(), "{context}");
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r"
+        stdout:
+        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v55.1.0
+        +------+
+        | rows |
+        +------+
+        | 3    |
+        +------+
+        1 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+        +----------+---+
+        | kind     | n |
+        +----------+---+
+        | commit   | 2 |
+        | identity | 1 |
+        +----------+---+
+        2 row(s) fetched. 
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        Loading [BSKY_DIR]/file_0002.json.gz
+        Loaded 3 rows
+        Loading [BSKY_DIR]/file_0002.json.gz
+        Loaded 3 rows
+        ");
+    });
 }
 
 /// Wait for another process to publish the file, then reuse it without downloading.
