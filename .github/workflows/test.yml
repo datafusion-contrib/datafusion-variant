@@ -32,6 +32,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@master
 
+      # Cache cargo's git database and checkouts so git
+      # dependencies (e.g. the 1GB+ datafusion-testing submodule) is not
+      # re-fetched on every run.
+      - name: Cache cargo git dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
       - name: Install nextest
         uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
@@ -67,5 +78,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@master
+
+      # See comments above
+      - name: Cache cargo git dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
 
       - run: cargo clippy -- -D warnings
