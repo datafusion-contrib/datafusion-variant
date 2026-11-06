@@ -64,8 +64,8 @@ FROM (VALUES
 ) AS input(json_data);
 ```
 
-To shred the `detail:latency_ms` field and the `tags` array, use the following
-`COPY` statement:
+To shred the `latency_ms` field of the nested `detail` object and the `tags`
+array, use the following `COPY` statement:
 
 ```sql
 COPY requests TO 'shredded_requests.parquet' STORED AS PARQUET
@@ -92,8 +92,8 @@ Each key is the case-sensitive name of a top-level Variant column in the `COPY`
 input that will be shredded. The value of each field is the SQL type used to
 store the shredded column.
 
-Note this option only applies when copying to Parquet, and partition columns
-cannot be shredded.
+Note that this option only applies when copying to Parquet, and partition
+columns cannot be shredded.
 
 One statement can shred several Variant columns. For example, given a table
 with two Variant columns, `event` and `metric`:
@@ -122,11 +122,11 @@ OPTIONS ('variant.shredding' '{
 The shredding is described as SQL types, which are parsed by DataFusion's SQL
 parser. The `COPY` statement attempts to "shred" the matching parts of the
 Variant into values of that Parquet type. If the Variant value can be converted
-to the specified type, the shredded column is populated with that value,
-otherwise, a `NULL` is stored in the shredded column and the value remains in
+to the specified type, the shredded column is populated with that value.
+Otherwise, a `NULL` is stored in the shredded column and the value remains in
 the residual Variant column.
 
-For example, if you try to shred this Variant object as a `BIGINT`
+For example, if you try to shred this Variant object as a `BIGINT`:
 
 ```json
 {
@@ -135,7 +135,7 @@ For example, if you try to shred this Variant object as a `BIGINT`
 }
 ```
 
-The shredded column will be `NULL`:
+the shredded column will be `NULL`:
 
 | residual Variant                   | shredded BIGINT |
 |------------------------------------|-----------------|
@@ -172,7 +172,7 @@ specification][parquet-variant-shredding]. For example:
 * `VARCHAR`, `BYTEA`
 * `STRUCT<name type, ...>` and `type[]`, nested to any depth
 
-Types such as unsigned integers, intervals, and other types without a shredded
-Parquet representation are rejected.
+Unsigned integers, intervals, and other types without a shredded Parquet
+representation are rejected.
 
 [parquet-variant-shredding]: https://parquet.apache.org/docs/file-format/types/variantshredding/

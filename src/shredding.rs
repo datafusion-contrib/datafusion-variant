@@ -84,13 +84,12 @@ impl ExtensionOptions for VariantWriteOptions {
     }
 }
 
-/// Analyzer rule that interprets variant shredding in the COPY statement and
+/// Analyzer rule that interprets Variant shredding in the COPY statement and
 /// rewrites the plan to project the shredded columns before writing to Parquet.
 ///
 /// See the [shredding guide] for more details.
 ///
 /// [shredding guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/shredding.md
-
 #[derive(Debug)]
 pub(crate) struct VariantShredding;
 
@@ -149,7 +148,7 @@ impl AnalyzerRule for VariantShredding {
 
 /// `shred_variant` function.
 ///
-/// Note this is added by the [VariantShredding] rule only, it can not be called directly by the user.
+/// Note this is added by the [VariantShredding] rule only; it cannot be called directly by the user.
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct ShredVariant {
     signature: Signature,

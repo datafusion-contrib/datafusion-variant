@@ -33,7 +33,7 @@ typed Parquet columns, and the remaining fields are stored in the standard
 Variant binary representation. Queries on the common fields use the typed
 columns for better performance, while preserving all other fields in Variant
 values. See [Write shredded Parquet columns](#write-shredded-parquet-columns)
-below for more details.
+below and the [shredding guide](docs/shredding.md) for more details.
 
 ## Quick start
 
@@ -71,7 +71,7 @@ async fn main() -> datafusion::error::Result<()> {
 
 Congratulations -- you can now query semi-structured data with the Variant type!
 
-## Cookbook of Common tasks
+## Cookbook of common tasks
 
 This section contains examples of common queries using the Variant type.
 
@@ -310,7 +310,6 @@ SELECT schema_of_variant_agg(event) AS schema FROM events;
 +-------------------------------------------------------------------------------------------------+
 ```
 
-
 ## Functions
 
 See the generated [SQL reference](docs/sql-reference.md) for signatures, arguments,
@@ -387,7 +386,6 @@ Licensed under the [Apache License, Version 2.0][license].
 [roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [session-context-sql]: https://docs.rs/datafusion/latest/datafusion/execution/context/struct.SessionContext.html#method.sql
 [parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/
-[parquet-variant-shredding]: https://parquet.apache.org/docs/file-format/types/variantshredding/
 [parquet-variant-blog]: https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/
 [benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
