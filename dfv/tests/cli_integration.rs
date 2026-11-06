@@ -11,7 +11,7 @@ use assert_cmd::cargo::cargo_bin_cmd;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 
-/// Rows of a query result as printed by the CLI (table borders omitted).
+/// A query returning two rows of a Variant `event` column.
 const EVENTS_JSON: &str = r#"
     SELECT parse_json(json_data) AS event
     FROM (VALUES
@@ -33,41 +33,34 @@ fn test_version_and_banner() {
             .stdout(expected.clone());
     }
 
-    cargo_bin_cmd!("dfv")
+    let assert = cargo_bin_cmd!("dfv")
         .args(["-c", "SELECT 1"])
         .assert()
-        .success()
-        .stdout(predicates::str::starts_with(format!(
-            "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v",
-            env!("CARGO_PKG_VERSION")
-        )));
-}
-
-/// Run `dfv` with the given arguments and stdin in `dir`, asserting success,
-/// and return its stdout.
-fn run_dfv(dir: &std::path::Path, args: &[&str], stdin: &str) -> String {
-    let output = cargo_bin_cmd!("dfv")
-        .current_dir(dir)
-        .args(args)
-        .write_stdin(stdin)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "dfv {args:?} failed:\n{}",
-        String::from_utf8_lossy(&output.stdout)
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let banner = format!(
+        "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v",
+        env!("CARGO_PKG_VERSION")
     );
-    String::from_utf8(output.stdout).unwrap()
+    assert!(stdout.starts_with(&banner), "{stdout}");
 }
 
 /// Insta settings that normalize the parts of `dfv` output that vary between
-/// runs: query timings and the temporary directory holding Bluesky files.
+/// runs or releases: query timings, the temporary directory holding Bluesky
+/// files, and the `dfv` and DataFusion versions.
 fn dfv_snapshot_settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     settings.add_filter(r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds.");
     settings.add_filter(r"Loading .*/(file_\d+\.json\.gz)", "Loading [BSKY_DIR]/$1");
+    // test_version_and_banner checks the versions
+    settings.add_filter(
+        r"v\S+ based on DataFusion CLI v\S+",
+        "v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]",
+    );
     // The REPL prints the examples banner, which has its own tests
     settings.add_filter(r"(?s)\nTry:\n.*?\nEnter \\q to exit\.\n", "\n[EXAMPLES]\n");
+    // insta compares lines exactly, and editors often strip trailing spaces
+    settings.add_filter(r"(?m) +$", "");
     settings
 }
 
@@ -94,37 +87,14 @@ fn snapshot_output(cmd: &mut assert_cmd::Command) -> String {
 /// See https://github.com/datafusion-contrib/datafusion-variant#functions for all functions.
 /// ```
 ///
-/// Return  `None` if the output has no examples banner.
-fn banner_examples(stdout: &str) -> Option<String> {
+/// Panics if the output has no examples banner.
+fn banner_examples(stdout: &str) -> String {
     let mut lines = stdout.lines().skip_while(|line| *line != "Try:");
-    lines.next()?;
-    Some(
-        lines
-            .take_while(|line| !line.starts_with("See https://"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
-}
-
-/// The interactive shell (no `-c`/`-f`, SQL piped on stdin) prints example
-/// commands after the banner; `-c` does not.
-#[test]
-fn test_examples_banner_in_repl_only() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let stdout = run_dfv(temp_dir.path(), &[], "SELECT 1 AS one;\n\\q\n");
-    let examples = banner_examples(&stdout).expect("REPL prints the examples banner");
-    assert!(
-        examples.contains("-- Build a table of Variant values by parsing JSON"),
-        "{stdout}"
-    );
-    assert!(stdout.contains("| one |"), "{stdout}");
-
-    let stdout = run_dfv(temp_dir.path(), &["-c", "SELECT 1"], "");
-    assert!(banner_examples(&stdout).is_none(), "{stdout}");
-    assert!(
-        !stdout.contains("-- Build a table of Variant values"),
-        "{stdout}"
-    );
+    assert!(lines.next().is_some(), "no examples banner in:\n{stdout}");
+    lines
+        .take_while(|line| !line.starts_with("See https://"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The final output adapter applies to commands, files, and the REPL, while
@@ -165,8 +135,8 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         === command ===
         exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
-        0 row(s) fetched. 
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +-------+
@@ -174,10 +144,10 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         +-------+
         | 1     |
         +-------+
-        1 row(s) fetched. 
+        1 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
-        0 row(s) fetched. 
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +---------+----------+
@@ -188,7 +158,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         | [NULL]  | true     |
         | {"a":2} | false    |
         +---------+----------+
-        4 row(s) fetched. 
+        4 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +--------+
@@ -199,7 +169,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         | [NULL] |
         | 2      |
         +--------+
-        4 row(s) fetched. 
+        4 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
 
@@ -208,8 +178,8 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         === file ===
         exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
-        0 row(s) fetched. 
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +-------+
@@ -217,10 +187,10 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         +-------+
         | 1     |
         +-------+
-        1 row(s) fetched. 
+        1 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
-        0 row(s) fetched. 
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +---------+----------+
@@ -231,7 +201,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         | [NULL]  | true     |
         | {"a":2} | false    |
         +---------+----------+
-        4 row(s) fetched. 
+        4 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +--------+
@@ -242,7 +212,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         | [NULL] |
         | 2      |
         +--------+
-        4 row(s) fetched. 
+        4 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
 
@@ -251,11 +221,11 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         === repl ===
         exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
 
         [EXAMPLES]
 
-        0 row(s) fetched. 
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +-------+
@@ -263,10 +233,10 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         +-------+
         | 1     |
         +-------+
-        1 row(s) fetched. 
+        1 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
-        0 row(s) fetched. 
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +---------+----------+
@@ -277,7 +247,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         | [NULL]  | true     |
         | {"a":2} | false    |
         +---------+----------+
-        4 row(s) fetched. 
+        4 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +--------+
@@ -288,7 +258,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
         | [NULL] |
         | 2      |
         +--------+
-        4 row(s) fetched. 
+        4 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
 
@@ -376,74 +346,32 @@ fn test_help_and_unsupported_options() {
     });
 }
 
-/// `parse_json` converts JSON text to Variant and `variant_get` extracts
-/// typed fields.
-#[test]
-fn test_parse_json_and_variant_get() {
-    cargo_bin_cmd!("dfv")
-        .args([
-            "-c",
-            r#"SELECT variant_get(parse_json('{"service":"api","status":500}'), 'service', 'VARCHAR') AS service,
-                      variant_get(parse_json('{"service":"api","status":500}'), 'status', 'BIGINT') AS status"#,
-        ])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "\
-| service | status |
-+---------+--------+
-| api     | 500    |
-",
-        ))
-        .stdout(predicates::str::contains("1 row(s) fetched."));
-}
-
-/// The `:` field access syntax, array indexing, and `to_json` work, and
-/// missing fields print as `NULL`.
-#[test]
-fn test_field_access_syntax_and_to_json() {
-    cargo_bin_cmd!("dfv")
-        .args([
-            "-c",
-            &format!(
-                r#"WITH events AS ({EVENTS_JSON})
-                   SELECT event:service::VARCHAR AS service,
-                          event:tags[0]::VARCHAR AS first_tag,
-                          to_json(event:status) AS status_json
-                   FROM events
-                   ORDER BY event:status::BIGINT"#
-            ),
-        ])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "\
-| service | first_tag | status_json |
-+---------+-----------+-------------+
-| api     | cached    | 200         |
-| web     | NULL      | 500         |
-",
-        ));
-}
-
 /// The SQL `VARIANT` type name is understood in casts.
 #[test]
 fn test_sql_variant_type() {
-    cargo_bin_cmd!("dfv")
-        .args([
-            "-c",
-            r#"SELECT to_json(CAST(variant_get(parse_json('{"x":7}'), 'x') AS VARIANT)) AS x,
-                      arrow_typeof(CAST(NULL AS VARIANT)) = arrow_typeof(parse_json('1')) AS same_type"#,
-        ])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "\
-| x | same_type |
-+---+-----------+
-| 7 | true      |
-",
-        ));
+    let context = snapshot_output(cargo_bin_cmd!("dfv").args([
+        "-c",
+        r#"SELECT to_json(CAST(variant_get(parse_json('{"x":7}'), 'x') AS VARIANT)) AS x,
+                  arrow_typeof(CAST(NULL AS VARIANT)) = arrow_typeof(parse_json('1')) AS same_type"#,
+    ]));
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        +---+-----------+
+        | x | same_type |
+        +---+-----------+
+        | 7 | true      |
+        +---+-----------+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        ");
+    });
 }
 
 /// `-f` writes a Variant column to Parquet; a second process reads it back
@@ -459,67 +387,103 @@ fn test_write_and_read_variant_parquet() {
     )
     .unwrap();
 
-    cargo_bin_cmd!("dfv")
-        .current_dir(temp_dir.path())
-        .arg("-f")
-        .arg(&script)
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "\
-| count |
-+-------+
-| 2     |
-",
-        ));
-    assert!(temp_dir.path().join("events.parquet").is_file());
+    let write = snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .current_dir(temp_dir.path())
+            .arg("-f")
+            .arg(&script),
+    );
+    let read = snapshot_output(cargo_bin_cmd!("dfv").current_dir(temp_dir.path()).args([
+        "-c",
+        "CREATE EXTERNAL TABLE saved_events STORED AS PARQUET LOCATION 'events.parquet'",
+        "-c",
+        r#"SELECT event:service::VARCHAR AS service,
+                  variant_get(event, 'status', 'BIGINT') AS status
+           FROM saved_events
+           ORDER BY status"#,
+        "-c",
+        "SELECT event FROM saved_events ORDER BY event:status::BIGINT",
+    ]));
+    let context = format!("=== write ===\n{write}\n=== read ===\n{read}");
 
-    cargo_bin_cmd!("dfv")
-        .current_dir(temp_dir.path())
-        .args([
-            "-c",
-            "CREATE EXTERNAL TABLE saved_events STORED AS PARQUET LOCATION 'events.parquet'",
-            "-c",
-            r#"SELECT event:service::VARCHAR AS service,
-                      variant_get(event, 'status', 'BIGINT') AS status
-               FROM saved_events
-               ORDER BY status"#,
-            "-c",
-            "SELECT event FROM saved_events ORDER BY event:status::BIGINT",
-        ])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains(
-            "\
-| service | status |
-+---------+--------+
-| api     | 200    |
-| web     | 500    |
-",
-        ))
-        .stdout(predicates::str::contains(
-            r#"{"service":"api","status":200,"tags":["cached"]}"#,
-        ));
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r#"
+        === write ===
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        +-------+
+        | count |
+        +-------+
+        | 2     |
+        +-------+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+
+        === read ===
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        0 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        +---------+--------+
+        | service | status |
+        +---------+--------+
+        | api     | 200    |
+        | web     | 500    |
+        +---------+--------+
+        2 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        +--------------------------------------------------+
+        | event                                            |
+        +--------------------------------------------------+
+        | {"service":"api","status":200,"tags":["cached"]} |
+        | {"error":null,"service":"web","status":500}      |
+        +--------------------------------------------------+
+        2 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        "#);
+    });
 }
 
 /// SQL errors are reported on stdout with a failing exit code; a missing
 /// `-f` file is rejected by clap.
 #[test]
 fn test_error_reporting() {
-    cargo_bin_cmd!("dfv")
-        .args(["-c", "SELECT parse_json('not json')"])
-        .assert()
-        .failure()
-        .stdout(predicates::str::contains("Error: Arrow error"))
-        .stdout(predicates::str::contains("JSON format error"));
+    let context = format!(
+        "=== invalid JSON ===\n{}\n=== missing file ===\n{}",
+        snapshot_output(cargo_bin_cmd!("dfv").args(["-c", "SELECT parse_json('not json')"])),
+        snapshot_output(cargo_bin_cmd!("dfv").args(["-f", "does-not-exist.sql"])),
+    );
 
-    cargo_bin_cmd!("dfv")
-        .args(["-f", "does-not-exist.sql"])
-        .assert()
-        .code(2)
-        .stderr(predicates::str::contains(
-            "Invalid file 'does-not-exist.sql'",
-        ));
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @"
+        === invalid JSON ===
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Arrow error: Invalid argument error: JSON format error: expected ident at line 1 column 2
+
+        stderr:
+
+        === missing file ===
+        exit code: 2
+        stdout:
+
+        stderr:
+        error: invalid value 'does-not-exist.sql' for '--file [<FILE>...]': Invalid file 'does-not-exist.sql'
+
+        For more information, try '--help'.
+        ");
+    });
 }
 
 /// Write `file_000<n>.json.gz` with the given JSON lines into `dir`, in the
@@ -542,32 +506,34 @@ const BSKY_ROWS: [&str; 3] = [
 ];
 
 /// Every example printed in the `Try:` banner runs successfully, in order,
-/// through `dfv -f`. The script and the resulting stdout and stderr are
-/// compared against an inline snapshot (update with `cargo insta test
-/// --accept -p dfv`). The Bluesky example reads a local file holding
+/// through `dfv -f`. The script and the resulting exit code, stdout, and
+/// stderr are compared against an inline snapshot (update with `cargo insta
+/// test --accept -p dfv`). The Bluesky example reads a local file holding
 /// [`BSKY_ROWS`] via `DFV_BSKY_DIR` instead of downloading.
 #[test]
 fn test_banner_examples_run_end_to_end() {
     let temp_dir = tempfile::tempdir().unwrap();
     write_bsky_file(temp_dir.path(), 1, &BSKY_ROWS);
 
-    // Capture the examples from the interactive shell's banner.
-    let banner = run_dfv(temp_dir.path(), &[], "\\q\n");
-    let sql = banner_examples(&banner).expect("REPL prints the examples banner");
+    // Capture the examples from the interactive shell's banner. The REPL
+    // writes `.history` to its working directory.
+    let banner = cargo_bin_cmd!("dfv")
+        .current_dir(temp_dir.path())
+        .write_stdin("\\q\n")
+        .assert()
+        .success();
+    let sql = banner_examples(&String::from_utf8_lossy(&banner.get_output().stdout));
     let script = temp_dir.path().join("examples.sql");
     std::fs::write(&script, &sql).unwrap();
 
-    let output = cargo_bin_cmd!("dfv")
-        .current_dir(temp_dir.path())
-        .env("DFV_BSKY_DIR", temp_dir.path())
-        .arg("-f")
-        .arg(&script)
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    let context = format!("script:\n{sql}\nstdout:\n{stdout}\nstderr:\n{stderr}");
-    assert!(output.status.success(), "{context}");
+    let output = snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .current_dir(temp_dir.path())
+            .env("DFV_BSKY_DIR", temp_dir.path())
+            .arg("-f")
+            .arg(&script),
+    );
+    let context = format!("script:\n{sql}\n{output}");
 
     dfv_snapshot_settings().bind(|| {
         insta::assert_snapshot!(context, @r#"
@@ -603,9 +569,10 @@ fn test_banner_examples_run_end_to_end() {
           CREATE TABLE bsky AS SELECT parse_json(json_data) AS event FROM load_bsky(1);
           SELECT event:kind::VARCHAR AS kind, count(*) FROM bsky GROUP BY kind ORDER BY 2 DESC;
 
+        exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
-        0 row(s) fetched. 
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +---------+
@@ -614,7 +581,7 @@ fn test_banner_examples_run_end_to_end() {
         | "api"   |
         | "api"   |
         +---------+
-        2 row(s) fetched. 
+        2 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +-------+
@@ -622,7 +589,7 @@ fn test_banner_examples_run_end_to_end() {
         +-------+
         | 3     |
         +-------+
-        1 row(s) fetched. 
+        1 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +------------------------------------------------------------------+
@@ -632,7 +599,7 @@ fn test_banner_examples_run_end_to_end() {
         | {"error":null,"latency_ms":85,"service":"api","status":500}      |
         | {"error":"Somethings not working","service":"api","status":504}  |
         +------------------------------------------------------------------+
-        3 row(s) fetched. 
+        3 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +-------+
@@ -640,7 +607,7 @@ fn test_banner_examples_run_end_to_end() {
         +-------+
         | 3     |
         +-------+
-        1 row(s) fetched. 
+        1 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +-----------------------------------------+------------+
@@ -653,7 +620,7 @@ fn test_banner_examples_run_end_to_end() {
         | "event.typed_value.status.value"        | BYTE_ARRAY |
         | "event.typed_value.status.typed_value"  | INT64      |
         +-----------------------------------------+------------+
-        6 row(s) fetched. 
+        6 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +------------------------------------------------------------------+
@@ -663,7 +630,7 @@ fn test_banner_examples_run_end_to_end() {
         | {"error":null,"latency_ms":85,"service":"api","status":500}      |
         | {"error":"Somethings not working","service":"api","status":504}  |
         +------------------------------------------------------------------+
-        3 row(s) fetched. 
+        3 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +----------------------------------------------------------------------------------+
@@ -673,10 +640,10 @@ fn test_banner_examples_run_end_to_end() {
         | OBJECT<error: VOID, latency_ms: BIGINT, service: STRING, status: BIGINT>         |
         | OBJECT<error: STRING, service: STRING, status: BIGINT>                           |
         +----------------------------------------------------------------------------------+
-        3 row(s) fetched. 
+        3 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
-        0 row(s) fetched. 
+        0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +----------+----------+
@@ -685,7 +652,7 @@ fn test_banner_examples_run_end_to_end() {
         | commit   | 2        |
         | identity | 1        |
         +----------+----------+
-        2 row(s) fetched. 
+        2 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
 
@@ -701,43 +668,32 @@ fn test_banner_examples_run_end_to_end() {
 #[test]
 fn test_load_bsky_reads_local_file() {
     let temp_dir = tempfile::tempdir().unwrap();
-    write_bsky_file(
-        temp_dir.path(),
-        2,
-        &[
-            r#"{"kind":"commit","time_us":3}"#,
-            r#"{"kind":"identity","time_us":1}"#,
-            r#"{"kind":"commit","time_us":2}"#,
-        ],
-    );
+    write_bsky_file(temp_dir.path(), 2, &BSKY_ROWS);
 
-    let output = cargo_bin_cmd!("dfv")
-        .env("DFV_BSKY_DIR", temp_dir.path())
-        .args([
-            "-c",
-            "SELECT count(*) AS rows FROM load_bsky(2)",
-            "-c",
-            r#"SELECT json_data:kind::VARCHAR AS kind, count(*) AS n
-               FROM (SELECT parse_json(json_data) AS json_data FROM load_bsky(2))
-               GROUP BY kind ORDER BY n DESC"#,
-        ])
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    let context = format!("stdout:\n{stdout}\nstderr:\n{stderr}");
-    assert!(output.status.success(), "{context}");
+    let context = snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .env("DFV_BSKY_DIR", temp_dir.path())
+            .args([
+                "-c",
+                "SELECT count(*) AS rows FROM load_bsky(2)",
+                "-c",
+                r#"SELECT json_data:kind::VARCHAR AS kind, count(*) AS n
+                   FROM (SELECT parse_json(json_data) AS json_data FROM load_bsky(2))
+                   GROUP BY kind ORDER BY n DESC"#,
+            ]),
+    );
 
     dfv_snapshot_settings().bind(|| {
         insta::assert_snapshot!(context, @r"
+        exit code: 0
         stdout:
-        dfv (DataFusion Variant CLI) v0.1.0 based on DataFusion CLI v57.0.0-dev
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
         +------+
         | rows |
         +------+
         | 3    |
         +------+
-        1 row(s) fetched. 
+        1 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
         +----------+---+
@@ -746,7 +702,7 @@ fn test_load_bsky_reads_local_file() {
         | commit   | 2 |
         | identity | 1 |
         +----------+---+
-        2 row(s) fetched. 
+        2 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
 
@@ -803,13 +759,48 @@ fn test_load_bsky_waits_for_download() {
 /// `load_bsky` requires a single file number between 1 and 1000.
 #[test]
 fn test_load_bsky_rejects_bad_arguments() {
+    let mut context = String::new();
     for args in ["0", "1001", "'x'", "1, 2"] {
-        cargo_bin_cmd!("dfv")
-            .args(["-c", &format!("SELECT * FROM load_bsky({args})")])
-            .assert()
-            .failure()
-            .stdout(predicates::str::contains(
-                "load_bsky expects a single file number between 1 and 1000",
-            ));
+        let sql = format!("SELECT * FROM load_bsky({args})");
+        context += &format!(
+            "=== {sql} ===\n{}\n",
+            snapshot_output(cargo_bin_cmd!("dfv").args(["-c", &sql]))
+        );
     }
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @"
+        === SELECT * FROM load_bsky(0) ===
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+
+        stderr:
+
+        === SELECT * FROM load_bsky(1001) ===
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+
+        stderr:
+
+        === SELECT * FROM load_bsky('x') ===
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+
+        stderr:
+
+        === SELECT * FROM load_bsky(1, 2) ===
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+
+        stderr:
+        ");
+    });
 }
