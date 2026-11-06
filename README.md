@@ -32,8 +32,8 @@ share a common structure. You specify some subset of the fields to store as
 typed Parquet columns, and the remaining fields are stored in the standard
 Variant binary representation. Queries on the common fields use the typed
 columns for better performance, while preserving all other fields in Variant
-values. See the XXX section below for more details.
-
+values. See [Write shredded Parquet columns](#write-shredded-parquet-columns)
+below for more details.
 
 ## Quick start
 
@@ -73,10 +73,10 @@ Congratulations -- you can now query semi-structured data with the Variant type!
 
 ## Common tasks
 
-This section contains examples of common queries using the Variant type. 
+This section contains examples of common queries using the Variant type.
 
 You can run the SQL examples like any other DataFusion SQL statement using the
-`SessionContext`, (e.g. [`ctx.sql(sql).await?.collect().await?`][session-context-sql].
+`SessionContext` (e.g. [`ctx.sql(sql).await?.collect().await?`][session-context-sql]).
 
 This repository also includes a command-line tool `dfv` with the Variant
 functionality preinstalled to try the examples interactively. Run it like this:
@@ -90,7 +90,7 @@ cargo run --release
 
 `parse_json` converts JSON strings to Variant. You can use it to load
 semi-structured documents. For example, to create an `events` table with a Variant
-column named `event`:
+column named `event`, run:
 
 ```sql
 CREATE TABLE events AS
@@ -108,7 +108,7 @@ FROM (VALUES
 
 ### Query
 
-You can extract fields from a Variant column using Spark SQL-style `:`
+You can extract fields from a Variant column using the Spark SQL-style `:`
 field-access operator or the `variant_get` UDF. For example, to select the
 `service` and `latency_ms` fields of events whose `status` is at least 400, run:
 
@@ -172,7 +172,7 @@ ORDER BY event:status::BIGINT;
 
 ### Store Variant in Parquet
 
-You can write Variant columns like any other to Parquet with the normal
+You can write Variant columns to Parquet like any other column with the normal
 DataFusion `COPY` statement:
 
 ```sql
@@ -187,8 +187,9 @@ COPY events TO 'events.parquet' STORED AS PARQUET;
 +-------+
 ```
 
-The Variant column is stored in Parquet following the [Variant Specification] as
-a struct with `metadata` and `value` fields. You can see the structure using the
+The Variant column is stored in Parquet following the [Parquet Variant
+encoding specification][parquet-variant-encoding] as a struct with `metadata`
+and `value` fields. You can see the structure using the
 `parquet_metadata` table function:
 
 ```sql
@@ -205,7 +206,7 @@ SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
 +------------------+------------+
 ```
 
-#### Write Shredded Parquet columns
+#### Write shredded Parquet columns
 
 You can choose which fields to store as typed Parquet columns with the
 `variant.shredding` option. For example, to store the `service` and `status`
@@ -224,21 +225,23 @@ OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"
 +-------+
 ```
 
-This is logically equivalent to storing the variant column as three columns: 
+This is logically equivalent to storing the Variant column as three columns:
 
 | `event` (Variant) | `event.service` (VARCHAR) | `event.status` (BIGINT) |
-|------------------|--------------------------|------------------------|
-| {"service":"api","status":200,"latency_ms":12,"tags":["cached"]} | api | 200 |
-| {"service":"api","status":500,"latency_ms":85,"error":null} | api | 500 |
-| {"service":"api","status":504,"error":"Somethings not working"} | api | 504 |
+| --- | --- | --- |
+| `{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}` | `api` | `200` |
+| `{"service":"api","status":500,"latency_ms":85,"error":null}` | `api` | `500` |
+| `{"service":"api","status":504,"error":"Somethings not working"}` | `api` | `504` |
 
-Note the actual encoding is more complicated and stored as a single struct, as
-described in the [Parquet Variant specification][parquet-variant-encoding].
+Note that the actual encoding is more complicated: the typed columns and the
+binary residual are stored together in a single struct, as described in the
+[Parquet Variant shredding specification][parquet-variant-shredding].
 
 Layouts can nest structs and arrays, and one statement can shred several
 columns. Keys are the case-sensitive names of top-level Variant columns in the
 COPY input; any column not listed keeps its existing storage:
 
+<!-- readme-test: skip: illustrative layout; the events table has no metric column -->
 ```sql
 COPY events TO 'shredded_events.parquet' STORED AS PARQUET
 OPTIONS ('variant.shredding' '{
@@ -247,8 +250,9 @@ OPTIONS ('variant.shredding' '{
 }');
 ```
 
-Any SQL type that DataFusion can `CAST` to is accepted as long as the Parquet
-Variant specification has a shredded encoding for it: `BOOLEAN`, the signed
+Any SQL type that DataFusion can `CAST` to is accepted as long as the
+[Parquet Variant shredding specification][parquet-variant-shredding] has a
+shredded encoding for it: `BOOLEAN`, the signed
 integer types, `FLOAT`, `DOUBLE`, `DECIMAL`, `DATE`, `TIME`, `TIMESTAMP` with or
 without a time zone, `VARCHAR`, `BYTEA`, `STRUCT<...>`, and `type[]` arrays.
 `VARIANT` cannot appear inside a layout; leave a field out to keep it in the
@@ -427,6 +431,7 @@ Licensed under the [Apache License, Version 2.0][license].
 [roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [session-context-sql]: https://docs.rs/datafusion/latest/datafusion/execution/context/struct.SessionContext.html#method.sql
 [parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/
+[parquet-variant-shredding]: https://parquet.apache.org/docs/file-format/types/variantshredding/
 [parquet-variant-blog]: https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/
 [benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
