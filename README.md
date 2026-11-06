@@ -356,11 +356,11 @@ cargo clippy -- -D warnings
 
 `cargo test` also checks this README's Rust example and SQL results.
 
-Regenerate the SQL reference and check its examples:
+Regenerate the SQL reference after changing function documentation.
+`cargo test` checks its examples, and CI fails if the committed file is stale:
 
 ```sh
-cargo run --example generate_function_docs
-cargo test --example generate_function_docs
+cargo run --bin generate_function_docs
 ```
 
 For Spark compatibility changes, reference the upstream behavior and add

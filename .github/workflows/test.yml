@@ -51,10 +51,10 @@ jobs:
       - name: version info
         run: rustc --version; cargo --version; cargo nextest --version
 
-      - name: Check generated function reference
+      - name: Check generated function reference is up to date
         run: |
-          cargo run --example generate_function_docs -- --check
-          cargo nextest run --example generate_function_docs
+          cargo run --bin generate_function_docs
+          git diff --exit-code
 
       - name: Run all tests
         run: cargo nextest run
