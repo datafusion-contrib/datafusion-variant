@@ -57,10 +57,7 @@ pub(super) async fn context(options: &Run, paths: &[PathBuf]) -> Result<SessionC
     let config = SessionConfig::new()
         .with_target_partitions(options.partitions)
         .with_batch_size(options.batch_size)
-        .set_str("datafusion.execution.time_zone", "UTC")
-        // DataFusion normally discards Parquet field metadata during schema
-        // inference. Variant UDFs require the canonical extension annotation.
-        .set_bool("datafusion.execution.parquet.skip_metadata", false);
+        .set_str("datafusion.execution.time_zone", "UTC");
     let runtime = RuntimeEnvBuilder::new()
         .with_memory_limit(memory_bytes, 1.0)
         .build_arc()?;

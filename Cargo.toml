@@ -9,9 +9,9 @@ authors = ["Matthew Kim <matthew@pydantic.dev>"]
 
 [dependencies]
 # Pin DataFusion to a revision that uses Arrow 60.
-datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
-datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
-datafusion-macros = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+datafusion = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+datafusion-macros = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
 arrow = "60"
 arrow-schema = "60"
 parquet-variant-compute = "60.1"
@@ -25,7 +25,7 @@ async-trait = "0.1"
 futures = "0.3"
 
 [dev-dependencies]
-datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
 clap = { version = "4.6", features = ["derive"] }
 parquet = { version = "60", features = ["variant_experimental"] }
 tempfile = "3"
@@ -35,7 +35,7 @@ anyhow = "1.0.100"
 arrow-cast = "60"
 flate2 = "1.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" }
+datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
 sqllogictest = "0.29"
 env_logger = "0.11"
 insta = "1.43.2"

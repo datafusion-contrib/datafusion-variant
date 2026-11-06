@@ -2,8 +2,8 @@
 
 # Ordinary queries use the formatter installed by register_all.
 
-# The DESCRIBE shim is installed by register_all, independently of the result
-# adapter. Preserve column order and nullability alongside the logical type.
+# Schema introspection shows the display name of the registered extension type.
+# Preserve column order and nullability alongside the logical type.
 statement ok
 CREATE TABLE describe_events AS
 SELECT 1 AS id, parse_json('{"service":"api"}') AS event,

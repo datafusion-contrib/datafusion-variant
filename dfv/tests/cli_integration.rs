@@ -236,8 +236,6 @@ fn test_write_and_read_variant_parquet() {
         .current_dir(temp_dir.path())
         .args([
             "-c",
-            "SET datafusion.execution.parquet.skip_metadata = false",
-            "-c",
             "CREATE EXTERNAL TABLE saved_events STORED AS PARQUET LOCATION 'events.parquet'",
             "-c",
             r#"SELECT event:service::VARCHAR AS service,

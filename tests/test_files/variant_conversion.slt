@@ -2,8 +2,7 @@
 
 # Arrow-specific conversion inputs; Spark semantics are in spark_variant_conversions.slt.
 
-# TODO: enable UUID SQL syntax (https://github.com/apache/datafusion/pull/21714)
-# and preserve UUID input metadata during conversion (https://github.com/apache/arrow-rs/issues/11937).
+# TODO: preserve UUID input metadata during conversion (https://github.com/apache/arrow-rs/issues/11937).
 # UUID becomes Variant UUID; unannotated FSB16 must remain Variant binary.
 skipif DataFusion
 query T
