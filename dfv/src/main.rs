@@ -168,7 +168,7 @@ async fn main_inner() -> Result<()> {
 fn print_examples() {
     let examples = r###"
 Try:
-  -- Build a table of Variant values and query it
+  -- Build a table of Variant values by parsing JSON
   CREATE TABLE events AS
   SELECT parse_json(json_data) AS event
   FROM (VALUES
@@ -178,22 +178,23 @@ Try:
   ) AS input(json_data);
 
   -- Select fields from the Variant values using the `:` operator and filter by a field value
-  SELECT
-     event:service::VARCHAR AS service
+  SELECT event:service AS service
   FROM events
   WHERE event:status::BIGINT >= 400;
 
-  -- Write Variant to Parquet and read it back
+  -- Write values to a the events.parquet file
   COPY events TO 'events.parquet' STORED AS PARQUET;
   SET datafusion.execution.parquet.skip_metadata = false;
   SELECT event FROM 'events.parquet';
 
-  -- Write Variant to Parquet, shredding selected fields into typed columns
+  -- Write Variant shredded_events.parquet, shredding `service` and `status` fields
+  -- into typed columns
   COPY events TO 'shredded_events.parquet' STORED AS PARQUET
   OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
   SELECT path_in_schema, type FROM parquet_metadata('shredded_events.parquet');
+  SELECT * from 'shredded_events.parquet';
 
-  -- Inspect the schema of Variant values
+  -- Show the schema (The fields and types in each variant value)
   SELECT schema_of_variant(event) FROM events;
 
   -- Load 1M real Bluesky events (downloads ~135MB to data/bluesky on first use)
