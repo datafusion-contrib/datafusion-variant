@@ -8,11 +8,10 @@ license = "Apache-2.0"
 authors = ["Matthew Kim <matthew@pydantic.dev>"]
 
 [dependencies]
-# Pin DataFusion to a revision that uses Arrow 60.
-datafusion = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-datafusion-macros = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-arrow = "60"
+datafusion = { workspace = true }
+datafusion-doc = { workspace = true }
+datafusion-macros = { workspace = true }
+arrow = { workspace = true }
 arrow-schema = "60"
 parquet-variant-compute = "60.1"
 parquet-variant-json = "60.1"
@@ -21,23 +20,23 @@ parquet-variant = "60.1"
 sqlparser = { version = "0.63", default-features = false, features = ["serde"] }
 serde_json = { version = "1.0.145", features = ["unbounded_depth"] }
 serde = { version = "1", features = ["derive"] }
-async-trait = "0.1"
-futures = "0.3"
+async-trait = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
-datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
-clap = { version = "4.6", features = ["derive"] }
-parquet = { version = "60", features = ["variant_experimental"] }
-tempfile = "3"
+datafusion-cli = { workspace = true }
+clap = { workspace = true }
+parquet = { workspace = true }
+tempfile = { workspace = true }
 criterion = { version = "0.8", default-features = false }
-mimalloc = "0.1.52"
+mimalloc = { workspace = true }
 anyhow = "1.0.100"
 arrow-cast = "60"
-flate2 = "1.0"
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+flate2 = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+datafusion-sqllogictest = { workspace = true }
 sqllogictest = "0.29"
-env_logger = "0.11"
+env_logger = { workspace = true }
 insta = "1.43.2"
 
 [[bench]]
@@ -60,3 +59,25 @@ harness = false
 members = ["dfv"]
 # Include `dfv` so `cargo run --bin dfv` and `cargo test` work from the root.
 default-members = [".", "dfv"]
+
+# Dependencies shared by the library and `dfv`. Members inherit these with
+# `workspace = true` and add only crate-specific features.
+[workspace.dependencies]
+# Pin DataFusion to a revision that uses Arrow 60. `dfv` must use the same
+# revision as the library so both link against a single copy of DataFusion and
+# Arrow; the published `datafusion-cli` crate still depends on Arrow 59.
+datafusion = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+datafusion-cli = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+datafusion-doc = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+datafusion-macros = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", rev = "90b55e38b5de8e74a17e24bf7ea7259cbcdab022" }
+arrow = "60"
+parquet = { version = "60", features = ["variant_experimental"] }
+async-trait = "0.1"
+clap = { version = "4.6", features = ["derive"] }
+env_logger = "0.11"
+flate2 = "1.0"
+futures = "0.3"
+mimalloc = "0.1.52"
+tempfile = "3"
+tokio = "1"
