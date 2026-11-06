@@ -6,8 +6,6 @@ edition = "2024"
 rust-version = "1.95.0"
 license = "Apache-2.0"
 publish = false
-# Make `cargo run` from the workspace root run dfv rather than erroring now that
-# the root package also has the `generate_function_docs` binary.
 default-run = "dfv"
 
 [[bin]]
