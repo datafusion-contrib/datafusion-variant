@@ -11,10 +11,10 @@ use datafusion::logical_expr::{
 };
 use datafusion::scalar::ScalarValue;
 use parquet_variant::Variant;
-use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantArray, variant_get as compute_variant_get};
 
 use crate::shared::{try_field_as_variant_array, try_parse_string_scalar};
+use crate::variant_path::parse_variant_path;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantObjectKeys {
@@ -94,7 +94,7 @@ impl ScalarUDFImpl for VariantObjectKeys {
                 let arr = if let Some(path_str) = path {
                     compute_variant_get(
                         &arr,
-                        GetOptions::new_with_path(VariantPath::try_from(path_str.as_str())?),
+                        GetOptions::new_with_path(parse_variant_path(path_str.as_str(), true)?),
                     )?
                 } else {
                     arr
@@ -113,7 +113,7 @@ impl ScalarUDFImpl for VariantObjectKeys {
                 let arr = if let Some(path_str) = path {
                     compute_variant_get(
                         variant_array,
-                        GetOptions::new_with_path(VariantPath::try_from(path_str.as_str())?),
+                        GetOptions::new_with_path(parse_variant_path(path_str.as_str(), true)?),
                     )?
                 } else {
                     Arc::clone(variant_array)

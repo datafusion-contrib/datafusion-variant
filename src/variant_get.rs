@@ -28,6 +28,7 @@ use crate::shared::{
     try_parse_string_scalar,
 };
 use crate::sql_type::SqlTypeConfig;
+use crate::variant_path::parse_variant_path;
 use crate::variant_type::validate_getter_target;
 
 fn type_hint_from_scalar(
@@ -100,7 +101,7 @@ fn invoke_variant_get(
             let res = variant_get(
                 variant_array,
                 build_get_options(
-                    VariantPath::try_from(variant_path)?,
+                    parse_variant_path(variant_path, true)?,
                     &type_field,
                     &cast_options,
                 ),
@@ -122,7 +123,7 @@ fn invoke_variant_get(
             let res = variant_get(
                 &variant_array,
                 build_get_options(
-                    VariantPath::try_from(variant_path)?,
+                    parse_variant_path(variant_path, true)?,
                     &type_field,
                     &cast_options,
                 ),
@@ -152,7 +153,7 @@ fn invoke_variant_get(
                 let res = variant_get(
                     &arr,
                     build_get_options(
-                        VariantPath::try_from(path.unwrap_or_default())?,
+                        parse_variant_path(path.unwrap_or_default(), true)?,
                         &type_field,
                         &cast_options,
                     ),
@@ -183,7 +184,7 @@ fn invoke_variant_get(
                 let path = path.unwrap_or_default();
                 let res = variant_get(
                     &variant_array,
-                    build_get_options(VariantPath::try_from(path)?, &type_field, &cast_options),
+                    build_get_options(parse_variant_path(path, true)?, &type_field, &cast_options),
                 )?;
 
                 out.push(res);
@@ -290,7 +291,7 @@ type hint or cast target to retain a Variant result.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = r#"String expression selecting fields with dots and array elements with zero-based brackets, such as `a.b[0]`. Use `["a.b"]` for a literal key containing a dot. An empty string or SQL NULL selects the root. Use field paths without Spark's leading `$`; here `$` is treated as a field name. Keys containing `]` currently require escaping that bracket with a backslash, even inside quotes."#
+        description = r#"String expression such as `$.a.b[0]` or `a.b[0]`. `$`, an empty string, or SQL NULL selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Rooted quoted keys preserve backslashes (Spark 4.2); rootless paths use Arrow escaping."#
     ),
     argument(
         name = "type",

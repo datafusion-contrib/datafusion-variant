@@ -2,12 +2,9 @@
 # SPDX-FileCopyrightText: See the NOTICE file distributed with this work for additional information regarding copyright ownership
 # SPDX-FileContributor: Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements
 
-# Adapted from Spark VariantExpressionSuite's variant_delete and path-parser cases:
+# Adapted from Spark VariantExpressionSuite:
 # https://github.com/apache/spark/blob/046f574fce3ffd93925f7bcdd459221fa11a730d/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionSuite.scala
-# Source/test-checked expectations, not a Spark execution. Default escaped-path
-# mode; Spark's legacy literal-backslash setting is not exposed here.
-# Direct Variant display replaces Spark's string cast. The table also exercises
-# column paths; scalar and mixed paths are covered separately below.
+# Source-checked, not Spark-executed; paths follow Spark 4.2.
 query I?
 SELECT id, variant_delete(parse_json(v), p1, p2, p3)
 FROM (VALUES
@@ -78,25 +75,24 @@ FROM (VALUES (1, '$.c'), (2, NULL), (3, '$.b')) t(id, p) ORDER BY id;
 2 {"b":2,"c":3}
 3 {"c":3}
 
-# Path parser: bracket keys decode escapes, dot keys retain them. Unknown escapes
-# and unpaired Unicode surrogates stay literal; a surrogate pair decodes to a key.
+# Spark 4.2 preserves backslashes in bracket and dot keys.
 query I?
 SELECT id, variant_delete(parse_json(v), p)
 FROM (VALUES
   (1, '{"a]b":1}', '$[''a]b'']'),
   (2, '{"a.b":1}', '$["a.b"]'),
-  (3, '{"a''b":1}', '$[''a\''b'']'),
-  (4, '{"a\"b":1}', '$["a\"b"]'),
-  (5, '{"a\\b":1}', '$[''a\\b'']'),
-  (6, '{"a\nb":1}', '$[''a\nb'']'),
+  (3, '{"a''b":1}', '$["a''b"]'),
+  (4, '{"a\"b":1}', '$[''a"b'']'),
+  (5, '{"a\\\\b":1}', '$[''a\\b'']'),
+  (6, '{"a\\nb":1,"a\nb":2}', '$[''a\nb'']'),
   (7, '{"a\\nb":1}', '$.a\nb'),
-  (8, '{"a":1}', '$[''\u0061'']'),
-  (9, '{"😀":1}', '$[''\uD83D\uDE00'']'),
+  (8, '{"\\u0061":1,"a":2}', '$[''\u0061'']'),
+  (9, '{"\\uD83D\\uDE00":1}', '$[''\uD83D\uDE00'']'),
   (10, '{"\\q":1}', '$[''\q'']'),
   (11, '{"\\uD800":1}', '$[''\uD800'']'),
   (12, '{"a]b":1}', '$.a]b'),
-  (13, '{"a/b":1}', '$[''a\/b'']'),
-  (14, '{"a\\" :1}', '$["a\\"]'),
+  (13, '{"a\\/b":1}', '$[''a\/b'']'),
+  (14, '{"a\\":1}', '$["a\"]'),
   (15, '{"a\\\"b":1}', '$[''a\"b'']')
 ) t(id, v, p) ORDER BY id;
 ----
@@ -105,9 +101,9 @@ FROM (VALUES
 3 {}
 4 {}
 5 {}
-6 {}
+6 {"a\nb":2}
 7 {}
-8 {}
+8 {"a":2}
 9 {}
 10 {}
 11 {}
@@ -131,7 +127,7 @@ statement error invalid path
 SELECT variant_delete(parse_json('{"a":1}'), '.a');
 
 statement error invalid path
-SELECT variant_delete(parse_json('{"a":1}'), '$[''a\'']');
+SELECT variant_delete(parse_json('{"a":1}'), '$[''a\''b'']');
 
 statement error invalid path
 SELECT variant_delete(parse_json('[1,2,3]'), '$[2147483648]');

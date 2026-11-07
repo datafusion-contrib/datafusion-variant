@@ -10,7 +10,7 @@ keywords = ["SPDX-License-Identifier"]
 
 [props]
 # Preserve the ASF attribution in Spark-derived code and tests.
-asf_files = ["schema_of_variant_agg.slt", "spark_variant_conversions.slt", "variant_explode.slt", "variant_delete.rs", "variant_delete.slt"]
+asf_files = ["schema_of_variant_agg.slt", "spark_variant_conversions.slt", "variant_explode.slt", "variant_delete.rs", "variant_path.rs", "variant_delete.slt"]
 
 [files]
 includes = ["*.rs", "*.py", "*.ts", "*.slt"]
