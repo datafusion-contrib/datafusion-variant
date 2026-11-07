@@ -6,7 +6,8 @@ such data to [Apache Parquet] files.
 
 This crate is under active development and targets Apache Spark Variant
 behavior. Compatibility is incomplete, and APIs may change. See the
-[roadmap][roadmap].
+[known Spark discrepancies](docs/spark-compatibility.md) for differences and
+their causes, and the [roadmap][roadmap] for planned work.
 
 ## What is Variant?
 
