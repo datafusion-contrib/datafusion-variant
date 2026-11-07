@@ -267,15 +267,10 @@ fn append_deleted(
     Ok(())
 }
 
-// Deletion requires a rooted, nonempty path; parsing itself is shared.
 fn parse_path(path: &str) -> Result<VariantPath<'_>> {
     let invalid = || exec_datafusion_err!("variant_delete: invalid path {path:?}");
     if !path.starts_with('$') {
         return Err(invalid());
     }
-    let parsed = crate::variant_path::parse_variant_path(path).map_err(|_| invalid())?;
-    if parsed.path().is_empty() {
-        return Err(invalid());
-    }
-    Ok(parsed)
+    crate::variant_path::parse_variant_path(path, false).map_err(|_| invalid())
 }

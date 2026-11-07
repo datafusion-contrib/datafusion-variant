@@ -5,20 +5,22 @@
 use datafusion::common::{Result, exec_datafusion_err};
 use parquet_variant::{VariantPath, VariantPathElement};
 
-/// Parse Spark-rooted paths and the existing rootless path syntax.
-pub(crate) fn parse_variant_path(path: &str) -> Result<VariantPath<'_>> {
-    // TODO(#142): unify path dialects after deciding compatibility policy (#71, #141).
-    // Rootless paths retain Arrow's escaping rules for existing callers.
-    if path.starts_with('$') {
-        parse_rooted_path(path)
+/// Parse rooted or rootless paths; `allow_root` permits `$` and empty paths.
+pub(crate) fn parse_variant_path(path: &str, allow_root: bool) -> Result<VariantPath<'_>> {
+    // TODO(#166): unify path dialects.
+    let parsed = if path.starts_with('$') {
+        parse_rooted_path(path)?
     } else {
-        Ok(VariantPath::try_from(path)?)
+        VariantPath::try_from(path)?
+    };
+    if !allow_root && parsed.path().is_empty() {
+        return Err(exec_datafusion_err!("invalid Variant path {path:?}"));
     }
+    Ok(parsed)
 }
 
-// Spark VariantPathParser's default (non-legacy) grammar, adapted from:
-// https://github.com/apache/spark/blob/046f574fce3ffd93925f7bcdd459221fa11a730d/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
-// Keep Arrow's path representation without delegating Spark escaping to Arrow.
+// Spark 4.2: quoted keys retain backslashes.
+// https://github.com/apache/spark/blob/branch-4.2/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
 fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
     let invalid = || exec_datafusion_err!("invalid Variant path {path:?}");
     let mut remaining = path.strip_prefix('$').ok_or_else(invalid)?;
@@ -37,17 +39,12 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
                 let mut chars = body[1..].char_indices();
                 let end = loop {
                     let (i, c) = chars.next().ok_or_else(invalid)?;
-                    if c == '\\' {
-                        chars.next().ok_or_else(invalid)?;
-                    } else if c == quote {
+                    if c == quote {
                         break i + 1;
                     }
                 };
                 remaining = body[end + 1..].strip_prefix(']').ok_or_else(invalid)?;
-                elements.push(VariantPathElement::field(unescape_key(
-                    &body[1..end],
-                    quote,
-                )));
+                elements.push(VariantPathElement::field(&body[1..end]));
             } else {
                 let end = body.find(']').ok_or_else(invalid)?;
                 let index = &body[..end];
@@ -63,57 +60,6 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
         }
     }
     Ok(VariantPath::new(elements))
-}
-
-fn unescape_key(raw: &str, quote: char) -> String {
-    let mut output = String::new();
-    let mut remaining = raw;
-    while let Some((before, after)) = remaining.split_once('\\') {
-        output.push_str(before);
-        let c = after
-            .chars()
-            .next()
-            .expect("parser checked escape terminator");
-        let mut consumed = c.len_utf8();
-        match c {
-            'b' => output.push('\x08'),
-            'f' => output.push('\x0c'),
-            'n' => output.push('\n'),
-            'r' => output.push('\r'),
-            't' => output.push('\t'),
-            '/' | '\\' => output.push(c),
-            c if c == quote => output.push(c),
-            'u' => {
-                // Let serde decode valid Unicode escapes (including surrogate
-                // pairs). Spark preserves malformed escapes and lone surrogates.
-                let decoded = [11, 5].into_iter().find_map(|n| {
-                    let escape = after.get(..n)?;
-                    if !escape.as_bytes()[1..5].iter().all(u8::is_ascii_hexdigit)
-                        || (n == 11
-                            && (!escape.as_bytes()[5..].starts_with(b"\\u")
-                                || !escape.as_bytes()[7..].iter().all(u8::is_ascii_hexdigit)))
-                    {
-                        return None;
-                    }
-                    let value = serde_json::from_str::<String>(&format!("\"\\{escape}\"")).ok()?;
-                    Some((n, value))
-                });
-                if let Some((n, value)) = decoded {
-                    consumed = n;
-                    output.push_str(&value);
-                } else {
-                    output.push_str("\\u");
-                }
-            }
-            c => {
-                output.push('\\');
-                output.push(c);
-            }
-        }
-        remaining = &after[consumed..];
-    }
-    output.push_str(remaining);
-    output
 }
 
 #[cfg(test)]
@@ -136,15 +82,24 @@ mod tests {
             ("$['$']", vec![VariantPathElement::field("$")]),
             ("$['a]b']", vec![VariantPathElement::field("a]b")]),
             ("$['']", vec![VariantPathElement::field("")]),
-            (r"$['\u0061']", vec![VariantPathElement::field("a")]),
-            (r"$['a\'b']", vec![VariantPathElement::field("a'b")]),
+            (r"$['\u0061']", vec![VariantPathElement::field(r"\u0061")]),
+            (r"$['a\']", vec![VariantPathElement::field("a\\")]),
+            (r#"$["a'b"]"#, vec![VariantPathElement::field("a'b")]),
         ] {
             assert_eq!(
-                parse_variant_path(text).unwrap().path(),
+                parse_variant_path(text, true).unwrap().path(),
                 &expected,
                 "{text}"
             );
         }
+    }
+
+    #[test]
+    fn root_policy() {
+        for text in ["$", ""] {
+            assert!(parse_variant_path(text, false).is_err(), "{text:?}");
+        }
+        assert!(parse_variant_path("$.a", false).is_ok());
     }
 
     #[test]
@@ -158,8 +113,9 @@ mod tests {
             "$[2147483648]",
             "$[*]",
             "$..a",
+            r"$['a\'b']",
         ] {
-            assert!(parse_variant_path(text).is_err(), "{text}");
+            assert!(parse_variant_path(text, true).is_err(), "{text}");
         }
     }
 }

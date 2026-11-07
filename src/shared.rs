@@ -151,7 +151,7 @@ pub(crate) fn path_from_scalar(scalar: &ScalarValue) -> Result<VariantPath<'stat
         ScalarValue::Utf8(Some(s))
         | ScalarValue::Utf8View(Some(s))
         | ScalarValue::LargeUtf8(Some(s)) => {
-            let parsed = parse_variant_path(s.as_str())?;
+            let parsed = parse_variant_path(s.as_str(), true)?;
             Ok(to_owned_path(&parsed))
         }
         ScalarValue::Utf8(None) | ScalarValue::Utf8View(None) | ScalarValue::LargeUtf8(None) => {
@@ -245,7 +245,7 @@ pub fn invoke_variant_get_typed<T>(
                 .zip(paths)
                 .map(|(variant, path_str)| {
                     let path_str = path_str.unwrap_or_default();
-                    let path = parse_variant_path(path_str)?;
+                    let path = parse_variant_path(path_str, true)?;
 
                     let Some(variant) = variant else {
                         return Ok(None);
@@ -272,7 +272,7 @@ pub fn invoke_variant_get_typed<T>(
                 .iter()
                 .map(|path_str| {
                     let path_str = path_str.unwrap_or_default();
-                    let path = parse_variant_path(path_str)?;
+                    let path = parse_variant_path(path_str, true)?;
                     variant_get_single_value(&variant_array, 0, &path, extract)
                 })
                 .collect::<Result<_>>()?;

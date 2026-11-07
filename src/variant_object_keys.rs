@@ -94,7 +94,7 @@ impl ScalarUDFImpl for VariantObjectKeys {
                 let arr = if let Some(path_str) = path {
                     compute_variant_get(
                         &arr,
-                        GetOptions::new_with_path(parse_variant_path(path_str.as_str())?),
+                        GetOptions::new_with_path(parse_variant_path(path_str.as_str(), true)?),
                     )?
                 } else {
                     arr
@@ -113,7 +113,7 @@ impl ScalarUDFImpl for VariantObjectKeys {
                 let arr = if let Some(path_str) = path {
                     compute_variant_get(
                         variant_array,
-                        GetOptions::new_with_path(parse_variant_path(path_str.as_str())?),
+                        GetOptions::new_with_path(parse_variant_path(path_str.as_str(), true)?),
                     )?
                 } else {
                     Arc::clone(variant_array)

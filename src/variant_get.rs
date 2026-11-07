@@ -101,7 +101,7 @@ fn invoke_variant_get(
             let res = variant_get(
                 variant_array,
                 build_get_options(
-                    parse_variant_path(variant_path)?,
+                    parse_variant_path(variant_path, true)?,
                     &type_field,
                     &cast_options,
                 ),
@@ -123,7 +123,7 @@ fn invoke_variant_get(
             let res = variant_get(
                 &variant_array,
                 build_get_options(
-                    parse_variant_path(variant_path)?,
+                    parse_variant_path(variant_path, true)?,
                     &type_field,
                     &cast_options,
                 ),
@@ -153,7 +153,7 @@ fn invoke_variant_get(
                 let res = variant_get(
                     &arr,
                     build_get_options(
-                        parse_variant_path(path.unwrap_or_default())?,
+                        parse_variant_path(path.unwrap_or_default(), true)?,
                         &type_field,
                         &cast_options,
                     ),
@@ -184,7 +184,7 @@ fn invoke_variant_get(
                 let path = path.unwrap_or_default();
                 let res = variant_get(
                     &variant_array,
-                    build_get_options(parse_variant_path(path)?, &type_field, &cast_options),
+                    build_get_options(parse_variant_path(path, true)?, &type_field, &cast_options),
                 )?;
 
                 out.push(res);
@@ -291,7 +291,7 @@ type hint or cast target to retain a Variant result.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = r#"String expression using Spark-style paths such as `$.a.b[0]`; `$` selects the root. Use `$["a.b"]` for a literal key containing a dot and `$["$"]` for a field named `$`. Existing rootless paths such as `a.b[0]` and `["a.b"]` remain supported for compatibility. An empty string or SQL NULL also selects the root. Rootless paths retain Arrow's escaping rules. Paths beginning with `$` now use rooted syntax; quote dollar-prefixed field names in brackets to access them literally."#
+        description = r#"String expression such as `$.a.b[0]` or `a.b[0]`. `$`, an empty string, or SQL NULL selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Rooted quoted keys preserve backslashes (Spark 4.2); rootless paths use Arrow escaping."#
     ),
     argument(
         name = "type",

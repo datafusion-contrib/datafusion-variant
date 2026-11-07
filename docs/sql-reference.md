@@ -415,7 +415,7 @@ value:field::type
 ### Arguments
 
 - **value**: Variant expression to extract from.
-- **path**: String expression using Spark-style paths such as `$.a.b[0]`; `$` selects the root. Use `$["a.b"]` for a literal key containing a dot and `$["$"]` for a field named `$`. Existing rootless paths such as `a.b[0]` and `["a.b"]` remain supported for compatibility. An empty string or SQL NULL also selects the root. Rootless paths retain Arrow's escaping rules. Paths beginning with `$` now use rooted syntax; quote dollar-prefixed field names in brackets to access them literally.
+- **path**: String expression such as `$.a.b[0]` or `a.b[0]`. `$`, an empty string, or SQL NULL selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Rooted quoted keys preserve backslashes (Spark 4.2); rootless paths use Arrow escaping.
 - **type**: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`.
 
 ### Example

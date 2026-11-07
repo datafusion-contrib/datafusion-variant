@@ -87,3 +87,10 @@ SELECT variant_get(parse_json('7'), '$', 'INT'),
 
 statement error invalid Variant path
 SELECT try_variant_get(parse_json('{}'), p) FROM (VALUES ('$[')) t(p);
+
+# Spark 4.2 preserves backslashes in quoted keys.
+query II
+SELECT variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT'),
+       try_variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT');
+----
+1 1
