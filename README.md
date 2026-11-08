@@ -4,9 +4,9 @@ This crate provides a [Variant] SQL type and functions for querying
 semi-structured data using [Apache DataFusion], and reading and writing
 such data to [Apache Parquet] files.
 
-This crate is under active development and targets Apache Spark Variant
+This crate is under active development and aims to match Apache Spark Variant
 behavior. Compatibility is incomplete, and APIs may change. See the
-[roadmap][roadmap].
+[roadmap][roadmap] for more details.
 
 ## What is Variant?
 
@@ -16,16 +16,24 @@ in each row.
 
 For example, a single Variant column can contain all of these values, shown as JSON:
 
-| Value | Type |
-| --- | --- |
-| `{"service":"api","status":200}` | Object |
-| `["cached","retry"]` | Array |
-| `42` | Integer |
-| `"api"` | String |
+| Value                            | Type    |
+|----------------------------------|---------|
+| `{"service":"api","status":200}` | Object  |
+| `["cached","retry"]`             | Array   |
+| `42`                             | Integer |
+| `"api"`                          | String  |
 
-Variant also supports "shredding" as an optimization for the common case where
-the values share a common structure. For more background, see [Variant Type in
-Apache Parquet for Semi-Structured Data][parquet-variant-blog].
+Variants are stored using an efficient binary encoding, similar to BSON, with
+optimizations for repeated field names. For more background, see [Variant Type
+in Apache Parquet for Semi-Structured Data][parquet-variant-blog].
+
+This crate also supports the Variant "shredding" optimization for when many rows
+share a common structure. You specify some subset of the fields to store as
+typed Parquet columns, and the remaining fields are stored in the standard
+Variant binary representation. Queries on the common fields use the typed
+columns for better performance, while preserving all other fields in Variant
+values. See [Write shredded Parquet columns](#write-shredded-parquet-columns)
+below and the [shredding guide](docs/shredding.md) for more details.
 
 ## Quick start
 
@@ -63,26 +71,15 @@ async fn main() -> datafusion::error::Result<()> {
 
 Congratulations -- you can now query semi-structured data with the Variant type!
 
-### Selective registration
+## Cookbook of common tasks
 
-To register individual functions, wrap implementations with `ScalarUDF::new_from_impl`
-or `AggregateUDF::new_from_impl`, then call `ctx.register_udf` or `ctx.register_udaf`.
-Use `register_variant_get_functions` for getters and casts from VARIANT,
-`register_variant_conversion_functions` for casts to VARIANT and `to_variant_object`,
-and `register_variant_explode_functions` for table functions.
-Install `VariantExprPlanner` with `ctx.register_expr_planner(Arc::new(VariantExprPlanner))`
-for `:` access, and `VariantTypePlanner` with `SessionStateBuilder::with_type_planner`
-for SQL `VARIANT` syntax.
+This section contains examples of common queries using the Variant type.
 
-## Common tasks
+You can run the SQL examples like any other DataFusion SQL statement using the
+`SessionContext` (e.g. [`ctx.sql(sql).await?.collect().await?`][session-context-sql]).
 
-This section shows common queries with the Variant type. You can run the SQL
-examples like any other DataFusion SQL statement using the `SessionContext`,
-e.g. with [`ctx.sql(sql).await?.collect().await?`][session-context-sql].
-
-This repository also includes a `dfv` command-line tool with the Variant
-functionality preinstalled to try the examples interactively. Run it from the
-repository root with:
+This repository also includes a command-line tool `dfv` with the Variant
+functionality preinstalled to try the examples interactively. Run it like this:
 
 ```shell
 # Drop `--release` for faster compile times if you aren't measuring performance.
@@ -92,8 +89,8 @@ cargo run --release
 ### Convert JSON to Variant
 
 `parse_json` converts JSON strings to Variant. You can use it to load
-semi-structured documents. For example, create an `events` table with a Variant
-column named `event`:
+semi-structured documents. For example, to create an `events` table with a Variant
+column named `event`, run:
 
 ```sql
 CREATE TABLE events AS
@@ -112,9 +109,11 @@ FROM (VALUES
 ### Query
 
 You can extract fields from a Variant column using the Spark SQL-style `:`
-field-access syntax or the `variant_get` UDF. For example, to select the
+field-access operator or the `variant_get` UDF. For example, to select the
 `service` and `latency_ms` fields of events whose `status` is at least 400, run:
 
+<!-- TODO: remove the `as` alias when https://github.com/datafusion-contrib/datafusion-variant/issues/158 is ready -->
+<!-- TODO: remove the `::BIGINT` explicit typecasts when https://github.com/datafusion-contrib/datafusion-variant/issues/159 is ready -->
 ```sql
 SELECT event:service::VARCHAR AS service,
        event:latency_ms::BIGINT AS latency_ms
@@ -173,22 +172,17 @@ ORDER BY event:status::BIGINT;
 
 ### Store Variant in Parquet
 
-You can write Variant columns to Parquet with the DataFusion `COPY` statement:
+You can write Variant columns to Parquet like any other column with the normal
+DataFusion `COPY` statement:
 
 ```sql
 COPY events TO 'events.parquet' STORED AS PARQUET;
 ```
 
-```text
-+-------+
-| count |
-+-------+
-| 3     |
-+-------+
-```
-
-The Variant column is stored in Parquet as a struct with `metadata` and `value`
-fields, as you can see with the `parquet_metadata` table function:
+The Variant column is stored in Parquet following the [Parquet Variant
+encoding specification][parquet-variant-encoding] as a struct with `metadata`
+and `value` fields. You can see the structure using the
+`parquet_metadata` table function:
 
 ```sql
 -- Note: parquet_metadata is part of dfv and datafusion-cli, not this crate.
@@ -204,26 +198,19 @@ SELECT path_in_schema, type FROM parquet_metadata('events.parquet');
 +------------------+------------+
 ```
 
-#### Write with shredding
+#### Write shredded Parquet columns
 
-Choose which fields to store as typed Parquet columns with the `variant.shredding` option,
-a JSON object mapping top-level Variant column names to SQL types:
+You can choose which fields to store as typed Parquet columns with the
+`variant.shredding` option. For example, to store the `service` and `status`
+fields of the `event` column as typed Parquet columns, run:
 
 ```sql
 COPY events TO 'shredded_events.parquet' STORED AS PARQUET
 OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
 ```
 
-```text
-+-------+
-| count |
-+-------+
-| 3     |
-+-------+
-```
-
-The column remains a Variant, preserving values, nulls, and missing fields.
-Unselected fields and incompatible values stay in binary residuals.
+See the [shredding guide](docs/shredding.md) for the full format of the
+`variant.shredding` option.
 
 ### Read Variant from Parquet
 
@@ -354,7 +341,8 @@ cargo fmt --all -- --check
 cargo clippy -- -D warnings
 ```
 
-`cargo test` also checks this README's Rust example and SQL results.
+`cargo test` also checks the Rust example and the SQL results in this README
+and in `docs/shredding.md`.
 
 Regenerate the SQL reference after changing function documentation.
 `cargo test` checks its examples, and CI fails if the committed file is stale:

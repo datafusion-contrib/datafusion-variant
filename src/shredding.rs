@@ -30,11 +30,21 @@ use crate::{
 
 const SHREDDING_OPTION: &str = "variant.shredding";
 
-// datafusion-cli validates table options while registering the destination
-// object store, before analyzer rules run. Declare the option in its own
-// namespace; the COPY analyzer below owns its interpretation.
-// TableOptions passes fully qualified keys, unlike the extensions_options!
-// macro, which expects bare field names.
+/// Extension for processing the `variant.shredding` COPY option.
+///
+/// For example:
+/// ```sql
+/// COPY events TO 'events.parquet' STORED AS PARQUET
+/// OPTIONS ('variant.shredding' '{"event": "STRUCT<service VARCHAR, status BIGINT>"}');
+/// ```
+///
+/// The value is a JSON object with:
+/// 1. keys that are names of top-level `VARIANT` columns in the input schema
+/// 2. values that are SQL types describing the desired shredding layout for each column
+///
+/// See the [shredding guide] for more details.
+///
+/// [shredding guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/shredding.md
 #[derive(Debug, Clone, Default)]
 pub(crate) struct VariantWriteOptions {
     shredding: Option<String>,
@@ -74,7 +84,12 @@ impl ExtensionOptions for VariantWriteOptions {
     }
 }
 
-/// Consume the COPY option before DataFusion validates Parquet format options.
+/// Analyzer rule that interprets Variant shredding in the COPY statement and
+/// rewrites the plan to project the shredded columns before writing to Parquet.
+///
+/// See the [shredding guide] for more details.
+///
+/// [shredding guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/shredding.md
 #[derive(Debug)]
 pub(crate) struct VariantShredding;
 
@@ -131,7 +146,9 @@ impl AnalyzerRule for VariantShredding {
     }
 }
 
-// Embedded by the analyzer only; this is not a new SQL scalar function.
+/// `shred_variant` function.
+///
+/// Note this is added by the [VariantShredding] rule only; it cannot be called directly by the user.
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct ShredVariant {
     signature: Signature,
