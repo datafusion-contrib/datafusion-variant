@@ -221,17 +221,14 @@ fn return_field_for_variant_get(
 
 impl_variant_get_typed!(
     /// Extracts a value as JSON, including quotes around string values.
-    VariantGetJsonUdf,
-    "variant_get_json",
-    DataType::Utf8View,
-    |args| invoke_variant_get_typed(
-        args,
-        ScalarValue::Utf8View,
+    VariantGetJsonUdf, "variant_get_json", DataType::Utf8View,
+    |args| invoke_variant_get_typed(args, ScalarValue::Utf8View,
         |values: Vec<Option<String>>| -> ArrayRef {
             Arc::new(values.into_iter().collect::<StringViewArray>())
         },
-        |value: Variant<'_, '_>| -> Result<Option<String>> { Ok(Some(value.to_json_string()?)) }
-    ),
+        |value: Variant<'_, '_>| -> Result<Option<String>> {
+            Ok(Some(value.to_json_string()?))
+        }),
 );
 
 /// Extracts a Variant value, returning an error for failed result-type conversions.
