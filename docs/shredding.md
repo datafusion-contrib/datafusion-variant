@@ -157,6 +157,21 @@ to the specified type, the shredded column is populated with that value.
 Otherwise, a `NULL` is stored in the shredded column and the value remains in
 the residual Variant column.
 
+For example, if you try to shred this Variant object as a `BIGINT`:
+
+```json
+{
+  "service": "api",
+  "status": "200"
+}
+```
+
+the shredded column will be `NULL`:
+
+| residual Variant                   | shredded BIGINT |
+|------------------------------------|-----------------|
+| `{"service":"api","status":"200"}` | `NULL`          |
+
 If a Variant object is shredded into a `STRUCT`, fields in the Variant that are
 not in the `STRUCT` remain in the residual Variant column. For example, if
 you shred a Variant object like
