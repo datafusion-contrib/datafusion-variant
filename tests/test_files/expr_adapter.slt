@@ -52,9 +52,8 @@ SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM '$__TEST_DIR__/mixed
 ----
 3
 
-# Read through VariantListingTableFactory, which attaches
-# VariantExprAdapterFactory to the table. The unshredded file is reshredded to
-# the table's layout per batch instead of cast.
+# Read files back -- they should be  reshredded to the table's layout
+
 statement ok
 CREATE EXTERNAL TABLE mixed STORED AS PARQUET LOCATION '$__TEST_DIR__/mixed/';
 

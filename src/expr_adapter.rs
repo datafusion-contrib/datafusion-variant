@@ -2,6 +2,8 @@
 
 //! Read Parquet files whose Variant shredding layout differs from the table's.
 //!
+//! Note this is installed via [`register_all`](crate::register_all)
+//!
 //! A `ListingTable` merges the schemas of its files. When one file stores a
 //! Variant column as `Struct<metadata, value>` and another as
 //! `Struct<metadata, value, typed_value: Struct<...>>`, the merged table type
@@ -17,7 +19,9 @@
 //! `typed_value` schema, so each row is valid for the table's layout. Files whose
 //! layout already matches the table are not touched.
 //!
-//! Install it per table:
+//! [`VariantListingTableFactory`], handles
+//! `CREATE EXTERNAL TABLE ... STORED AS PARQUET`. A [`ListingTable`] built in
+//! Rust needs it set explicitly:
 //!
 //! ```ignore
 //! use datafusion::datasource::listing::{
@@ -34,8 +38,10 @@
 //! ctx.register_table("events", Arc::new(ListingTable::try_new(config)?))?;
 //! ```
 //!
-//! Wiring this in automatically for every table with a Variant column needs a
-//! DataFusion hook; see <https://github.com/apache/datafusion/issues/27089>.
+//! Tables DataFusion builds itself are not covered: `SELECT ... FROM '<path>'`
+//! and `SessionContext::read_parquet` / `register_parquet` still use the default
+//! adapter. Covering those needs a DataFusion hook; see
+//! <https://github.com/apache/datafusion/issues/27089>.
 
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
@@ -49,7 +55,8 @@ use datafusion::catalog::{Session, TableProvider, TableProviderFactory};
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Result, exec_err, plan_err};
 use datafusion::datasource::listing::{ListingTable, ListingTableConfig};
-use datafusion::datasource::listing_table_factory::ListingTableFactory;
+use datafusion::datasource::provider::DefaultTableFactory;
+use datafusion::execution::session_state::SessionState;
 use datafusion::logical_expr::CreateExternalTable;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::Column;
@@ -413,21 +420,47 @@ impl PhysicalExpr for VariantReshredExpr {
 ///
 /// DataFusion's [`ListingTableFactory`] builds a [`ListingTable`] with no
 /// expression adapter and offers no way to pass one through SQL. This factory
-/// runs it, then rebuilds the table with the adapter installed. Register it in
-/// place of the stock `PARQUET` factory:
+/// runs another factory, then rebuilds the [`ListingTable`] it returns with the
+/// adapter installed. Tables of any other kind are returned unchanged.
 ///
-/// ```ignore
-/// use datafusion_variant::VariantListingTableFactory;
+/// [`register_all`](crate::register_all) wraps the session's `PARQUET` factory
+/// in this one, so there is normally no need to register it by hand.
 ///
-/// ctx.state_ref()
-///     .write()
-///     .table_factories_mut()
-///     .insert("PARQUET".into(), Arc::new(VariantListingTableFactory::default()));
-/// ```
-#[derive(Debug, Default)]
+/// [`ListingTableFactory`]: datafusion::datasource::listing_table_factory::ListingTableFactory
+#[derive(Debug)]
 pub struct VariantListingTableFactory {
-    inner: ListingTableFactory,
+    inner: Arc<dyn TableProviderFactory>,
 }
+
+impl Default for VariantListingTableFactory {
+    /// Wraps DataFusion's stock factory for file-backed tables.
+    fn default() -> Self {
+        Self::new(Arc::new(DefaultTableFactory::new()))
+    }
+}
+
+impl VariantListingTableFactory {
+    /// Wrap `inner`, attaching the Variant adapter to the [`ListingTable`]s it creates.
+    pub fn new(inner: Arc<dyn TableProviderFactory>) -> Self {
+        Self { inner }
+    }
+
+    /// Replace `state`'s `PARQUET` table factory with one that wraps it (or
+    /// DataFusion's stock factory, if there is none), so that every
+    /// `CREATE EXTERNAL TABLE ... STORED AS PARQUET` reads Variant columns
+    /// through [`VariantExprAdapterFactory`].
+    pub fn register(state: &mut SessionState) {
+        let factories = state.table_factories_mut();
+        let factory = match factories.remove(PARQUET) {
+            Some(inner) => Self::new(inner),
+            None => Self::default(),
+        };
+        factories.insert(PARQUET.into(), Arc::new(factory));
+    }
+}
+
+/// Key of the Parquet factory in `SessionState::table_factories`.
+const PARQUET: &str = "PARQUET";
 
 #[async_trait]
 impl TableProviderFactory for VariantListingTableFactory {
@@ -474,5 +507,82 @@ impl TableProviderFactory for VariantListingTableFactory {
             .with_constraints(cmd.constraints.clone())
             .with_column_defaults(cmd.column_defaults.clone());
         Ok(Arc::new(table))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use arrow::array::AsArray;
+    use arrow::datatypes::Int64Type;
+    use datafusion::execution::SessionStateBuilder;
+    use datafusion::prelude::SessionContext;
+
+    /// Counts the tables it is asked to create, then defers to the stock factory.
+    #[derive(Debug, Default)]
+    struct CountingFactory {
+        calls: AtomicUsize,
+        inner: DefaultTableFactory,
+    }
+
+    #[async_trait]
+    impl TableProviderFactory for CountingFactory {
+        async fn create(
+            &self,
+            state: &dyn Session,
+            cmd: &CreateExternalTable,
+        ) -> Result<Arc<dyn TableProvider>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.create(state, cmd).await
+        }
+    }
+
+    /// A `PARQUET` table factory the session already has is wrapped, not replaced.
+    #[tokio::test]
+    async fn register_all_wraps_existing_parquet_factory() -> Result<()> {
+        let counting = Arc::new(CountingFactory::default());
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_table_factory(PARQUET.to_string(), counting.clone())
+            .build();
+        let mut ctx = SessionContext::new_with_state(state);
+        crate::register_all(&mut ctx)?;
+
+        // One unshredded and one shredded file with the same three rows.
+        let dir = tempfile::tempdir()?;
+        let dir = dir.path().display();
+        for (file, options) in [
+            ("unshredded", ""),
+            (
+                "shredded",
+                r#"OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR>"}')"#,
+            ),
+        ] {
+            ctx.sql(&format!(
+                "COPY (SELECT parse_json(column1) AS event FROM VALUES \
+                 ('{{\"service\":\"api\"}}'), ('{{\"service\":\"api\"}}'), ('{{\"service\":\"db\"}}')) \
+                 TO '{dir}/{file}.parquet' STORED AS PARQUET {options}"
+            ))
+            .await?
+            .collect()
+            .await?;
+        }
+
+        ctx.sql(&format!(
+            "CREATE EXTERNAL TABLE t STORED AS PARQUET LOCATION '{dir}/'"
+        ))
+        .await?;
+        assert_eq!(counting.calls.load(Ordering::SeqCst), 1);
+
+        // The Variant adapter is attached: no row of the unshredded file is lost.
+        let batches = ctx
+            .sql("SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM t")
+            .await?
+            .collect()
+            .await?;
+        assert_eq!(batches[0].column(0).as_primitive::<Int64Type>().value(0), 6);
+        Ok(())
     }
 }

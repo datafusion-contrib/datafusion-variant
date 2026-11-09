@@ -50,17 +50,19 @@ pub use variant_object_insert::*;
 pub use variant_object_keys::*;
 pub use variant_type::*;
 
-/// Register all Variant scalar, aggregate, and table functions, cast rewrites,
-/// `:` field access, SQL `VARIANT` type syntax, and JSON display of Variant values.
+/// Register all Variant functionality with a DataFusion [`SessionContext`]
 ///
 /// JSON display applies to DataFusion's extension-aware formatters, including
 /// `DataFrame::show` and `DataFrame::to_string`.
 /// `DESCRIBE`, `SHOW COLUMNS`, and `information_schema.columns` report top-level
 /// Variant fields as `Variant`.
 /// Parquet `COPY` supports `variant.shredding`, mapping column names to SQL types.
+/// Tables made with `CREATE EXTERNAL TABLE ... STORED AS PARQUET` read files
+/// whose Variant shredding layouts differ; see [`VariantListingTableFactory`].
 ///
 /// Existing functions with the same names, the Variant extension registration,
-/// and the session's type planner are replaced. Call during session setup, before
+/// and the session's type planner are replaced. The session's `PARQUET` table
+/// factory is wrapped, not replaced. Call during session setup, before
 /// preparing statements: installing the type planner rebuilds the session state
 /// and clears prepared statements.
 pub fn register_all(
@@ -77,6 +79,7 @@ pub fn register_all(
             .with_session_id(state.session_id().to_owned())
             .with_type_planner(Arc::new(VariantTypePlanner))
             .build();
+        VariantListingTableFactory::register(&mut state);
     }
 
     variant_display::register(ctx)?;

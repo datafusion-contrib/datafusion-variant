@@ -246,7 +246,18 @@ field of the unshredded file comes back as SQL NULL, with no error
 ([apache/datafusion#27089](https://github.com/apache/datafusion/issues/27089)).
 
 `VariantExprAdapterFactory` reads each file in its own layout and converts it to
-the table's layout per batch. Install it on the table:
+the table's layout per batch. `register_all` installs it for every table made
+with `CREATE EXTERNAL TABLE ... STORED AS PARQUET`:
+
+<!-- readme-test: skip: needs a directory of files with different shredding layouts; covered by tests/test_files/expr_adapter.slt -->
+```sql
+CREATE EXTERNAL TABLE mixed_events STORED AS PARQUET LOCATION 'events/';
+```
+
+Tables made another way do not get it automatically. That includes
+`SELECT ... FROM 'events/'`, `SessionContext::read_parquet` and
+`SessionContext::register_parquet`. For a `ListingTable` built in Rust, set it
+on the table:
 
 ```rust,ignore
 use datafusion::datasource::listing::{
