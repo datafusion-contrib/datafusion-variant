@@ -41,28 +41,22 @@ fields:
 
 <!--
 ```sql
-SELECT residual_json(event) AS residual,
-       event['typed_value']['service']['typed_value'] AS service,
-       event['typed_value']['status']['typed_value'] AS status
+SELECT residual_json(event) AS "event (residual)",
+       event['typed_value']['service']['typed_value'] AS "event.service",
+       event['typed_value']['status']['typed_value'] AS "event.status"
 FROM 'shredded_events.parquet';
-```
-
-```text
-+-------------------------------------+---------+--------+
-| residual                            | service | status |
-+-------------------------------------+---------+--------+
-| {"latency_ms":12,"tags":["cached"]} | api     | 200    |
-| {"error":null,"latency_ms":85}      | api     | 500    |
-| {"error":"Somethings not working"}  | api     | 504    |
-+-------------------------------------+---------+--------+
 ```
 -->
 
-| Residual `event` (Variant)            | `event.service` (VARCHAR) | `event.status` (BIGINT) |
-|---------------------------------------|---------------------------|-------------------------|
-| `{"latency_ms":12,"tags":["cached"]}` | `api`                     | `200`                   |
-| `{"error":null,"latency_ms":85}`      | `api`                     | `500`                   |
-| `{"error":"Somethings not working"}`  | `api`                     | `504`                   |
+```text
++-------------------------------------+---------------+--------------+
+| event (residual)                    | event.service | event.status |
++-------------------------------------+---------------+--------------+
+| {"latency_ms":12,"tags":["cached"]} | api           | 200          |
+| {"error":null,"latency_ms":85}      | api           | 500          |
+| {"error":"Somethings not working"}  | api           | 504          |
++-------------------------------------+---------------+--------------+
+```
 
 > [!NOTE]
 > The actual encoding is more complicated: the typed columns and the binary
@@ -94,36 +88,31 @@ OPTIONS ('variant.shredding' '{
 }');
 ```
 
-This is logically equivalent to storing two typed columns plus a residual
-Variant column. Fields that are not in the layout, such as `service` and
-`detail.region`, stay in the residual, and rows without a shredded field have
-`NULL` in its typed column:
+Fields that are not in the layout stay in the residual of the object that
+contains them: `service` in the residual of `request`, and `region` in the
+residual of `request.detail`. Rows without a shredded field have `NULL` in its
+typed column:
 
 <!--
 ```sql
-SELECT residual_json(request) AS residual,
-       residual_json(request, 'detail') AS detail_residual,
-       request['typed_value']['detail']['typed_value']['latency_ms']['typed_value'] AS latency_ms,
-       request['typed_value']['tags']['typed_value'] AS tags
+SELECT residual_json(request) AS "request (residual)",
+       residual_json(request, 'detail') AS "request.detail (residual)",
+       request['typed_value']['detail']['typed_value']['latency_ms']['typed_value'] AS "request.detail.latency_ms",
+       CASE WHEN request['typed_value']['tags']['typed_value'] IS NOT NULL
+            THEN to_json(variant_get(request, 'tags')) END AS "request.tags"
 FROM 'shredded_requests.parquet';
-```
-
-```text
-+-------------------------------------+----------------------+------------+--------------------------------------+
-| residual                            | detail_residual      | latency_ms | tags                                 |
-+-------------------------------------+----------------------+------------+--------------------------------------+
-| {"service":"api"}                   | {"region":"us-east"} | 12         | [{value: NULL, typed_value: cached}] |
-| {"service":"api"}                   | NULL                 | 85         | []                                   |
-| {"error":"timeout","service":"web"} | {"region":"eu-west"} | NULL       | NULL                                 |
-+-------------------------------------+----------------------+------------+--------------------------------------+
 ```
 -->
 
-| Residual `request` (Variant)                                        | `request.detail.latency_ms` (BIGINT) | `request.tags` (VARCHAR[]) |
-|---------------------------------------------------------------------|--------------------------------------|----------------------------|
-| `{"detail":{"region":"us-east"},"service":"api"}`                   | `12`                                 | `["cached"]`               |
-| `{"service":"api"}`                                                 | `85`                                 | `[]`                       |
-| `{"detail":{"region":"eu-west"},"error":"timeout","service":"web"}` | `NULL`                               | `NULL`                     |
+```text
++-------------------------------------+---------------------------+---------------------------+--------------+
+| request (residual)                  | request.detail (residual) | request.detail.latency_ms | request.tags |
++-------------------------------------+---------------------------+---------------------------+--------------+
+| {"service":"api"}                   | {"region":"us-east"}      | 12                        | ["cached"]   |
+| {"service":"api"}                   | NULL                      | 85                        | []           |
+| {"error":"timeout","service":"web"} | {"region":"eu-west"}      | NULL                      | NULL         |
++-------------------------------------+---------------------------+---------------------------+--------------+
+```
 
 ## Format of the `variant.shredding` option
 
@@ -184,30 +173,26 @@ CREATE TABLE samples AS SELECT * FROM (VALUES
 ) AS input(id, v);
 COPY samples TO 'shredded_samples.parquet' STORED AS PARQUET
 OPTIONS ('variant.shredding' '{"v": "BIGINT"}');
-SELECT id, v['value'] IS NOT NULL AS in_residual, v['typed_value'] AS shredded
-FROM 'shredded_samples.parquet' ORDER BY id;
-```
-
-```text
-+----+-------------+----------+
-| id | in_residual | shredded |
-+----+-------------+----------+
-| 1  | false       | 300      |
-| 2  | false       | 2        |
-| 3  | true        | NULL     |
-| 4  | true        | NULL     |
-| 5  | true        | NULL     |
-+----+-------------+----------+
+SELECT s.v AS "Variant value",
+       schema_of_variant(s.v) AS "Variant type",
+       residual_json(f.v) AS "residual Variant",
+       f.v['typed_value'] AS "shredded BIGINT"
+FROM samples s JOIN 'shredded_samples.parquet' f ON s.id = f.id
+ORDER BY s.id;
 ```
 -->
 
-| Variant value    | residual Variant | shredded BIGINT |
-|------------------|------------------|-----------------|
-| `300` (integer)  | `NULL`           | `300`           |
-| `2.00` (decimal) | `NULL`           | `2`             |
-| `1.50` (decimal) | `1.50`           | `NULL`          |
-| `2.0` (double)   | `2.0`            | `NULL`          |
-| `"200"` (string) | `"200"`          | `NULL`          |
+```text
++---------------+--------------+------------------+-----------------+
+| Variant value | Variant type | residual Variant | shredded BIGINT |
++---------------+--------------+------------------+-----------------+
+| 300           | BIGINT       | NULL             | 300             |
+| 2             | DECIMAL(3,2) | NULL             | 2               |
+| 1.5           | DECIMAL(3,2) | 1.5              | NULL            |
+| 2.0           | DOUBLE       | 2.0              | NULL            |
+| "200"         | STRING       | "200"            | NULL            |
++---------------+--------------+------------------+-----------------+
+```
 
 If a Variant object is shredded into a `STRUCT`, fields in the Variant that are
 not in the `STRUCT` remain in the residual Variant column. For example, if
