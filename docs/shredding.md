@@ -152,47 +152,10 @@ OPTIONS ('variant.shredding' '{
 
 The shredding is described as SQL types, which are parsed by DataFusion's SQL
 parser. The `COPY` statement attempts to "shred" the matching parts of the
-Variant into values of that Parquet type. A value is shredded when its Variant
-type is in the same [equivalence class][parquet-variant-encoding-types] as the
-layout type and it converts without loss. Otherwise, a `NULL` is stored in the
-shredded column and the value remains in the residual Variant column. Integers
-and decimals are all in the Exact Numeric class, while `DOUBLE`, `FLOAT`,
-strings, dates, and timestamps with and without a time zone each have their own
-class.
-
-For example, shredding these Variant values as `BIGINT`:
-
-<!--
-```sql
-CREATE TABLE samples AS SELECT * FROM (VALUES
-    (1, CAST(arrow_cast(300, 'Int16') AS VARIANT)),
-    (2, CAST(arrow_cast(2.00, 'Decimal128(3, 2)') AS VARIANT)),
-    (3, CAST(arrow_cast(1.50, 'Decimal128(3, 2)') AS VARIANT)),
-    (4, CAST(2.0 AS VARIANT)),
-    (5, CAST('200' AS VARIANT))
-) AS input(id, v);
-COPY samples TO 'shredded_samples.parquet' STORED AS PARQUET
-OPTIONS ('variant.shredding' '{"v": "BIGINT"}');
-SELECT s.v AS "Variant value",
-       schema_of_variant(s.v) AS "Variant type",
-       residual_json(f.v) AS "residual Variant",
-       f.v['typed_value'] AS "shredded BIGINT"
-FROM samples s JOIN 'shredded_samples.parquet' f ON s.id = f.id
-ORDER BY s.id;
-```
--->
-
-```text
-+---------------+--------------+------------------+-----------------+
-| Variant value | Variant type | residual Variant | shredded BIGINT |
-+---------------+--------------+------------------+-----------------+
-| 300           | BIGINT       | NULL             | 300             |
-| 2             | DECIMAL(3,2) | NULL             | 2               |
-| 1.5           | DECIMAL(3,2) | 1.5              | NULL            |
-| 2.0           | DOUBLE       | 2.0              | NULL            |
-| "200"         | STRING       | "200"            | NULL            |
-+---------------+--------------+------------------+-----------------+
-```
+Variant into values of that Parquet type. If the Variant value can be converted
+to the specified type, the shredded column is populated with that value.
+Otherwise, a `NULL` is stored in the shredded column and the value remains in
+the residual Variant column.
 
 If a Variant object is shredded into a `STRUCT`, fields in the Variant that are
 not in the `STRUCT` remain in the residual Variant column. For example, if
@@ -241,6 +204,7 @@ specification][parquet-variant-shredding]. For example:
 * `VARCHAR`, `BYTEA`
 * `STRUCT<name type, ...>` and `type[]`, nested to any depth
 
+<!-- These checks fail once a type listed below as rejected becomes supported, so this list can't silently go stale. -->
 <!-- readme-test: error: not a valid variant shredding type -->
 <!--
 ```sql
@@ -311,5 +275,4 @@ layout is timezone-naive like `TIMESTAMP`, and timezone-aware Variant timestamps
 stay in the residual. Variant stores these timestamps in UTC, so any zone works:
 run `SET datafusion.execution.time_zone = 'UTC'` before the `COPY`.
 
-[parquet-variant-encoding-types]: https://parquet.apache.org/docs/file-format/types/variantencoding/#encoding-types
 [parquet-variant-shredding]: https://parquet.apache.org/docs/file-format/types/variantshredding/
