@@ -11,8 +11,8 @@ use datafusion::{
     common::{config::ConfigOptions, exec_datafusion_err, exec_err},
     error::{DataFusionError, Result},
     logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
-        TypeSignature, Volatility,
+        ColumnarValue, Expr, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl,
+        Signature, TypeSignature, Volatility,
     },
     scalar::ScalarValue,
 };
@@ -345,6 +345,19 @@ impl ScalarUDFImpl for VariantGetUdf {
 
     fn name(&self) -> &str {
         "variant_get"
+    }
+
+    // Name columns after the `:` syntax, as `get_field` names `s[a]`.
+    fn schema_name(&self, args: &[Expr]) -> Result<String> {
+        if let [base, Expr::Literal(path, _)] = args
+            && let Some(Some(path)) = path.try_as_str()
+            && !path.is_empty()
+        {
+            return Ok(format!("{}:{path}", base.schema_name()));
+        }
+        // DataFusion's default name, whose helper is crate-private.
+        let args: Vec<_> = args.iter().map(|e| e.schema_name().to_string()).collect();
+        Ok(format!("{}({})", self.name(), args.join(",")))
     }
 
     fn signature(&self) -> &Signature {
