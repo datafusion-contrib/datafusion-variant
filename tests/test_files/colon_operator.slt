@@ -75,3 +75,34 @@ NULL
 NULL
 NULL
 NULL
+
+# Columns are named after the `:` syntax, qualified like other computed columns.
+statement ok
+CREATE TABLE colon_names AS SELECT id, parse_json(json_str) AS v FROM json_data;
+
+query TTT
+DESCRIBE SELECT v:name, v:items[0]['name'], v:age::int FROM colon_names;
+----
+colon_names.v:name Variant YES
+colon_names.v:items[0]['name'] Variant YES
+colon_names.v:age Int32 YES
+
+# Qualifiers keep the same path on both sides of a join distinct.
+query TTT
+DESCRIBE SELECT a.v:name, b.v:name FROM colon_names a JOIN colon_names b ON a.id = b.id;
+----
+a.v:name Variant YES
+b.v:name Variant YES
+
+# Explicit two-argument calls share the name.
+query TTT
+DESCRIBE SELECT variant_get(v, 'name') FROM colon_names;
+----
+colon_names.v:name Variant YES
+
+# The type-hint form and the root path keep the function name.
+query TTT
+DESCRIBE SELECT variant_get(v, ''), variant_get(v, 'age', 'INT') FROM colon_names;
+----
+variant_get(colon_names.v,Utf8("")) Variant YES
+variant_get(colon_names.v,Utf8("age"),Utf8("INT")) Int32 YES
