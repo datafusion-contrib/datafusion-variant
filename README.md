@@ -249,7 +249,7 @@ field of the unshredded file comes back as SQL NULL, with no error
 the table's layout per batch. `register_all` installs it for every table made
 with `CREATE EXTERNAL TABLE ... STORED AS PARQUET`:
 
-<!-- readme-test: skip: needs a directory of files with different shredding layouts; covered by tests/test_files/expr_adapter.slt -->
+<!-- readme-test: skip: needs a directory of files with different shredding layouts; covered by tests/test_files/schema_evolution.slt -->
 ```sql
 CREATE EXTERNAL TABLE mixed_events STORED AS PARQUET LOCATION 'events/';
 ```

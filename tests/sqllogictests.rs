@@ -194,13 +194,8 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         register_all(&mut ctx)?;
 
-        if relative_path == Path::new("expr_adapter.slt") {
-            // `SELECT ... FROM '<path>'` builds a ListingTable with DataFusion's
-            // default adapter; `CREATE EXTERNAL TABLE ... STORED AS PARQUET`
-            // goes through the factory `register_all` installs and gets the
-            // Variant adapter.
-            ctx = ctx.enable_url_table();
-        }
+        // Allow querying files directly: `SELECT ... FROM '<path>'`
+        let ctx = ctx.enable_url_table();
 
         if relative_path == Path::new("parquet_shredding.slt") {
             ctx.register_udtf(

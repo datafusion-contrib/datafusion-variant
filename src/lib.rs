@@ -50,6 +50,12 @@ pub use variant_object_insert::*;
 pub use variant_object_keys::*;
 pub use variant_type::*;
 
+use datafusion::error::Result;
+use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
+use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
+use datafusion::prelude::SessionContext;
+use std::sync::Arc;
+
 /// Register all Variant functionality with a DataFusion [`SessionContext`]
 ///
 /// JSON display applies to DataFusion's extension-aware formatters, including
@@ -65,13 +71,7 @@ pub use variant_type::*;
 /// factory is wrapped, not replaced. Call during session setup, before
 /// preparing statements: installing the type planner rebuilds the session state
 /// and clears prepared statements.
-pub fn register_all(
-    ctx: &mut datafusion::prelude::SessionContext,
-) -> datafusion::error::Result<()> {
-    use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
-    use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
-    use std::sync::Arc;
-
+pub fn register_all(ctx: &mut SessionContext) -> Result<()> {
     {
         let state = ctx.state_ref();
         let mut state = state.write();

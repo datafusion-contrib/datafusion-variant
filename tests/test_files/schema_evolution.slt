@@ -110,3 +110,69 @@ SELECT count(variant_get(event, 'service', 'VARCHAR')),
 FROM keys;
 ----
 6 6 4
+
+# The same two files, field by field: every row has every field.
+query TII
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       event:status::BIGINT AS status,
+       event:latency_ms::BIGINT AS latency_ms
+FROM keys
+ORDER BY status, latency_ms NULLS FIRST;
+----
+api 200 12
+api 200 12
+api 500 85
+api 500 85
+db 504 NULL
+db 504 NULL
+
+# Two files with the same layout are read unchanged.
+query I
+COPY events TO '$__TEST_DIR__/same/a.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR, status BIGINT>"}');
+----
+3
+
+query I
+COPY events TO '$__TEST_DIR__/same/b.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR, status BIGINT>"}');
+----
+3
+
+statement ok
+CREATE EXTERNAL TABLE same STORED AS PARQUET LOCATION '$__TEST_DIR__/same/';
+
+query TII
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       event:status::BIGINT AS status,
+       event:latency_ms::BIGINT AS latency_ms
+FROM same
+ORDER BY status, latency_ms NULLS FIRST;
+----
+api 200 12
+api 200 12
+api 500 85
+api 500 85
+db 504 NULL
+db 504 NULL
+
+# An unshredded file and one shredded on a single field. Every row is a valid
+# Variant for the table's layout: status comes back for all six.
+query I
+COPY events TO '$__TEST_DIR__/whole/a_unshredded.parquet' STORED AS PARQUET;
+----
+3
+
+query I
+COPY events TO '$__TEST_DIR__/whole/b_shredded.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<status BIGINT>"}');
+----
+3
+
+statement ok
+CREATE EXTERNAL TABLE whole STORED AS PARQUET LOCATION '$__TEST_DIR__/whole/';
+
+query I
+SELECT count(event:status::BIGINT) FROM whole;
+----
+6
