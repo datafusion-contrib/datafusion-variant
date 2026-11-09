@@ -168,9 +168,24 @@ For example, if you try to shred this Variant object as a `BIGINT`:
 
 the shredded column will be `NULL`:
 
-| residual Variant                   | shredded BIGINT |
-|------------------------------------|-----------------|
-| `{"service":"api","status":"200"}` | `NULL`          |
+<!--
+```sql
+CREATE TABLE status_objects AS SELECT parse_json('{"service":"api","status":"200"}') AS v;
+COPY status_objects TO 'shredded_status.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "BIGINT"}');
+SELECT residual_json(v) AS "residual Variant",
+       v['typed_value'] AS "shredded BIGINT"
+FROM 'shredded_status.parquet';
+```
+-->
+
+```text
++----------------------------------+-----------------+
+| residual Variant                 | shredded BIGINT |
++----------------------------------+-----------------+
+| {"service":"api","status":"200"} | NULL            |
++----------------------------------+-----------------+
+```
 
 If a Variant object is shredded into a `STRUCT`, fields in the Variant that are
 not in the `STRUCT` remain in the residual Variant column. For example, if

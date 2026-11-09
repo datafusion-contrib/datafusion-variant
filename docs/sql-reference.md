@@ -3,7 +3,7 @@
 # SQL function reference
 
 Documented scalar and aggregate functions registered by `register_all`.
-See the [README](../README.md) for setup and common workflows.
+See the [README](https://github.com/datafusion-contrib/datafusion-variant/blob/main/README.md) for setup and common workflows.
 
 - [is_valid_variant](#is_valid_variant)
 - [is_variant_null](#is_variant_null)

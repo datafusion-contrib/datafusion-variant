@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Execute the SQL examples in the README and in `docs/*.md` and compare their
-//! results with the copy/pasted output.
+//! Execute the SQL examples in the README and in the pages under `docs/` and
+//! compare their results with the copy/pasted output. The generated
+//! `docs/sql-reference.md` is checked by `generate_function_docs` instead.
 //!
 //! Each `sql` fence is run, and its output must match the next `text` fence
 //! exactly. For example, this Markdown passes:
@@ -48,7 +49,11 @@ use datafusion::prelude::*;
 use datafusion::sql::parser::{DFParser, Statement};
 use datafusion_variant::register_all;
 use parquet_variant_compute::variant_to_json;
-use std::{io::Write, sync::Arc};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 #[tokio::test]
 async fn readme_sql() -> Result<()> {
@@ -56,8 +61,31 @@ async fn readme_sql() -> Result<()> {
 }
 
 #[tokio::test]
-async fn shredding_doc_sql() -> Result<()> {
-    check_markdown("docs/shredding.md", include_str!("../docs/shredding.md")).await
+async fn docs_sql() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let docs = root.join("docs");
+    let mut pages = Vec::new();
+    markdown_pages(&docs, &mut pages)?;
+    pages.retain(|page| *page != docs.join("sql-reference.md"));
+    pages.sort();
+    ensure!(!pages.is_empty(), "no pages found under docs/");
+    for page in pages {
+        let name = page.strip_prefix(root)?.display().to_string();
+        check_markdown(&name, &std::fs::read_to_string(&page)?).await?;
+    }
+    Ok(())
+}
+
+fn markdown_pages(dir: &Path, pages: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            markdown_pages(&path, pages)?;
+        } else if path.extension().is_some_and(|ext| ext == "md") {
+            pages.push(path);
+        }
+    }
+    Ok(())
 }
 
 async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
