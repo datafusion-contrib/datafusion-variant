@@ -152,13 +152,12 @@ OPTIONS ('variant.shredding' '{
 The shredding is described as SQL types, which are parsed by DataFusion's SQL
 parser. The `COPY` statement attempts to "shred" the matching parts of the
 Variant into values of that Parquet type. A value is shredded when its Variant
-type is in the same family as the layout type and it converts without loss.
-Otherwise, a `NULL` is stored in the shredded column and the value remains in
-the residual Variant column. The families are the
-[equivalence classes](https://github.com/apache/parquet-format/blob/master/VariantEncoding.md#encoding-types)
-of the Variant encoding: integers and decimals form one family, while `DOUBLE`,
-`FLOAT`, strings, dates, and timestamps with and without a time zone are each
-their own.
+type is in the same [equivalence class][parquet-variant-encoding-types] as the
+layout type and it converts without loss. Otherwise, a `NULL` is stored in the
+shredded column and the value remains in the residual Variant column. Integers
+and decimals are all in the Exact Numeric class, while `DOUBLE`, `FLOAT`,
+strings, dates, and timestamps with and without a time zone each have their own
+class.
 
 For example, shredding these Variant values as `BIGINT`:
 
@@ -291,4 +290,5 @@ layout is timezone-naive like `TIMESTAMP`, and timezone-aware Variant timestamps
 stay in the residual. Variant stores these timestamps in UTC, so any zone works:
 run `SET datafusion.execution.time_zone = 'UTC'` before the `COPY`.
 
+[parquet-variant-encoding-types]: https://parquet.apache.org/docs/file-format/types/variantencoding/#encoding-types
 [parquet-variant-shredding]: https://parquet.apache.org/docs/file-format/types/variantshredding/
