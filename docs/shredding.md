@@ -206,11 +206,27 @@ you shred a Variant object like
 ```
 
 into a `STRUCT` with only fields `a` and `b` (`STRUCT<a BIGINT, b BIGINT>`), the
-result is logically:
+result is:
 
+<!--
+```sql
+CREATE TABLE objects AS SELECT parse_json('{"a":1,"b":2,"c":3}') AS v;
+COPY objects TO 'shredded_objects.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "STRUCT<a BIGINT, b BIGINT>"}');
+SELECT residual_json(v) AS "residual Variant",
+       named_struct('a', v['typed_value']['a']['typed_value'],
+                    'b', v['typed_value']['b']['typed_value']) AS "shredded STRUCT"
+FROM 'shredded_objects.parquet';
+```
+-->
+
+```text
++------------------+-----------------+
 | residual Variant | shredded STRUCT |
-|------------------|-----------------|
-| `{"c":3}`        | `{"a":1,"b":2}` |
++------------------+-----------------+
+| {"c":3}          | {a: 1, b: 2}    |
++------------------+-----------------+
+```
 
 ## Supported types
 
@@ -244,11 +260,15 @@ OPTIONS ('variant.shredding' '{"v": "STRUCT<a VARIANT>"}');
 ```
 -->
 
-Unsigned integers, intervals, and other types without a shredded Parquet
-representation are rejected. `TIME` is also rejected: DataFusion's `TIME` has
-nanosecond precision, and Variant times are microseconds. `VARIANT` fields
-inside a layout are not supported yet, so leave a field out of the layout to
-keep it in the residual.
+The following are rejected:
+
+* Unsigned integers, intervals, and other types without a shredded Parquet
+  representation
+* `TIME`, because DataFusion's `TIME` has nanosecond precision and Variant
+  times are microseconds
+* `VARIANT` fields inside a layout, which are not supported yet
+
+To keep a field as Variant, leave it out of the layout.
 
 <!--
 ```sql
