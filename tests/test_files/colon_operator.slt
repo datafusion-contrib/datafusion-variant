@@ -77,14 +77,17 @@ NULL
 NULL
 
 # Columns are named after the `:` syntax. The root path and the type-hint form keep the function name.
-query TTT
-DESCRIBE SELECT parse_json(json_str):name, variant_get(parse_json(json_str), ''), variant_get(parse_json(json_str), 'age', 'INT') FROM json_data;
-----
-parse_json(json_data.json_str):name Variant YES
-variant_get(parse_json(json_data.json_str),Utf8("")) Variant YES
-variant_get(parse_json(json_data.json_str),Utf8("age"),Utf8("INT")) Int32 YES
+statement ok
+CREATE TABLE events AS SELECT id, parse_json(json_str) AS event FROM json_data;
 
-# Qualifiers keep the same path on both sides of a join distinct.
+query TTT
+DESCRIBE SELECT event:name, variant_get(event, ''), variant_get(event, 'age', 'INT') FROM events;
+----
+events.event:name Variant YES
+variant_get(events.event,Utf8("")) Variant YES
+variant_get(events.event,Utf8("age"),Utf8("INT")) Int32 YES
+
+# Qualifiers keep the same path on both sides of a join distinct, also inside an expression input.
 query TTT
 DESCRIBE SELECT parse_json(a.json_str):name, parse_json(b.json_str):name FROM json_data a JOIN json_data b ON a.id = b.id;
 ----
