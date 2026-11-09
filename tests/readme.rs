@@ -25,11 +25,29 @@
 //! Several queries may share one expected `text` output.
 //!
 //! Skip SQL by adding `<!-- readme-test: skip: reason -->` before its fence.
+//!
+//! Wrap SQL in an HTML comment (`<!--` ... `-->`) to hide it from readers. It
+//! still runs, and its result is compared with the next `text` fence, which can
+//! sit outside the comment.
+//!
+//! Require every statement in a fence to fail by adding
+//! `<!-- readme-test: error: message -->` before it. Put the marker on its own
+//! line before a hidden check's `<!--`, since its `-->` would end the comment.
+//!
+//! The test-only `residual_json(variant[, field, ...])` function shows the
+//! residual stored at a shredded field path as JSON.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
+use arrow::array::{Array, ArrayRef, AsArray, StructArray};
+use arrow_schema::{DataType, Field, Fields};
+use datafusion::common::{exec_datafusion_err, exec_err};
+use datafusion::logical_expr::{
+    ColumnarValue, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
+};
 use datafusion::prelude::*;
 use datafusion::sql::parser::{DFParser, Statement};
 use datafusion_variant::register_all;
+use parquet_variant_compute::variant_to_json;
 use std::{io::Write, sync::Arc};
 
 #[tokio::test]
@@ -47,6 +65,7 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
     let mut ctx = SessionContext::new();
     let mut pending = Vec::<(usize, String)>::new();
     let mut skip = None;
+    let mut expect_error = None;
     let mut skipped = Vec::new();
     let mut executed = 0;
     let mut checked = 0;
@@ -69,6 +88,24 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
                 "parquet_metadata",
                 Arc::new(datafusion_cli::functions::ParquetMetadataFunc {}),
             );
+            ctx.register_udf(ScalarUDF::from(ResidualJson {
+                signature: Signature::variadic_any(Volatility::Immutable),
+            }));
+        }
+        if let Some(message) = line
+            .strip_prefix("<!-- readme-test: error:")
+            .and_then(|text| text.strip_suffix("-->"))
+        {
+            ensure!(
+                expect_error.is_none(),
+                "{name}:{line_number}: repeated error marker"
+            );
+            ensure!(
+                !message.trim().is_empty(),
+                "{name}:{line_number}: missing expected error"
+            );
+            expect_error = Some(message.trim());
+            continue;
         }
         if let Some(reason) = line
             .strip_prefix("<!-- readme-test: skip:")
@@ -104,6 +141,11 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
             skipped.push((line_number, reason));
             continue;
         }
+        let expected_error = expect_error.take();
+        ensure!(
+            expected_error.is_none() || language == "sql",
+            "{name}:{line_number}: error marker must precede SQL"
+        );
         match language {
             "sql" => {
                 executed += 1;
@@ -125,20 +167,33 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
                     .with_context(|| format!("{name}:{line_number}: parsing SQL"))?;
                 for statement in statements {
                     let is_copy = matches!(statement, Statement::CopyTo(_));
-                    let df = async {
+                    let result = async {
                         let plan = ctx.state().statement_to_plan(statement).await?;
-                        ctx.execute_logical_plan(plan).await
+                        let df = ctx.execute_logical_plan(plan).await?;
+                        if !is_copy && !df.schema().fields().is_empty() {
+                            // Exercise the session's registered extension formatters.
+                            df.to_string().await.map(Some)
+                        } else {
+                            df.collect().await.map(|_| None)
+                        }
                     }
-                    .await
-                    .with_context(|| format!("{name}:{line_number}: executing SQL"))?;
-                    if !is_copy && !df.schema().fields().is_empty() {
-                        // Exercise the session's registered extension formatters.
-                        let table = df.to_string().await.with_context(|| {
-                            format!("{name}:{line_number}: displaying SQL result")
-                        })?;
-                        pending.push((line_number, table));
-                    } else {
-                        df.collect().await?;
+                    .await;
+                    match (expected_error, result) {
+                        (Some(message), Err(error)) => {
+                            ensure!(
+                                error.to_string().contains(message),
+                                "{name}:{line_number}: expected error containing {message:?}, got: {error}"
+                            );
+                            checked += 1;
+                        }
+                        (Some(message), Ok(_)) => {
+                            bail!("{name}:{line_number}: expected error containing {message:?}")
+                        }
+                        (None, result) => {
+                            let table = result
+                                .with_context(|| format!("{name}:{line_number}: executing SQL"))?;
+                            pending.extend(table.map(|table| (line_number, table)));
+                        }
                     }
                 }
             }
@@ -160,6 +215,7 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
         }
     }
     ensure!(skip.is_none(), "{name}: unused skip marker");
+    ensure!(expect_error.is_none(), "{name}: unused error marker");
     ensure!(
         pending.is_empty(),
         "{name}: query result has no expected table"
@@ -176,4 +232,69 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
         writeln!(report, "  {name}:{line}: skipped ({reason})")?;
     }
     Ok(())
+}
+
+/// SQL cannot show a shredded residual otherwise: it is a binary column inside
+/// the shredded struct.
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct ResidualJson {
+    signature: Signature,
+}
+
+impl ScalarUDFImpl for ResidualJson {
+    fn name(&self) -> &str {
+        "residual_json"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::common::Result<DataType> {
+        Ok(DataType::Utf8)
+    }
+
+    fn invoke_with_args(
+        &self,
+        args: ScalarFunctionArgs,
+    ) -> datafusion::common::Result<ColumnarValue> {
+        let Some((variant, path)) = args.args.split_first() else {
+            return exec_err!("residual_json expects a Variant column");
+        };
+        let variant = variant.to_array(args.number_rows)?;
+        let variant = variant.as_struct();
+        let mut node = variant;
+        for field in path {
+            let Some(Some(field)) = (match field {
+                ColumnarValue::Scalar(field) => field.try_as_str(),
+                ColumnarValue::Array(_) => None,
+            }) else {
+                return exec_err!("residual_json path must be string literals");
+            };
+            node = node
+                .column_by_name("typed_value")
+                .and_then(|typed| typed.as_struct_opt())
+                .and_then(|typed| typed.column_by_name(field))
+                .and_then(|field| field.as_struct_opt())
+                .ok_or_else(|| exec_datafusion_err!("no shredded field '{field}'"))?;
+        }
+        let missing = |column| exec_datafusion_err!("residual_json input has no {column}");
+        let metadata = variant
+            .column_by_name("metadata")
+            .ok_or_else(|| missing("metadata"))?;
+        let value = node
+            .column_by_name("value")
+            .ok_or_else(|| missing("value"))?;
+        let fields = Fields::from(vec![
+            Field::new("metadata", metadata.data_type().clone(), false),
+            Field::new("value", value.data_type().clone(), true),
+        ]);
+        // Rows without a residual are SQL NULL, not Variant null.
+        let residual: ArrayRef = Arc::new(StructArray::try_new(
+            fields,
+            vec![metadata.clone(), value.clone()],
+            value.nulls().cloned(),
+        )?);
+        Ok(ColumnarValue::Array(Arc::new(variant_to_json(&residual)?)))
+    }
 }

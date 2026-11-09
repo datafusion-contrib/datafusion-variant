@@ -193,6 +193,13 @@ COPY events TO '$__TEST_DIR__/unused.parquet' PARTITIONED BY (metric) OPTIONS ('
 statement error not a valid variant shredding type
 COPY (SELECT * FROM events WHERE false) TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"INTERVAL"}');
 
+statement error not a valid variant shredding type
+COPY (SELECT * FROM events WHERE false) TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"INT UNSIGNED"}');
+
+# DataFusion's TIME is nanoseconds, Variant times are microseconds.
+statement error not a valid variant shredding type
+COPY (SELECT * FROM events WHERE false) TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"TIME"}');
+
 statement error Expected end of SQL type
 COPY events TO '$__TEST_DIR__/unused.parquet' OPTIONS ('variant.shredding' '{"Event":"BIGINT; SELECT 1"}');
 
