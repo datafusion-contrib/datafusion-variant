@@ -93,6 +93,7 @@ contains them: `service` in the residual of `request`, and `region` in the
 residual of `request.detail`. Rows without a shredded field have `NULL` in its
 typed column:
 
+<!-- TODO: remove `to_json` below when https://github.com/apache/datafusion/issues/24860 is fixed -->
 <!--
 ```sql
 SELECT residual_json(request) AS "request (residual)",
@@ -122,8 +123,8 @@ Each key is the case-sensitive name of a top-level Variant column in the `COPY`
 input that will be shredded. The value of each field is the SQL type used to
 store the shredded column.
 
-Note that this option only applies when copying to Parquet, and partition
-columns cannot be shredded.
+The option is rejected for formats other than Parquet, and partition columns
+cannot be shredded.
 
 One statement can shred several Variant columns. For example, given a table
 with two Variant columns, `event` and `metric`:

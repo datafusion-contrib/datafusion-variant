@@ -26,8 +26,9 @@
 //!
 //! Skip SQL by adding `<!-- readme-test: skip: reason -->` before its fence.
 //!
-//! Checks that readers do not need to see can be wrapped in an HTML comment
-//! (`<!--` ... `-->`). The fences inside still run and are compared.
+//! Wrap SQL in an HTML comment (`<!--` ... `-->`) to hide it from readers. It
+//! still runs, and its result is compared with the next `text` fence, which can
+//! sit outside the comment.
 //!
 //! Require every statement in a fence to fail by adding
 //! `<!-- readme-test: error: message -->` before it. Put the marker on its own
@@ -264,10 +265,10 @@ impl ScalarUDFImpl for ResidualJson {
         let variant = variant.as_struct();
         let mut node = variant;
         for field in path {
-            let ColumnarValue::Scalar(field) = field else {
-                return exec_err!("residual_json path must be string literals");
-            };
-            let Some(Some(field)) = field.try_as_str() else {
+            let Some(Some(field)) = (match field {
+                ColumnarValue::Scalar(field) => field.try_as_str(),
+                ColumnarValue::Array(_) => None,
+            }) else {
                 return exec_err!("residual_json path must be string literals");
             };
             node = node
