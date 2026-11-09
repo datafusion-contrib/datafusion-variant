@@ -35,14 +35,34 @@ The `variant.shredding` option is a JSON object that maps the name of the
 Variant column to a SQL type. The full format is described
 [below](#format-of-the-variantshredding-option).
 
-Storing the shredded column is logically equivalent to storing the Variant
-values as three columns:
+Storing the shredded column is logically equivalent to storing the typed
+`service` and `status` values plus a residual Variant column with the remaining
+fields:
 
-| `event` (Variant)                                                  | `event.service` (VARCHAR) | `event.status` (BIGINT) |
-|--------------------------------------------------------------------|---------------------------|-------------------------|
-| `{"service":"api","status":200,"latency_ms":12,"tags":["cached"]}` | `api`                     | `200`                   |
-| `{"service":"api","status":500,"latency_ms":85,"error":null}`      | `api`                     | `500`                   |
-| `{"service":"api","status":504,"error":"Somethings not working"}`  | `api`                     | `504`                   |
+<!--
+```sql
+SELECT residual_json(event) AS residual,
+       event['typed_value']['service']['typed_value'] AS service,
+       event['typed_value']['status']['typed_value'] AS status
+FROM 'shredded_events.parquet';
+```
+
+```text
++-------------------------------------+---------+--------+
+| residual                            | service | status |
++-------------------------------------+---------+--------+
+| {"latency_ms":12,"tags":["cached"]} | api     | 200    |
+| {"error":null,"latency_ms":85}      | api     | 500    |
+| {"error":"Somethings not working"}  | api     | 504    |
++-------------------------------------+---------+--------+
+```
+-->
+
+| Residual `event` (Variant)            | `event.service` (VARCHAR) | `event.status` (BIGINT) |
+|---------------------------------------|---------------------------|-------------------------|
+| `{"latency_ms":12,"tags":["cached"]}` | `api`                     | `200`                   |
+| `{"error":null,"latency_ms":85}`      | `api`                     | `500`                   |
+| `{"error":"Somethings not working"}`  | `api`                     | `504`                   |
 
 > [!NOTE]
 > The actual encoding is more complicated: the typed columns and the binary
@@ -74,15 +94,36 @@ OPTIONS ('variant.shredding' '{
 }');
 ```
 
-This is logically equivalent to storing the Variant column as three columns.
-Fields that are not in the layout, such as `service`, stay in the Variant
-column, and rows without a shredded field have `NULL` in its typed column:
+This is logically equivalent to storing two typed columns plus a residual
+Variant column. Fields that are not in the layout, such as `service` and
+`detail.region`, stay in the residual, and rows without a shredded field have
+`NULL` in its typed column:
 
-| `request` (Variant)                                                                 | `request.detail.latency_ms` (BIGINT) | `request.tags` (VARCHAR[]) |
-|-------------------------------------------------------------------------------------|--------------------------------------|----------------------------|
-| `{"service":"api","detail":{"latency_ms":12,"region":"us-east"},"tags":["cached"]}` | `12`                                 | `["cached"]`               |
-| `{"service":"api","detail":{"latency_ms":85},"tags":[]}`                            | `85`                                 | `[]`                       |
-| `{"service":"web","detail":{"region":"eu-west"},"error":"timeout"}`                 | `NULL`                               | `NULL`                     |
+<!--
+```sql
+SELECT residual_json(request) AS residual,
+       residual_json(request, 'detail') AS detail_residual,
+       request['typed_value']['detail']['typed_value']['latency_ms']['typed_value'] AS latency_ms,
+       request['typed_value']['tags']['typed_value'] AS tags
+FROM 'shredded_requests.parquet';
+```
+
+```text
++-------------------------------------+----------------------+------------+--------------------------------------+
+| residual                            | detail_residual      | latency_ms | tags                                 |
++-------------------------------------+----------------------+------------+--------------------------------------+
+| {"service":"api"}                   | {"region":"us-east"} | 12         | [{value: NULL, typed_value: cached}] |
+| {"service":"api"}                   | NULL                 | 85         | []                                   |
+| {"error":"timeout","service":"web"} | {"region":"eu-west"} | NULL       | NULL                                 |
++-------------------------------------+----------------------+------------+--------------------------------------+
+```
+-->
+
+| Residual `request` (Variant)                                        | `request.detail.latency_ms` (BIGINT) | `request.tags` (VARCHAR[]) |
+|---------------------------------------------------------------------|--------------------------------------|----------------------------|
+| `{"detail":{"region":"us-east"},"service":"api"}`                   | `12`                                 | `["cached"]`               |
+| `{"service":"api"}`                                                 | `85`                                 | `[]`                       |
+| `{"detail":{"region":"eu-west"},"error":"timeout","service":"web"}` | `NULL`                               | `NULL`                     |
 
 ## Format of the `variant.shredding` option
 
@@ -121,25 +162,52 @@ OPTIONS ('variant.shredding' '{
 
 The shredding is described as SQL types, which are parsed by DataFusion's SQL
 parser. The `COPY` statement attempts to "shred" the matching parts of the
-Variant into values of that Parquet type. If the Variant value can be converted
-to the specified type, the shredded column is populated with that value.
+Variant into values of that Parquet type. A value is shredded when its Variant
+type is in the same family as the layout type and it converts without loss.
 Otherwise, a `NULL` is stored in the shredded column and the value remains in
-the residual Variant column.
+the residual Variant column. The families are the
+[equivalence classes](https://github.com/apache/parquet-format/blob/master/VariantEncoding.md#encoding-types)
+of the Variant encoding: integers and decimals form one family, while `DOUBLE`,
+`FLOAT`, strings, dates, and timestamps with and without a time zone are each
+their own.
 
-For example, if you try to shred this Variant object as a `BIGINT`:
+For example, shredding these Variant values as `BIGINT`:
 
-```json
-{
-  "service": "api",
-  "status": "200"
-}
+<!--
+```sql
+CREATE TABLE samples AS SELECT * FROM (VALUES
+    (1, CAST(arrow_cast(300, 'Int16') AS VARIANT)),
+    (2, CAST(arrow_cast(2.00, 'Decimal128(3, 2)') AS VARIANT)),
+    (3, CAST(arrow_cast(1.50, 'Decimal128(3, 2)') AS VARIANT)),
+    (4, CAST(2.0 AS VARIANT)),
+    (5, CAST('200' AS VARIANT))
+) AS input(id, v);
+COPY samples TO 'shredded_samples.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "BIGINT"}');
+SELECT id, v['value'] IS NOT NULL AS in_residual, v['typed_value'] AS shredded
+FROM 'shredded_samples.parquet' ORDER BY id;
 ```
 
-the shredded column will be `NULL`:
+```text
++----+-------------+----------+
+| id | in_residual | shredded |
++----+-------------+----------+
+| 1  | false       | 300      |
+| 2  | false       | 2        |
+| 3  | true        | NULL     |
+| 4  | true        | NULL     |
+| 5  | true        | NULL     |
++----+-------------+----------+
+```
+-->
 
-| residual Variant                   | shredded BIGINT |
-|------------------------------------|-----------------|
-| `{"service":"api","status":"200"}` | `NULL`          |
+| Variant value    | residual Variant | shredded BIGINT |
+|------------------|------------------|-----------------|
+| `300` (integer)  | `NULL`           | `300`           |
+| `2.00` (decimal) | `NULL`           | `2`             |
+| `1.50` (decimal) | `1.50`           | `NULL`          |
+| `2.0` (double)   | `2.0`            | `NULL`          |
+| `"200"` (string) | `"200"`          | `NULL`          |
 
 If a Variant object is shredded into a `STRUCT`, fields in the Variant that are
 not in the `STRUCT` remain in the residual Variant column. For example, if
@@ -168,11 +236,74 @@ specification][parquet-variant-shredding]. For example:
 * `BOOLEAN`
 * `TINYINT`, `SMALLINT`, `INT`, `BIGINT`
 * `FLOAT`, `DOUBLE`, `DECIMAL(p, s)`
-* `DATE`, `TIME`, `TIMESTAMP`, `TIMESTAMP WITH TIME ZONE`
+* `DATE`, `TIMESTAMP`, `TIMESTAMP WITH TIME ZONE` (see below)
 * `VARCHAR`, `BYTEA`
 * `STRUCT<name type, ...>` and `type[]`, nested to any depth
 
+<!-- readme-test: error: not a valid variant shredding type -->
+<!--
+```sql
+COPY (SELECT parse_json('1') AS v) TO 'rejected.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "INT UNSIGNED"}');
+COPY (SELECT parse_json('1') AS v) TO 'rejected.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "INTERVAL"}');
+COPY (SELECT parse_json('1') AS v) TO 'rejected.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "TIME"}');
+```
+-->
+
+<!-- readme-test: error: SHREDDING layout cannot contain VARIANT -->
+<!--
+```sql
+COPY (SELECT parse_json('1') AS v) TO 'rejected.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "STRUCT<a VARIANT>"}');
+```
+-->
+
 Unsigned integers, intervals, and other types without a shredded Parquet
-representation are rejected.
+representation are rejected. `TIME` is also rejected: DataFusion's `TIME` has
+nanosecond precision, and Variant times are microseconds. `VARIANT` fields
+inside a layout are not supported yet, so leave a field out of the layout to
+keep it in the residual.
+
+<!--
+```sql
+CREATE TABLE times AS SELECT * FROM (VALUES
+    (CAST(arrow_cast(TIMESTAMP '2024-01-01T00:00:00', 'Timestamp(Microsecond, Some("UTC"))') AS VARIANT))
+) AS input(v);
+COPY times TO 'unset_zone_times.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "TIMESTAMP WITH TIME ZONE"}');
+SELECT v['typed_value'] AS shredded FROM 'unset_zone_times.parquet';
+```
+
+```text
++----------+
+| shredded |
++----------+
+| NULL     |
++----------+
+```
+
+```sql
+SET datafusion.execution.time_zone = 'UTC';
+COPY times TO 'utc_zone_times.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v": "TIMESTAMP WITH TIME ZONE"}');
+SELECT v['typed_value'] AS shredded FROM 'utc_zone_times.parquet';
+```
+
+```text
++----------------------+
+| shredded             |
++----------------------+
+| 2024-01-01T00:00:00Z |
++----------------------+
+```
+-->
+
+`TIMESTAMP WITH TIME ZONE` uses the session time zone,
+`datafusion.execution.time_zone`, which is unset by default. Without it, the
+layout is timezone-naive like `TIMESTAMP`, and timezone-aware Variant timestamps
+stay in the residual. Variant stores these timestamps in UTC, so any zone works:
+run `SET datafusion.execution.time_zone = 'UTC'` before the `COPY`.
 
 [parquet-variant-shredding]: https://parquet.apache.org/docs/file-format/types/variantshredding/
