@@ -84,7 +84,7 @@ fn snapshot_output(cmd: &mut assert_cmd::Command) -> String {
 /// Try:
 ///   -- Build a table of Variant values by parsing JSON    <--- Captured
 /// ...                                                     <--- Captured
-/// See https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/sql-reference.md for all functions.
+/// See https://... for all functions.
 /// ```
 ///
 /// Panics if the output has no examples banner.

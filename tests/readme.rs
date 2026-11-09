@@ -49,11 +49,7 @@ use datafusion::prelude::*;
 use datafusion::sql::parser::{DFParser, Statement};
 use datafusion_variant::register_all;
 use parquet_variant_compute::variant_to_json;
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{io::Write, path::Path, sync::Arc};
 
 #[tokio::test]
 async fn readme_sql() -> Result<()> {
@@ -63,27 +59,17 @@ async fn readme_sql() -> Result<()> {
 #[tokio::test]
 async fn docs_sql() -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let docs = root.join("docs");
-    let mut pages = Vec::new();
-    markdown_pages(&docs, &mut pages)?;
-    pages.retain(|page| *page != docs.join("sql-reference.md"));
+    let mut pages = std::fs::read_dir(root.join("docs"))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    pages.retain(|page| {
+        page.extension().is_some_and(|ext| ext == "md") && !page.ends_with("sql-reference.md")
+    });
     pages.sort();
     ensure!(!pages.is_empty(), "no pages found under docs/");
     for page in pages {
         let name = page.strip_prefix(root)?.display().to_string();
         check_markdown(&name, &std::fs::read_to_string(&page)?).await?;
-    }
-    Ok(())
-}
-
-fn markdown_pages(dir: &Path, pages: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            markdown_pages(&path, pages)?;
-        } else if path.extension().is_some_and(|ext| ext == "md") {
-            pages.push(path);
-        }
     }
     Ok(())
 }
