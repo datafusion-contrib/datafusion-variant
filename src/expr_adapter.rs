@@ -44,8 +44,13 @@ use std::sync::Arc;
 use arrow::array::{Array, ArrayRef, RecordBatch};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
+use async_trait::async_trait;
+use datafusion::catalog::{Session, TableProvider, TableProviderFactory};
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Result, exec_err, plan_err};
+use datafusion::datasource::listing::{ListingTable, ListingTableConfig};
+use datafusion::datasource::listing_table_factory::ListingTableFactory;
+use datafusion::logical_expr::CreateExternalTable;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr_adapter::{
@@ -400,5 +405,74 @@ impl PhysicalExpr for VariantReshredExpr {
         write!(f, "variant_reshred(")?;
         self.input.fmt_sql(f)?;
         write!(f, ")")
+    }
+}
+
+/// A [`TableProviderFactory`] for `CREATE EXTERNAL TABLE ... STORED AS PARQUET`
+/// that attaches [`VariantExprAdapterFactory`] to the table it creates.
+///
+/// DataFusion's [`ListingTableFactory`] builds a [`ListingTable`] with no
+/// expression adapter and offers no way to pass one through SQL. This factory
+/// runs it, then rebuilds the table with the adapter installed. Register it in
+/// place of the stock `PARQUET` factory:
+///
+/// ```ignore
+/// use datafusion_variant::VariantListingTableFactory;
+///
+/// ctx.state_ref()
+///     .write()
+///     .table_factories_mut()
+///     .insert("PARQUET".into(), Arc::new(VariantListingTableFactory::default()));
+/// ```
+#[derive(Debug, Default)]
+pub struct VariantListingTableFactory {
+    inner: ListingTableFactory,
+}
+
+#[async_trait]
+impl TableProviderFactory for VariantListingTableFactory {
+    async fn create(
+        &self,
+        state: &dyn Session,
+        cmd: &CreateExternalTable,
+    ) -> Result<Arc<dyn TableProvider>> {
+        let provider = self.inner.create(state, cmd).await?;
+        let Some(table) = provider.downcast_ref::<ListingTable>() else {
+            return Ok(provider);
+        };
+        if table.table_paths().is_empty() {
+            return Ok(provider);
+        }
+
+        // `ListingTable::schema()` has the partition columns appended;
+        // `ListingTableConfig` wants the file schema without them.
+        let partition_cols: Vec<&String> = table
+            .options()
+            .table_partition_cols
+            .iter()
+            .map(|(name, _)| name)
+            .collect();
+        let file_fields: Vec<FieldRef> = table
+            .schema()
+            .fields()
+            .iter()
+            .filter(|f| !partition_cols.contains(&f.name()))
+            .cloned()
+            .collect();
+        let file_schema = Arc::new(Schema::new_with_metadata(
+            file_fields,
+            table.schema().metadata().clone(),
+        ));
+
+        let config = ListingTableConfig::new_with_multi_paths(table.table_paths().clone())
+            .with_listing_options(table.options().clone())
+            .with_schema(file_schema)
+            .with_expr_adapter_factory(Arc::new(VariantExprAdapterFactory::default()));
+        let table = ListingTable::try_new(config)?
+            .with_cache(state.runtime_env().cache_manager.get_file_statistic_cache())
+            .with_definition(cmd.definition.clone())
+            .with_constraints(cmd.constraints.clone())
+            .with_column_defaults(cmd.column_defaults.clone());
+        Ok(Arc::new(table))
     }
 }

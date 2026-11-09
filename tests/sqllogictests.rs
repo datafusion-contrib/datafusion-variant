@@ -12,7 +12,7 @@ use datafusion_sqllogictest::{
     DFColumnType, DFOutput, DFSqlLogicTestError, TestContext, convert_batches,
     convert_schema_to_types,
 };
-use datafusion_variant::register_all;
+use datafusion_variant::{VariantListingTableFactory, register_all};
 use parquet_variant::{EMPTY_VARIANT_METADATA_BYTES, Uuid, Variant, VariantBuilderExt};
 use parquet_variant_compute::{
     VariantArray, VariantArrayBuilder, VariantType, json_to_variant, shred_variant,
@@ -193,6 +193,17 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             };
 
         register_all(&mut ctx)?;
+
+        if relative_path == Path::new("expr_adapter.slt") {
+            // `SELECT ... FROM '<path>'` builds a ListingTable with DataFusion's
+            // default adapter; `CREATE EXTERNAL TABLE ... STORED AS PARQUET`
+            // goes through this factory and gets the Variant adapter.
+            ctx = ctx.enable_url_table();
+            ctx.state_ref().write().table_factories_mut().insert(
+                "PARQUET".into(),
+                Arc::new(VariantListingTableFactory::default()),
+            );
+        }
 
         if relative_path == Path::new("parquet_shredding.slt") {
             ctx.register_udtf(
