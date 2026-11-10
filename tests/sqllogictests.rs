@@ -221,6 +221,28 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             register_binary_variant_fixture(&ctx)?;
         }
 
+        if relative_path == Path::new("schema_evolution.slt") {
+            // SQL type syntax cannot construct ListView/LargeListView storage.
+            // Reuse the fixture builder; file writes and assertions stay in SQL.
+            let item = Arc::new(Field::new_list_field(DataType::Int64, true));
+            for (name, list_type) in [
+                ("list_view_inputs", DataType::ListView(Arc::clone(&item))),
+                ("large_list_view_inputs", DataType::LargeListView(item)),
+            ] {
+                register_shredded_null_fixture(
+                    &ctx,
+                    name,
+                    vec![
+                        Some(r#"{"items":[1,null,"x"]}"#),
+                        Some(r#"{"items":[]}"#),
+                        Some("null"),
+                        None,
+                    ],
+                    DataType::Struct(vec![Field::new("items", list_type, true)].into()),
+                )?;
+            }
+        }
+
         if relative_path == Path::new("schema_of_variant.slt") {
             // UUID-to-Variant conversion is pending in Arrow (arrow-rs#11937);
             // variant_list_construct accepts only scalar arguments, so also

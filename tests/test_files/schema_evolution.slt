@@ -156,23 +156,33 @@ api 500 85
 db 504 NULL
 db 504 NULL
 
-# An unshredded file and one shredded on a single field. Every row is a valid
-# Variant for the table's layout: status comes back for all six.
+# Arrow fixtures supply list-view storage that SQL type syntax cannot construct.
+# Mixing raw and shredded files must preserve both view types, raw fallback
+# elements, empty lists, Variant null and SQL NULL. Also retain the Hive partition.
 query I
-COPY events TO '$__TEST_DIR__/whole/a_unshredded.parquet' STORED AS PARQUET;
+COPY (SELECT id, original AS small, original AS large FROM list_view_inputs)
+TO '$__TEST_DIR__/list_views/year=2026/raw.parquet' STORED AS PARQUET;
 ----
-3
+4
 
 query I
-COPY events TO '$__TEST_DIR__/whole/b_shredded.parquet' STORED AS PARQUET
-OPTIONS ('variant.shredding' '{"event":"STRUCT<status BIGINT>"}');
+COPY (SELECT s.id, s.v AS small, l.v AS large
+      FROM list_view_inputs s JOIN large_list_view_inputs l USING (id))
+TO '$__TEST_DIR__/list_views/year=2026/shredded.parquet' STORED AS PARQUET;
 ----
-3
+4
 
 statement ok
-CREATE EXTERNAL TABLE whole STORED AS PARQUET LOCATION '$__TEST_DIR__/whole/';
+CREATE EXTERNAL TABLE list_views STORED AS PARQUET LOCATION '$__TEST_DIR__/list_views/';
 
-query I
-SELECT count(event:status::BIGINT) FROM whole;
+query II??
+SELECT id, CAST(year AS BIGINT), small, large FROM list_views ORDER BY id;
 ----
-6
+1 2026 {"items":[1,null,"x"]} {"items":[1,null,"x"]}
+1 2026 {"items":[1,null,"x"]} {"items":[1,null,"x"]}
+2 2026 {"items":[]} {"items":[]}
+2 2026 {"items":[]} {"items":[]}
+3 2026 null null
+3 2026 null null
+4 2026 NULL NULL
+4 2026 NULL NULL

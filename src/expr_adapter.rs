@@ -4,9 +4,9 @@
 //!
 //! * [`VariantListingTableFactory`]: wraps an existing table factory to attach
 //!   [`VariantExprAdapterFactory`] to tables
-//! * [`VariantExprAdapterFactory`]: creates a [`VariantExprAdapter`] for each file
-//! * [`VariantExprAdapter`]: per-file adapter
-//! * [`VariantReshredExpr`]: expression that converts a Variant column from one
+//! * [`VariantExprAdapterFactory`]: creates a `VariantExprAdapter` for each file
+//! * `VariantExprAdapter`: per-file adapter
+//! * `VariantReshredExpr`: expression that converts a Variant column from one
 //!   shredding layout to another
 
 use std::fmt::{self, Display, Formatter};
@@ -37,9 +37,8 @@ use crate::variant_type::is_variant;
 /// from the table's.
 ///
 /// Implemented as a [`PhysicalExprAdapterFactory`] that wraps another factory
-/// and, if necessary, wraps Variant columns in a [`VariantReshredExpr`] so that
-/// every file returns them in the table's layout. See [`VariantExprAdapter`] for
-/// more details.
+/// and, when layouts differ, reconstructs Variant values and shreds them into
+/// the table's layout. Matching layouts use the wrapped adapter unchanged.
 ///
 /// # Example
 ///
@@ -77,7 +76,7 @@ use crate::variant_type::is_variant;
 ///   event: Struct<metadata, value, typed_value: Struct<service, status>>
 /// ```
 ///
-/// This adapter factory adds a [`VariantReshredExpr`] to convert the
+/// This adapter factory adds a per-file expression to convert the
 /// unshredded file's column to the table's shredded layout.
 ///
 /// With this adapter factory on the table, both files return every field. For
@@ -118,8 +117,7 @@ impl Default for VariantExprAdapterFactory {
 }
 
 impl VariantExprAdapterFactory {
-    /// Create a new `VariantExprAdapterFactory` that wraps the output of `inner`
-    /// with [`VariantExprAdapter`].
+    /// Adapt Variant layouts and delegate other schema rewriting to `inner`.
     pub fn new(inner: Arc<dyn PhysicalExprAdapterFactory>) -> Self {
         Self { inner }
     }
@@ -152,11 +150,11 @@ impl PhysicalExprAdapterFactory for VariantExprAdapterFactory {
 ///
 /// These are created by [`VariantExprAdapterFactory`].
 ///
-/// It wraps each reference to a Variant column in a [`VariantReshredExpr`] when
+/// It wraps each reference to a Variant column in a `VariantReshredExpr` when
 /// the file's shredding layout differs from the table's. Everything else is
 /// rewritten by the wrapped adapter.
 #[derive(Debug)]
-pub struct VariantExprAdapter {
+struct VariantExprAdapter {
     inner: Arc<dyn PhysicalExprAdapter>,
     logical_file_schema: SchemaRef,
     physical_file_schema: SchemaRef,
@@ -203,7 +201,7 @@ impl PhysicalExprAdapter for VariantExprAdapter {
 }
 
 impl VariantExprAdapter {
-    /// Returns a [`VariantReshredExpr`] that reshreds a Variant column whose
+    /// Returns a `VariantReshredExpr` that reshreds a Variant column whose
     /// file layout differs from the table layout.
     ///
     /// Returns `None` if the column doesn't need reshredding.
@@ -318,6 +316,14 @@ fn shredding_schema(storage: &DataType) -> Result<DataType> {
             shredded_field_type(child)?,
             true,
         ))),
+        DataType::ListView(child) => DataType::ListView(Arc::new(Field::new_list_field(
+            shredded_field_type(child)?,
+            true,
+        ))),
+        DataType::LargeListView(child) => DataType::LargeListView(Arc::new(Field::new_list_field(
+            shredded_field_type(child)?,
+            true,
+        ))),
         primitive => primitive.clone(),
     })
 }
@@ -341,7 +347,7 @@ fn shredded_field_type(field: &Field) -> Result<DataType> {
 /// Each batch is unshredded and shredded again to the target `typed_value`
 /// schema, so every row is valid for the target layout.
 #[derive(Debug, Clone, Eq)]
-pub struct VariantReshredExpr {
+struct VariantReshredExpr {
     input: Arc<dyn PhysicalExpr>,
     target: FieldRef,
 }
@@ -366,18 +372,8 @@ impl VariantReshredExpr {
     ///
     /// * `input`: evaluates to a Variant column.
     /// * `target`: the output field: the Variant storage type to produce.
-    pub fn new(input: Arc<dyn PhysicalExpr>, target: FieldRef) -> Self {
+    fn new(input: Arc<dyn PhysicalExpr>, target: FieldRef) -> Self {
         Self { input, target }
-    }
-
-    /// The input expression.
-    pub fn input(&self) -> &Arc<dyn PhysicalExpr> {
-        &self.input
-    }
-
-    /// The output field.
-    pub fn target(&self) -> &FieldRef {
-        &self.target
     }
 
     /// Perform the actual reshredding.
@@ -506,29 +502,11 @@ impl TableProviderFactory for VariantListingTableFactory {
         // to get a ListingTableConfig from the listing table
         // <https://github.com/apache/datafusion/issues/27314>
 
-        // `ListingTable::schema()` has the partition columns appended;
-        // `ListingTableConfig` wants the file schema without them.
-        let partition_cols: Vec<&String> = table
-            .options()
-            .table_partition_cols
-            .iter()
-            .map(|(name, _)| name)
-            .collect();
-        let file_fields: Vec<FieldRef> = table
-            .schema()
-            .fields()
-            .iter()
-            .filter(|f| !partition_cols.contains(&f.name()))
-            .cloned()
-            .collect();
-        let file_schema = Arc::new(Schema::new_with_metadata(
-            file_fields,
-            table.schema().metadata().clone(),
-        ));
-
+        // `ListingTable::try_new` removes partition columns from this schema
+        // before appending their definitions from the listing options.
         let config = ListingTableConfig::new_with_multi_paths(table.table_paths().clone())
             .with_listing_options(table.options().clone())
-            .with_schema(file_schema)
+            .with_schema(table.schema())
             .with_expr_adapter_factory(Arc::new(VariantExprAdapterFactory::default()));
         let table = ListingTable::try_new(config)?
             .with_cache(state.runtime_env().cache_manager.get_file_statistic_cache())
