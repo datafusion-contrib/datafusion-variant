@@ -406,9 +406,9 @@ impl ScalarUDFImpl for VariantGetUdf {
 /// [`VariantGetUdf`].
 #[user_doc(
     doc_section(label = "Variant Functions"),
-    description = "Extracts the value at a path and optionally converts it to a SQL type.
-Uses the same paths, type hints, and null handling as `variant_get`, but failed
-result-type conversions return SQL NULL. Without a type hint, returns Variant.
+    description = "Extracts the value at a path and optionally converts it to a SQL type,
+returning SQL NULL when the result-type conversion fails. Uses the same paths, type
+hints, and null handling as `variant_get`. Without a type hint, returns Variant.
 Invalid paths and invalid type hints still raise errors.
 
 Register with `register_variant_get_functions` to enable `TRY_CAST` of getters.

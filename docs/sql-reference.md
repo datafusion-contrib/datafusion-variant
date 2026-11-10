@@ -3,19 +3,21 @@
 # SQL function reference
 
 Documented scalar and aggregate functions registered by `register_all`.
-See the [README](https://github.com/datafusion-contrib/datafusion-variant/blob/main/README.md) for setup and common workflows.
+See [Getting started](getting-started.md) for setup and the [cookbook](cookbook/load-and-query-json.md) for common workflows.
 
-- [is_valid_variant](#is_valid_variant)
-- [is_variant_null](#is_variant_null)
-- [parse_json](#parse_json)
-- [schema_of_variant](#schema_of_variant)
-- [schema_of_variant_agg](#schema_of_variant_agg)
-- [to_json](#to_json)
-- [to_variant_object](#to_variant_object)
-- [try_parse_json](#try_parse_json)
-- [try_variant_get](#try_variant_get)
-- [variant_delete](#variant_delete)
-- [variant_get](#variant_get)
+| Function | Description |
+| --- | --- |
+| [`is_valid_variant(value)`](#is_valid_variant) | Validates a Variant value using Arrow validation. |
+| [`is_variant_null(value)`](#is_variant_null) | Returns true if the input is a present Variant null, and false otherwise, including SQL NULL and missing fields. |
+| [`parse_json(json)`](#parse_json) | Parses a JSON string into a Variant value. |
+| [`schema_of_variant(value)`](#schema_of_variant) | Returns a SQL schema string for a Variant value. |
+| [`schema_of_variant_agg(value)`](#schema_of_variant_agg) | Returns a SQL schema string by merging the schemas of Variant values across rows. |
+| [`to_json(value[, options])`](#to_json) | Serializes a Variant value to a JSON string. |
+| [`to_variant_object(expression)`](#to_variant_object) | Converts an array, struct, or string-keyed map to VARIANT. |
+| [`try_parse_json(json)`](#try_parse_json) | Parses a JSON string into a Variant value, returning SQL NULL for invalid JSON. |
+| [`try_variant_get(value, path[, type])`](#try_variant_get) | Extracts the value at a path and optionally converts it to a SQL type, returning SQL NULL when the result-type conversion fails. |
+| [`variant_delete(v, path1[, path2, ...])`](#variant_delete) | Deletes object fields or array elements at one or more JSONPaths, applied left to right. |
+| [`variant_get(value, path[, type])`](#variant_get) | Extracts the value at a path and optionally converts it to a SQL type. |
 
 ## `is_valid_variant`
 
@@ -27,15 +29,12 @@ stricter than Spark for metadata, UTF-8, object keys, offsets, nesting, and date
 ranges. Malformed shredded metadata can still panic in Arrow; see
 [#11069](https://github.com/apache/arrow-rs/issues/11069).
 
-```sql
-is_valid_variant(value)
-```
+| | |
+| --- | --- |
+| **Syntax** | `is_valid_variant(value)` |
+| **Arguments** | `value`: Variant expression to validate. |
 
-### Arguments
-
-- **value**: Variant expression to validate.
-
-### Example
+**Example**
 
 ```sql
 > SELECT is_valid_variant(parse_json('null')) AS valid;
@@ -53,15 +52,13 @@ including SQL NULL and missing fields. The result is a non-null BOOLEAN.
 Checks only the top-level value; nulls inside objects or arrays do not make the
 container null. This predicate does not validate the full Variant contents.
 
-```sql
-is_variant_null(value)
-```
+| | |
+| --- | --- |
+| **Syntax** | `is_variant_null(value)` |
+| **Arguments** | `value`: Variant expression or an untyped SQL NULL. |
+| **Related** | [`variant_get`](#variant_get), [`parse_json`](#parse_json) |
 
-### Arguments
-
-- **value**: Variant expression or an untyped SQL NULL.
-
-### Example
+**Example**
 
 ```sql
 > SELECT is_variant_null(parse_json('null')) AS variant_null, is_variant_null(NULL) AS sql_null;
@@ -78,11 +75,6 @@ is_variant_null(value)
 +---------+---------+
 ```
 
-### Related functions
-
-- [variant_get](#variant_get)
-- [parse_json](#parse_json)
-
 ## `parse_json`
 
 Parses a JSON string into a Variant value. Invalid JSON raises an error.
@@ -91,15 +83,13 @@ SQL NULL returns SQL NULL; the JSON text `null` produces a present Variant null.
 Uses Arrow's JSON parser. Fractional JSON numbers become DOUBLE; decimal precision
 and duplicate-key handling have known differences from Spark (see [#71](https://github.com/datafusion-contrib/datafusion-variant/issues/71)).
 
-```sql
-parse_json(json)
-```
+| | |
+| --- | --- |
+| **Syntax** | `parse_json(json)` |
+| **Arguments** | `json`: String expression containing a JSON value. |
+| **Related** | [`try_parse_json`](#try_parse_json), [`to_json`](#to_json) |
 
-### Arguments
-
-- **json**: String expression containing a JSON value.
-
-### Example
+**Example**
 
 ```sql
 > SELECT to_json(parse_json('{"a":1}')) AS json;
@@ -116,11 +106,6 @@ parse_json(json)
 +----------+--------------+
 ```
 
-### Related functions
-
-- [try_parse_json](#try_parse_json)
-- [to_json](#to_json)
-
 ## `schema_of_variant`
 
 Returns a SQL schema string for a Variant value. SQL NULL returns SQL NULL;
@@ -130,15 +115,12 @@ schemas are merged, widening compatible types and using `VARIANT` for incompatib
 Fractional numbers parsed by `parse_json` have schema `DOUBLE`, unlike Spark's
 decimal inference. Use `CAST(decimal_value AS VARIANT)` to preserve decimal types.
 
-```sql
-schema_of_variant(value)
-```
+| | |
+| --- | --- |
+| **Syntax** | `schema_of_variant(value)` |
+| **Arguments** | `value`: Variant expression whose schema is inferred, or an untyped SQL NULL. |
 
-### Arguments
-
-- **value**: Variant expression whose schema is inferred, or an untyped SQL NULL.
-
-### Example
+**Example**
 
 ```sql
 > SELECT schema_of_variant(parse_json('null')) AS schema;
@@ -166,15 +148,12 @@ are merged using the same rules.
 Fractional numbers parsed by `parse_json` contribute `DOUBLE`, unlike Spark's
 decimal inference. Use `CAST(decimal_value AS VARIANT)` to preserve decimal types.
 
-```sql
-schema_of_variant_agg(value)
-```
+| | |
+| --- | --- |
+| **Syntax** | `schema_of_variant_agg(value)` |
+| **Arguments** | `value`: Variant expression to aggregate, or an untyped SQL NULL. |
 
-### Arguments
-
-- **value**: Variant expression to aggregate, or an untyped SQL NULL.
-
-### Example
+**Example**
 
 ```sql
 > SELECT schema_of_variant_agg(parse_json(j)) AS schema FROM (VALUES ('1'), ('2'), ('3')) AS t(j);
@@ -198,16 +177,13 @@ Variant null becomes the string `null`. Strings retain their JSON quotes.
 This function accepts Variant values only. The optional second argument is currently
 ignored; serialization options are not implemented.
 
-```sql
-to_json(value[, options])
-```
+| | |
+| --- | --- |
+| **Syntax** | `to_json(value[, options])` |
+| **Arguments** | `value`: Variant expression to serialize.<br>`options`: Optional argument, currently ignored. |
+| **Related** | [`parse_json`](#parse_json), [`try_parse_json`](#try_parse_json) |
 
-### Arguments
-
-- **value**: Variant expression to serialize.
-- **options**: Optional argument, currently ignored.
-
-### Example
+**Example**
 
 ```sql
 > SELECT to_json(parse_json('"hello"')) AS json;
@@ -224,11 +200,6 @@ to_json(value[, options])
 +------+----------+
 ```
 
-### Related functions
-
-- [parse_json](#parse_json)
-- [try_parse_json](#try_parse_json)
-
 ## `to_variant_object`
 
 Converts an array, struct, or string-keyed map to VARIANT. Structs and maps become unordered objects. SQL NULL inputs remain SQL NULL; null array elements become Variant null.
@@ -237,15 +208,13 @@ Unlike Spark, null object fields are currently omitted and duplicate object keys
 
 Use CAST(value AS VARIANT) for scalar inputs.
 
-```sql
-to_variant_object(expression)
-```
+| | |
+| --- | --- |
+| **Syntax** | `to_variant_object(expression)` |
+| **Arguments** | `expression`: An array, struct, or map. Map keys must be strings, including in nested maps. |
+| **Related** | [`parse_json`](#parse_json), [`to_json`](#to_json) |
 
-### Arguments
-
-- **expression**: An array, struct, or map. Map keys must be strings, including in nested maps.
-
-### Example
+**Example**
 
 ```sql
 > SELECT to_json(to_variant_object(named_struct('a', 1))) AS json;
@@ -256,11 +225,6 @@ to_variant_object(expression)
 +---------+
 ```
 
-### Related functions
-
-- [parse_json](#parse_json)
-- [to_json](#to_json)
-
 ## `try_parse_json`
 
 Parses a JSON string into a Variant value, returning SQL NULL for invalid JSON.
@@ -268,15 +232,13 @@ In a column, a malformed value produces NULL for that row. SQL NULL returns SQL 
 the JSON text `null` produces a present Variant null. Invalid argument types or counts
 still raise errors. Shares the parser limitations of `parse_json`.
 
-```sql
-try_parse_json(json)
-```
+| | |
+| --- | --- |
+| **Syntax** | `try_parse_json(json)` |
+| **Arguments** | `json`: String expression containing a JSON value. |
+| **Related** | [`parse_json`](#parse_json), [`to_json`](#to_json) |
 
-### Arguments
-
-- **json**: String expression containing a JSON value.
-
-### Example
+**Example**
 
 ```sql
 > SELECT to_json(try_parse_json('{"a":1}')) AS json;
@@ -293,40 +255,25 @@ try_parse_json(json)
 +--------------+--------------+
 ```
 
-### Related functions
-
-- [parse_json](#parse_json)
-- [to_json](#to_json)
-
 ## `try_variant_get`
 
-Extracts the value at a path and optionally converts it to a SQL type.
-Uses the same paths, type hints, and null handling as `variant_get`, but failed
-result-type conversions return SQL NULL. Without a type hint, returns Variant.
+Extracts the value at a path and optionally converts it to a SQL type,
+returning SQL NULL when the result-type conversion fails. Uses the same paths, type
+hints, and null handling as `variant_get`. Without a type hint, returns Variant.
 Invalid paths and invalid type hints still raise errors.
 
 Register with `register_variant_get_functions` to enable `TRY_CAST` of getters.
 Also register `VariantExprPlanner` for `:` field access. `TRY_CAST` of an untyped
 getter or colon access uses the same conversion policy as `try_variant_get`.
 
-```sql
-try_variant_get(value, path[, type])
-```
+| | |
+| --- | --- |
+| **Syntax** | `try_variant_get(value, path[, type])` |
+| **Alternative syntax** | `TRY_CAST(variant_get(value, path) AS type)`<br>`TRY_CAST(value:field AS type)` |
+| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression using the path syntax described for `variant_get`.<br>`type`: Optional non-null SQL type string literal. Defaults to `VARIANT`; accepts the same types as `variant_get`. |
+| **Related** | [`variant_get`](#variant_get), [`is_variant_null`](#is_variant_null) |
 
-Alternative syntax:
-
-```sql
-TRY_CAST(variant_get(value, path) AS type)
-TRY_CAST(value:field AS type)
-```
-
-### Arguments
-
-- **value**: Variant expression to extract from.
-- **path**: String expression using the path syntax described for `variant_get`.
-- **type**: Optional non-null SQL type string literal. Defaults to `VARIANT`; accepts the same types as `variant_get`.
-
-### Example
+**Example**
 
 ```sql
 > SELECT try_variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
@@ -353,25 +300,16 @@ TRY_CAST(value:field AS type)
 +-----------+----------+------------+
 ```
 
-### Related functions
-
-- [variant_get](#variant_get)
-- [is_variant_null](#is_variant_null)
-
 ## `variant_delete`
 
 Deletes object fields or array elements at one or more JSONPaths, applied left to right. Missing targets and type mismatches leave the value unchanged. SQL NULL input returns SQL NULL; NULL paths are skipped. Paths must start with `$` and cannot select the root alone.
 
-```sql
-variant_delete(v, path1[, path2, ...])
-```
+| | |
+| --- | --- |
+| **Syntax** | `variant_delete(v, path1[, path2, ...])` |
+| **Arguments** | `v`: Variant expression to update.<br>`path`: String expression identifying a field or array element. |
 
-### Arguments
-
-- **v**: Variant expression to update.
-- **path**: String expression identifying a field or array element.
-
-### Example
+**Example**
 
 ```sql
 > SELECT variant_delete(parse_json('{"a":[1,2,3]}'), '$.a[0]', '$.a[0]') AS v;
@@ -400,25 +338,14 @@ Casts of already typed getters retain the intermediate conversion. The registrat
 helper follows session type settings, including `SET` / `RESET`. Use `VARIANT` as the
 type hint or cast target to retain a Variant result.
 
-```sql
-variant_get(value, path[, type])
-```
+| | |
+| --- | --- |
+| **Syntax** | `variant_get(value, path[, type])` |
+| **Alternative syntax** | `CAST(variant_get(value, path) AS type)`<br>`value:field`<br>`value:field::type` |
+| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression such as `$.a.b[0]` or `a.b[0]`. `$`, an empty string, or SQL NULL selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Rooted quoted keys preserve backslashes (Spark 4.2); rootless paths use Arrow escaping.<br>`type`: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`. |
+| **Related** | [`try_variant_get`](#try_variant_get), [`is_variant_null`](#is_variant_null) |
 
-Alternative syntax:
-
-```sql
-CAST(variant_get(value, path) AS type)
-value:field
-value:field::type
-```
-
-### Arguments
-
-- **value**: Variant expression to extract from.
-- **path**: String expression such as `$.a.b[0]` or `a.b[0]`. `$`, an empty string, or SQL NULL selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Rooted quoted keys preserve backslashes (Spark 4.2); rootless paths use Arrow escaping.
-- **type**: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`.
-
-### Example
+**Example**
 
 ```sql
 > SELECT variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
@@ -450,8 +377,3 @@ value:field::type
 | 12.50     | 12.50    | 12.50      |
 +-----------+----------+------------+
 ```
-
-### Related functions
-
-- [try_variant_get](#try_variant_get)
-- [is_variant_null](#is_variant_null)

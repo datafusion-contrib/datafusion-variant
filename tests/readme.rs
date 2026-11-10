@@ -52,31 +52,46 @@ use parquet_variant_compute::variant_to_json;
 use std::{io::Write, path::Path, sync::Arc};
 
 #[tokio::test]
-async fn readme_sql() -> Result<()> {
-    check_markdown("README", include_str!("../README.md")).await
-}
-
-#[tokio::test]
 async fn docs_sql() -> Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut pages = std::fs::read_dir(root.join("docs"))?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<std::io::Result<Vec<_>>>()?;
-    pages.retain(|page| {
-        page.extension().is_some_and(|ext| ext == "md") && !page.ends_with("sql-reference.md")
-    });
+    let mut pages = vec![root.join("README.md")];
+    let mut dirs = vec![root.join("docs")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "md")
+                && !path.ends_with("sql-reference.md")
+            {
+                pages.push(path);
+            }
+        }
+    }
     pages.sort();
-    ensure!(!pages.is_empty(), "no pages found under docs/");
+    let mut executed = 0;
     for page in pages {
         let name = page.strip_prefix(root)?.display().to_string();
-        check_markdown(&name, &std::fs::read_to_string(&page)?).await?;
+        executed += check_markdown(&name, &std::fs::read_to_string(&page)?).await?;
     }
+    // Navigation and prose pages have no SQL, but a parser regression would find none anywhere.
+    ensure!(executed > 0, "no SQL blocks run");
     Ok(())
 }
 
-async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
+async fn check_markdown(name: &str, markdown: &str) -> Result<usize> {
     let output = tempfile::tempdir()?;
-    let mut ctx = SessionContext::new();
+    // Like `dfv`, allow `SELECT ... FROM 'file.parquet'`.
+    let config = SessionConfig::new().set_str("datafusion.format.null", "NULL");
+    let mut ctx = SessionContext::new_with_config(config).enable_url_table();
+    register_all(&mut ctx)?;
+    ctx.register_udtf(
+        "parquet_metadata",
+        Arc::new(datafusion_cli::functions::ParquetMetadataFunc {}),
+    );
+    ctx.register_udf(ScalarUDF::from(ResidualJson {
+        signature: Signature::variadic_any(Volatility::Immutable),
+    }));
     let mut pending = Vec::<(usize, String)>::new();
     let mut skip = None;
     let mut expect_error = None;
@@ -92,19 +107,6 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
                 pending.is_empty(),
                 "{name}:{line_number}: query result has no expected table"
             );
-        }
-        if line.starts_with("## ") {
-            // Like `dfv`, allow `SELECT ... FROM 'file.parquet'`.
-            let config = SessionConfig::new().set_str("datafusion.format.null", "NULL");
-            ctx = SessionContext::new_with_config(config).enable_url_table();
-            register_all(&mut ctx)?;
-            ctx.register_udtf(
-                "parquet_metadata",
-                Arc::new(datafusion_cli::functions::ParquetMetadataFunc {}),
-            );
-            ctx.register_udf(ScalarUDF::from(ResidualJson {
-                signature: Signature::variadic_any(Volatility::Immutable),
-            }));
         }
         if let Some(message) = line
             .strip_prefix("<!-- readme-test: error:")
@@ -234,7 +236,6 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
         pending.is_empty(),
         "{name}: query result has no expected table"
     );
-    ensure!(executed > 0, "{name}: no SQL blocks run");
     // Write directly so the summary is visible even with libtest's default capture.
     let mut report = std::io::stderr().lock();
     writeln!(
@@ -245,7 +246,7 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
     for (line, reason) in skipped {
         writeln!(report, "  {name}:{line}: skipped ({reason})")?;
     }
-    Ok(())
+    Ok(executed)
 }
 
 /// SQL cannot show a shredded residual otherwise: it is a binary column inside
