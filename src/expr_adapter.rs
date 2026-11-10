@@ -1,24 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Read Parquet files whose Variant shredding layout differs from the table's.
+//! Adapter to read Parquet files with different Variant shredding.
 //!
-//! When the files of one table shred a Variant column differently, DataFusion's
-//! default schema adaptation silently returns NULL for shredded fields. The
-//! types here convert each file to the table's layout instead.
-//! [`register_all`](crate::register_all) installs them for every table made
-//! with `CREATE EXTERNAL TABLE ... STORED AS PARQUET`.
-//!
-//! Public types:
-//!
-//! * [`VariantListingTableFactory`]: a table factory for `CREATE EXTERNAL TABLE`
-//!   that attaches the adapter to the tables it creates. Start here to see which
-//!   tables are covered.
-//! * [`VariantExprAdapterFactory`]: the adapter factory to set on a
-//!   `ListingTable`. Its documentation has an example of the input files and
-//!   the output with and without it.
-//! * [`VariantExprAdapter`]: the per-file adapter the factory creates.
-//! * [`VariantReshredExpr`]: the expression that converts a Variant column from
-//!   one shredding layout to another.
+//! * [`VariantListingTableFactory`]: Wraps existing table factories to attach `VariantExprAdapterFactory`
+//! * [`VariantExprAdapterFactory`]: Adapts expressions for tables
+//! * [`VariantExprAdapter`]: per-file adapter
+//! * [`VariantReshredExpr`]: function to convert shredding
 
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
@@ -326,6 +313,8 @@ impl PhysicalExpr for Hole {
 
 /// A struct with `metadata` and `value` children: the storage shape of a
 /// Variant, shredded or not.
+///
+/// TODO This should check for variant metadata, not the field shape
 fn is_variant_storage(data_type: &DataType) -> bool {
     match data_type {
         DataType::Struct(fields) => {
@@ -608,82 +597,5 @@ impl TableProviderFactory for VariantListingTableFactory {
             .with_constraints(cmd.constraints.clone())
             .with_column_defaults(cmd.column_defaults.clone());
         Ok(Arc::new(table))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use arrow::array::AsArray;
-    use arrow::datatypes::Int64Type;
-    use datafusion::execution::SessionStateBuilder;
-    use datafusion::prelude::SessionContext;
-
-    /// Counts the tables it is asked to create, then defers to the stock factory.
-    #[derive(Debug, Default)]
-    struct CountingFactory {
-        calls: AtomicUsize,
-        inner: DefaultTableFactory,
-    }
-
-    #[async_trait]
-    impl TableProviderFactory for CountingFactory {
-        async fn create(
-            &self,
-            state: &dyn Session,
-            cmd: &CreateExternalTable,
-        ) -> Result<Arc<dyn TableProvider>> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            self.inner.create(state, cmd).await
-        }
-    }
-
-    /// A `PARQUET` table factory the session already has is wrapped, not replaced.
-    #[tokio::test]
-    async fn register_all_wraps_existing_parquet_factory() -> Result<()> {
-        let counting = Arc::new(CountingFactory::default());
-        let state = SessionStateBuilder::new()
-            .with_default_features()
-            .with_table_factory(PARQUET.to_string(), counting.clone())
-            .build();
-        let mut ctx = SessionContext::new_with_state(state);
-        crate::register_all(&mut ctx)?;
-
-        // One unshredded and one shredded file with the same three rows.
-        let dir = tempfile::tempdir()?;
-        let dir = dir.path().display();
-        for (file, options) in [
-            ("unshredded", ""),
-            (
-                "shredded",
-                r#"OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR>"}')"#,
-            ),
-        ] {
-            ctx.sql(&format!(
-                "COPY (SELECT parse_json(column1) AS event FROM VALUES \
-                 ('{{\"service\":\"api\"}}'), ('{{\"service\":\"api\"}}'), ('{{\"service\":\"db\"}}')) \
-                 TO '{dir}/{file}.parquet' STORED AS PARQUET {options}"
-            ))
-            .await?
-            .collect()
-            .await?;
-        }
-
-        ctx.sql(&format!(
-            "CREATE EXTERNAL TABLE t STORED AS PARQUET LOCATION '{dir}/'"
-        ))
-        .await?;
-        assert_eq!(counting.calls.load(Ordering::SeqCst), 1);
-
-        // The Variant adapter is attached: no row of the unshredded file is lost.
-        let batches = ctx
-            .sql("SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM t")
-            .await?
-            .collect()
-            .await?;
-        assert_eq!(batches[0].column(0).as_primitive::<Int64Type>().value(0), 6);
-        Ok(())
     }
 }

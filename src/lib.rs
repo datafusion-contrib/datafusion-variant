@@ -112,3 +112,81 @@ pub fn register_all(ctx: &mut SessionContext) -> Result<()> {
     register_variant_explode_functions(ctx)?;
     ctx.register_expr_planner(Arc::new(VariantExprPlanner))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use arrow::array::AsArray;
+    use arrow::datatypes::Int64Type;
+    use datafusion::execution::SessionStateBuilder;
+    use datafusion::prelude::SessionContext;
+
+    /// Counts the tables it is asked to create, then defers to the stock factory.
+    #[derive(Debug, Default)]
+    struct CountingFactory {
+        calls: AtomicUsize,
+        inner: DefaultTableFactory,
+    }
+
+    #[async_trait]
+    impl TableProviderFactory for CountingFactory {
+        async fn create(
+            &self,
+            state: &dyn Session,
+            cmd: &CreateExternalTable,
+        ) -> Result<Arc<dyn TableProvider>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.create(state, cmd).await
+        }
+    }
+
+    /// A `PARQUET` table factory the session already has is wrapped, not replaced.
+    #[tokio::test]
+    async fn register_all_wraps_existing_parquet_factory() -> Result<()> {
+        let counting = Arc::new(CountingFactory::default());
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_table_factory(PARQUET.to_string(), counting.clone())
+            .build();
+        let mut ctx = SessionContext::new_with_state(state);
+        crate::register_all(&mut ctx)?;
+
+        // One unshredded and one shredded file with the same three rows.
+        let dir = tempfile::tempdir()?;
+        let dir = dir.path().display();
+        for (file, options) in [
+            ("unshredded", ""),
+            (
+                "shredded",
+                r#"OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR>"}')"#,
+            ),
+        ] {
+            ctx.sql(&format!(
+                "COPY (SELECT parse_json(column1) AS event FROM VALUES \
+                 ('{{\"service\":\"api\"}}'), ('{{\"service\":\"api\"}}'), ('{{\"service\":\"db\"}}')) \
+                 TO '{dir}/{file}.parquet' STORED AS PARQUET {options}"
+            ))
+                .await?
+                .collect()
+                .await?;
+        }
+
+        ctx.sql(&format!(
+            "CREATE EXTERNAL TABLE t STORED AS PARQUET LOCATION '{dir}/'"
+        ))
+            .await?;
+        assert_eq!(counting.calls.load(Ordering::SeqCst), 1);
+
+        // The Variant adapter is attached: no row of the unshredded file is lost.
+        let batches = ctx
+            .sql("SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM t")
+            .await?
+            .collect()
+            .await?;
+        assert_eq!(batches[0].column(0).as_primitive::<Int64Type>().value(0), 6);
+        Ok(())
+    }
+}
