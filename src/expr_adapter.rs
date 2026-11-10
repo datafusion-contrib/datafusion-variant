@@ -81,7 +81,18 @@ use crate::variant_type::is_variant;
 /// unshredded file's column to the table's shredded layout.
 ///
 /// With this adapter factory on the table, both files return every field. For
-/// example, extracting `service`, `status` and `latency_ms` from `event` returns:
+/// example, this query:
+///
+/// ```sql
+/// CREATE EXTERNAL TABLE events STORED AS PARQUET LOCATION 'events/';
+///
+/// SELECT event:service::VARCHAR AS service,
+///        event:status::BIGINT AS status,
+///        event:latency_ms::BIGINT AS latency_ms
+/// FROM events;
+/// ```
+///
+/// returns:
 ///
 /// ```text
 /// +---------+--------+------------+
@@ -197,10 +208,11 @@ impl VariantExprAdapter {
     ///
     /// Returns `None` if the column doesn't need reshredding.
     ///
-    /// `column` refers to the table (logical) schema. The file may store its
-    /// columns in a different order, or lack some, so the file's column is
-    /// found by name.
+    /// `column` refers to the table (logical) schema, so `column.index()` is
+    /// its position in the table, not in the file.
     fn reshred_expr(&self, column: &Column) -> Option<Arc<dyn PhysicalExpr>> {
+        // Look the column up by name in both schemas, as DataFusion's default
+        // adapter does. `column.index()` is only valid for the table schema.
         let logical = self
             .logical_file_schema
             .field_with_name(column.name())
@@ -208,6 +220,9 @@ impl VariantExprAdapter {
         if !is_variant(logical) {
             return None;
         }
+        // The file may store its columns in a different order than the table,
+        // or lack some of them, so the column's index in the file can differ
+        // from `column.index()`. Thus, look up by name;
         let index = self.physical_file_schema.index_of(column.name()).ok()?;
         let physical = self.physical_file_schema.field(index);
         // Does it need reshredding?
