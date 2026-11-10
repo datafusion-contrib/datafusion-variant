@@ -2,46 +2,23 @@
 
 //! Read Parquet files whose Variant shredding layout differs from the table's.
 //!
-//! Note this is installed via [`register_all`](crate::register_all)
+//! When the files of one table shred a Variant column differently, DataFusion's
+//! default schema adaptation silently returns NULL for shredded fields. The
+//! types here convert each file to the table's layout instead.
+//! [`register_all`](crate::register_all) installs them for every table made
+//! with `CREATE EXTERNAL TABLE ... STORED AS PARQUET`.
 //!
-//! A `ListingTable` merges the schemas of its files. When one file stores a
-//! Variant column as `Struct<metadata, value>` and another as
-//! `Struct<metadata, value, typed_value: Struct<...>>`, the merged table type
-//! has `typed_value`, and DataFusion's default [`PhysicalExprAdapter`] casts the
-//! first file's column to it, filling `typed_value` with nulls. For an ordinary
-//! struct that is right. For Variant it is not: the shredding specification reads
-//! a null `typed_value` next to a non-null `value` as "this value is not an
-//! object", so every shredded field of every row from that file comes back NULL.
+//! Public types:
 //!
-//! [`VariantExprAdapterFactory`] wraps another factory (the default by default)
-//! and replaces that cast, for Variant columns only, with a per-batch rewrite:
-//! the file's column is unshredded and then shredded again to the table's
-//! `typed_value` schema, so each row is valid for the table's layout. Files whose
-//! layout already matches the table are not touched.
-//!
-//! [`VariantListingTableFactory`], handles
-//! `CREATE EXTERNAL TABLE ... STORED AS PARQUET`. A [`ListingTable`] built in
-//! Rust needs it set explicitly:
-//!
-//! ```ignore
-//! use datafusion::datasource::listing::{
-//!     ListingTable, ListingTableConfig, ListingTableConfigExt, ListingTableUrl,
-//! };
-//! use datafusion_variant::VariantExprAdapterFactory;
-//!
-//! let config = ListingTableConfig::new(ListingTableUrl::parse("data/")?)
-//!     .infer_options(&ctx.state())
-//!     .await?
-//!     .infer_schema(&ctx.state())
-//!     .await?
-//!     .with_expr_adapter_factory(Arc::new(VariantExprAdapterFactory::default()));
-//! ctx.register_table("events", Arc::new(ListingTable::try_new(config)?))?;
-//! ```
-//!
-//! Tables DataFusion builds itself are not covered: `SELECT ... FROM '<path>'`
-//! and `SessionContext::read_parquet` / `register_parquet` still use the default
-//! adapter. Covering those needs a DataFusion hook; see
-//! <https://github.com/apache/datafusion/issues/27089>.
+//! * [`VariantListingTableFactory`]: a table factory for `CREATE EXTERNAL TABLE`
+//!   that attaches the adapter to the tables it creates. Start here to see which
+//!   tables are covered.
+//! * [`VariantExprAdapterFactory`]: the adapter factory to set on a
+//!   `ListingTable`. Its documentation has an example of the input files and
+//!   the output with and without it.
+//! * [`VariantExprAdapter`]: the per-file adapter the factory creates.
+//! * [`VariantReshredExpr`]: the expression that converts a Variant column from
+//!   one shredding layout to another.
 
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
@@ -68,8 +45,113 @@ use parquet_variant_compute::{VariantArray, shred_variant, unshred_variant};
 
 use crate::variant_type::is_variant;
 
-/// Creates [`VariantExprAdapter`]s. Wraps another factory and post-processes its
-/// output; see the [module documentation](self).
+/// A [`PhysicalExprAdapterFactory`] that reads Parquet files whose Variant
+/// shredding layout differs from the table's.
+///
+/// It wraps another factory (DataFusion's default, by default), runs it, and
+/// fixes what it does to Variant columns; see [`VariantExprAdapter`].
+///
+/// # Example
+///
+/// A directory `events/` holds two files with the same three rows in a Variant
+/// column `event`. An older writer left the column unshredded; a newer one
+/// shredded `service` and `status` into typed columns:
+///
+/// ```text
+/// events/unshredded.parquet
+///   event: Struct<metadata, value>
+///
+///   value (variant bytes)
+///   ----------------------------------------------
+///   {"service":"api","status":200,"latency_ms":12}
+///   {"service":"api","status":500,"latency_ms":85}
+///   {"service":"db","status":504}
+///
+/// events/shredded.parquet
+///   event: Struct<metadata, value, typed_value: Struct<service, status>>
+///
+///   value (variant bytes)  typed_value.service  typed_value.status
+///   ---------------------  -------------------  ------------------
+///   {"latency_ms":12}      api                  200
+///   {"latency_ms":85}      api                  500
+///   NULL                   db                   504
+/// ```
+///
+/// The table's schema is the merge of the two, so `event` has `typed_value`:
+///
+/// ```sql
+/// CREATE EXTERNAL TABLE events STORED AS PARQUET LOCATION 'events/';
+///
+/// SELECT event:service::VARCHAR AS service,
+///        event:status::BIGINT AS status,
+///        event:latency_ms::BIGINT AS latency_ms
+/// FROM events;
+/// ```
+///
+/// With this adapter factory on the table, both files return every field:
+///
+/// ```text
+/// +---------+--------+------------+
+/// | service | status | latency_ms |
+/// +---------+--------+------------+
+/// | api     | 200    | 12         |  <- shredded.parquet
+/// | api     | 500    | 85         |
+/// | db      | 504    | NULL       |
+/// | api     | 200    | 12         |  <- unshredded.parquet
+/// | api     | 500    | 85         |
+/// | db      | 504    | NULL       |
+/// +---------+--------+------------+
+/// ```
+///
+/// With DataFusion's default adapter, the shredded fields of the unshredded
+/// file are lost, with no error:
+///
+/// ```text
+/// +---------+--------+------------+
+/// | service | status | latency_ms |
+/// +---------+--------+------------+
+/// | api     | 200    | 12         |  <- shredded.parquet
+/// | api     | 500    | 85         |
+/// | db      | 504    | NULL       |
+/// | NULL    | NULL   | 12         |  <- unshredded.parquet
+/// | NULL    | NULL   | 85         |
+/// | NULL    | NULL   | NULL       |
+/// +---------+--------+------------+
+/// ```
+///
+///
+/// # Why the default adapter is wrong for Variant
+///
+/// DataFusion's default [`PhysicalExprAdapter`] casts each file's column to the
+/// table's type. For `unshredded.parquet` that means adding a `typed_value`
+/// filled with nulls. For an ordinary struct that is right. For Variant it is
+/// not: the shredding specification reads a null `typed_value` next to a
+/// non-null `value` as "this value is not an object", so `service` and `status`
+/// are NULL for every row of that file. `latency_ms` is shredded in neither
+/// file and is read from `value`, so it survives.
+///
+///
+/// # Usage
+///
+/// [`register_all`](crate::register_all) sets this on every table made with
+/// `CREATE EXTERNAL TABLE ... STORED AS PARQUET`, through
+/// [`VariantListingTableFactory`]. A [`ListingTable`] built in Rust does not go
+/// through that factory and needs it set explicitly:
+///
+/// ```ignore
+/// use datafusion::datasource::listing::{
+///     ListingTable, ListingTableConfig, ListingTableConfigExt, ListingTableUrl,
+/// };
+/// use datafusion_variant::VariantExprAdapterFactory;
+///
+/// let config = ListingTableConfig::new(ListingTableUrl::parse("events/")?)
+///     .infer_options(&ctx.state())
+///     .await?
+///     .infer_schema(&ctx.state())
+///     .await?
+///     .with_expr_adapter_factory(Arc::new(VariantExprAdapterFactory::default()));
+/// ctx.register_table("events", Arc::new(ListingTable::try_new(config)?))?;
+/// ```
 #[derive(Debug, Clone)]
 pub struct VariantExprAdapterFactory {
     inner: Arc<dyn PhysicalExprAdapterFactory>,
@@ -111,8 +193,14 @@ impl PhysicalExprAdapterFactory for VariantExprAdapterFactory {
     }
 }
 
-/// Replaces the struct cast the wrapped adapter inserts on a Variant column with
-/// [`VariantReshredExpr`].
+/// The [`PhysicalExprAdapter`] for one file, created by
+/// [`VariantExprAdapterFactory`].
+///
+/// It runs the wrapped adapter, then replaces the struct cast that adapter
+/// inserts on a Variant column with [`VariantReshredExpr`]. Only Variant columns
+/// whose file layout differs from the table's are changed: other columns, and
+/// files whose layout already matches the table, are left as the wrapped
+/// adapter produced them.
 #[derive(Debug)]
 pub struct VariantExprAdapter {
     inner: Arc<dyn PhysicalExprAdapter>,
@@ -424,7 +512,20 @@ impl PhysicalExpr for VariantReshredExpr {
 /// adapter installed. Tables of any other kind are returned unchanged.
 ///
 /// [`register_all`](crate::register_all) wraps the session's `PARQUET` factory
-/// in this one, so there is normally no need to register it by hand.
+/// in this one (see [`Self::register`]), so there is normally no need to
+/// register it by hand.
+///
+/// # Tables that are not covered
+///
+/// Only tables made with `CREATE EXTERNAL TABLE` go through a table factory.
+/// These still use DataFusion's default adapter:
+///
+/// * `SELECT ... FROM '<path>'`, `SessionContext::read_parquet` and
+///   `SessionContext::register_parquet`. DataFusion builds these tables itself
+///   and has no hook to change the adapter; see
+///   <https://github.com/apache/datafusion/issues/27089>.
+/// * A [`ListingTable`] built in Rust. Set [`VariantExprAdapterFactory`] on its
+///   config; see the example there.
 ///
 /// [`ListingTableFactory`]: datafusion::datasource::listing_table_factory::ListingTableFactory
 #[derive(Debug)]

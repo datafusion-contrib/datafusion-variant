@@ -1,7 +1,7 @@
 # Variant shredding
 
 The standard Variant binary encoding is efficient and compact, but it must still
-be read and decoded for every query. The [Parquet Variant shredding
+read and decode each value for every query. The [Parquet Variant shredding
 specification][parquet-variant-shredding] describes an optional on-disk layout
 for Variant columns that stores some fields in typed Parquet columns. Queries on
 the shredded fields read the typed columns directly, which is significantly
@@ -206,6 +206,88 @@ FROM 'shredded_objects.parquet';
 | {"c":3}          | {a: 1, b: 2}    |
 +------------------+-----------------+
 ```
+
+#### Files with different shredding layouts
+
+It is also possible to read files with different shredding layouts as the
+same table, which is often referred to as schema evolution: The optimal shredding
+may evolve over time, or different producers may have different knowledge of the data.
+It is important such datasets can be read without rewriting the existing files. 
+
+For example, you could write `file1.parquet` with the `id` and `status` fields
+shredded, and `file2.parquet` with just the `id` field shredded:
+
+```sql
+-- file1.parquet: shredded on id and status
+COPY (
+  SELECT parse_json(event) AS event FROM (VALUES
+      ('{"id": 5, "service":"api", "status":200}'),
+      ('{"id": 6, "service":"api", "status":500}'),
+      ('{"id": 7, "service":"web", "status":504}')
+  ) AS input(event)
+) TO 'mixed_events/file1.parquet' STORED AS PARQUET
+OPTIONS (
+  'variant.shredding'
+  '{"event": "STRUCT<id BIGINT, status BIGINT>"}' -- shred id and status
+);
+
+-- file2.parquet: shredded on id
+COPY (
+  SELECT parse_json(event) AS event FROM (VALUES
+      ('{"id": 8, "service":"api", "status":200}'),
+      ('{"id": 9, "service":"db", "status":503}')
+  ) AS input(event)
+) TO 'mixed_events/file2.parquet' STORED AS PARQUET
+OPTIONS (
+  'variant.shredding'
+  '{"event": "STRUCT<id BIGINT>"}' -- shred id
+);
+```
+
+On read, DataFusion will unify them into a single table:
+
+```sql
+CREATE EXTERNAL TABLE mixed_events STORED AS PARQUET LOCATION 'mixed_events/';
+
+SELECT event:id::BIGINT AS id,
+       event:service::VARCHAR AS service,
+       event:status::BIGINT AS status
+FROM mixed_events
+ORDER BY id;
+```
+
+```text
++----+---------+--------+
+| id | service | status |
++----+---------+--------+
+| 5  | api     | 200    |
+| 6  | api     | 500    |
+| 7  | web     | 504    |
+| 8  | api     | 200    |
+| 9  | db      | 503    |
++----+---------+--------+
+```
+
+The whole value reads back the same from both files:
+
+```sql
+SELECT event FROM mixed_events ORDER BY event:id::BIGINT;
+```
+
+```text
++---------------------------------------+
+| event                                 |
++---------------------------------------+
+| {"id":5,"service":"api","status":200} |
+| {"id":6,"service":"api","status":500} |
+| {"id":7,"service":"web","status":504} |
+| {"id":8,"service":"api","status":200} |
+| {"id":9,"service":"db","status":503}  |
++---------------------------------------+
+```
+
+See the documentation on [`VariantExprAdapterFactory`](../src/expr_adapter.rs)
+for more details.
 
 ## Supported types
 
