@@ -10,7 +10,7 @@ mod shared;
 mod shredding;
 mod sql_type;
 
-mod expr_adapter;
+mod placeholders;
 mod expr_planner;
 mod impl_variant_get;
 mod is_valid_variant;
@@ -32,7 +32,7 @@ mod variant_object_keys;
 mod variant_path;
 mod variant_type;
 
-pub use expr_adapter::*;
+pub use placeholders::*;
 pub use expr_planner::*;
 pub use is_valid_variant::*;
 pub use is_variant_null::*;

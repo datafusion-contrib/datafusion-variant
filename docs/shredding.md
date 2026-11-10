@@ -286,7 +286,7 @@ with `SELECT ... FROM 'mixed_events/'` does not unify the layouts yet and
 returns an error or NULL for the fields that are shredded differently
 ([apache/datafusion#27089](https://github.com/apache/datafusion/issues/27089)).
 
-See the documentation on [`VariantExprAdapterFactory`](../src/expr_adapter.rs)
+See the documentation on [`VariantExprAdapterFactory`](../src/placeholders.rs)
 for more details.
 
 ## Supported types

@@ -31,17 +31,18 @@ use parquet_variant_compute::{VariantArray, shred_variant, unshred_variant};
 
 use crate::variant_type::is_variant;
 
-/// A [`PhysicalExprAdapterFactory`] that reads Parquet files whose Variant
-/// shredding layout differs from the table's.
+/// Adapts the output of Parquet files whose Variant shredding layout differs
+/// from the table's.
 ///
-/// It wraps another factory and reshreds any variant columns so they all
+/// Implemented as  [`PhysicalExprAdapterFactory`] that  wraps another factory
+/// and adds a function call, if necessary, to any variant columns so they all
 /// match across schemas. See [`VariantExprAdapter`] for more details
 ///
 /// # Example
 ///
-/// Given a directory `events/` with two files with the same column `event`. One
+/// Given a directory `events/` with two files that have a column `event`. One
 /// file stores the column unshredded, and a newer one stores the column with
-/// `service` and `status` shredded into into typed columns:
+/// `service` and `status` shredded into typed columns:
 ///
 /// ```text
 /// events/unshredded.parquet
@@ -73,7 +74,7 @@ use crate::variant_type::is_variant;
 ///   event: Struct<metadata, value, typed_value: Struct<service, status>>
 /// ```
 ///
-/// This adapter factory adds a [`ReschredExpr`] to convert the unshredded
+/// This adapter factory adds a [`VariantReshredExpr`] to convert the unshredded
 /// column to match the shredded schema
 ///
 /// With this adapter factory on the table, both files return every field:
@@ -90,7 +91,6 @@ use crate::variant_type::is_variant;
 /// | db      | 504    | NULL       |
 /// +---------+--------+------------+
 /// ```
-
 #[derive(Debug, Clone)]
 pub struct VariantExprAdapterFactory {
     inner: Arc<dyn PhysicalExprAdapterFactory>,
@@ -103,8 +103,8 @@ impl Default for VariantExprAdapterFactory {
 }
 
 impl VariantExprAdapterFactory {
-    /// Wrap `inner`. Its rewrite runs first; Variant struct casts in the result
-    /// are then replaced.
+    /// Create a new `VariantExprAdapterFactory` that wraps the output of `inner`
+    /// with [`VariantExprAdapter`]. 
     pub fn new(inner: Arc<dyn PhysicalExprAdapterFactory>) -> Self {
         Self { inner }
     }
@@ -132,14 +132,12 @@ impl PhysicalExprAdapterFactory for VariantExprAdapterFactory {
     }
 }
 
-/// The [`PhysicalExprAdapter`] for one file, created by
-/// [`VariantExprAdapterFactory`].
+/// A [`PhysicalExprAdapter`] that adapts a Parquet files schema to a table schema.  
+/// 
+/// These are created by [`VariantExprAdapterFactory`].
 ///
-/// It runs the wrapped adapter, then replaces the struct cast that adapter
-/// inserts on a Variant column with [`VariantReshredExpr`]. Only Variant columns
-/// whose file layout differs from the table's are changed: other columns, and
-/// files whose layout already matches the table, are left as the wrapped
-/// adapter produced them.
+/// It replaces Variant column with [`VariantReshredExpr`] when the Variant
+/// layout differs from the table's. Other columns are not modified. 
 #[derive(Debug)]
 pub struct VariantExprAdapter {
     inner: Arc<dyn PhysicalExprAdapter>,
@@ -149,12 +147,10 @@ pub struct VariantExprAdapter {
 
 impl PhysicalExprAdapter for VariantExprAdapter {
     fn rewrite(&self, expr: Arc<dyn PhysicalExpr>) -> Result<Arc<dyn PhysicalExpr>> {
-        // 1. Cut out every Variant column whose file layout differs from the
-        //    table layout, before the wrapped adapter sees it: the default
-        //    adapter either rejects the struct cast at planning time or
-        //    null-fills `typed_value`. Each one is replaced by a childless
-        //    placeholder the wrapped adapter leaves alone.
-        let mut cut: Vec<Arc<dyn PhysicalExpr>> = Vec::new();
+        // 1. Leave a placeholder for every Variant column reference whose file
+        // layout differs from the table layout so the inner adapter doesn't
+        // modify it.
+        let mut placeholders = Vec::new();
         let expr = expr
             .transform_down(|expr| {
                 let Some(column) = expr.downcast_ref::<Column>() else {
@@ -163,23 +159,23 @@ impl PhysicalExprAdapter for VariantExprAdapter {
                 let Some(reshred) = self.reshred_expr(column) else {
                     return Ok(Transformed::no(expr));
                 };
-                let hole: Arc<dyn PhysicalExpr> = Arc::new(Hole {
-                    id: cut.len(),
+                let placeholder: Arc<dyn PhysicalExpr> = Arc::new(Placeholder {
+                    id: placeholders.len(),
                     data_type: reshred.data_type(&self.physical_file_schema)?,
                 });
-                cut.push(reshred);
-                Ok(Transformed::new(hole, true, TreeNodeRecursion::Jump))
+                placeholders.push(reshred);
+                Ok(Transformed::new(placeholder, true, TreeNodeRecursion::Jump))
             })
             .data()?;
 
-        // 2. Everything else: column indices, missing columns, partition values.
+        // Call the wrapper adapter to do schema rewriting as normal, which will
+        // ignore the placeholders.
         let expr = self.inner.rewrite(expr)?;
 
-        // 3. Put the reshred expressions back. Their column child already refers
-        //    to the file schema, so the scan projects it like any other column.
-        expr.transform_down(|expr| match expr.downcast_ref::<Hole>() {
-            Some(hole) => Ok(Transformed::new(
-                Arc::clone(&cut[hole.id]),
+        // Put the reshreded expressions back into the main expressionn
+        expr.transform_down(|expr| match expr.downcast_ref::<Placeholder>() {
+            Some(placeholder) => Ok(Transformed::new(
+                Arc::clone(&placeholders[placeholder.id]),
                 true,
                 TreeNodeRecursion::Jump,
             )),
@@ -220,18 +216,18 @@ impl VariantExprAdapter {
 /// Stand-in for a cut-out subtree while the wrapped adapter runs. Never
 /// evaluated.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct Hole {
+struct Placeholder {
     id: usize,
     data_type: DataType,
 }
 
-impl Display for Hole {
+impl Display for Placeholder {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "variant_hole({})", self.id)
     }
 }
 
-impl PhysicalExpr for Hole {
+impl PhysicalExpr for Placeholder {
     fn data_type(&self, _input_schema: &Schema) -> Result<DataType> {
         Ok(self.data_type.clone())
     }
