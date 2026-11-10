@@ -254,6 +254,7 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             || relative_path == Path::new("variant_sql_type.slt")
             || relative_path == Path::new("variant_explode.slt")
             || relative_path == Path::new("variant_display.slt")
+            || relative_path == Path::new("variant_root_paths.slt")
         {
             register_shredded_null_fixture(
                 &ctx,

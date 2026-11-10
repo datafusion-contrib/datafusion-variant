@@ -28,6 +28,7 @@ mod variant_list_insert;
 mod variant_object_construct;
 mod variant_object_insert;
 mod variant_object_keys;
+mod variant_path;
 mod variant_type;
 
 pub use expr_planner::*;
