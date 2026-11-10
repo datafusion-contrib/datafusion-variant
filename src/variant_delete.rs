@@ -267,106 +267,10 @@ fn append_deleted(
     Ok(())
 }
 
-// Spark VariantPathParser's default (non-legacy) grammar. Arrow's parser accepts
-// rootless paths and has different dot/quoted-key escaping rules, so stripping
-// `$` and delegating would silently select different fields. Keep Arrow's path
-// representation; do not change the existing getters' path dialect here.
 fn parse_path(path: &str) -> Result<VariantPath<'_>> {
     let invalid = || exec_datafusion_err!("variant_delete: invalid path {path:?}");
-    let mut remaining = path.strip_prefix('$').ok_or_else(invalid)?;
-    let mut elements = Vec::new();
-    while !remaining.is_empty() {
-        if let Some(key) = remaining.strip_prefix('.') {
-            let end = key.find(['.', '[']).unwrap_or(key.len());
-            if end == 0 {
-                return Err(invalid());
-            }
-            elements.push(VariantPathElement::field(&key[..end]));
-            remaining = &key[end..];
-        } else if let Some(body) = remaining.strip_prefix('[') {
-            if body.starts_with(['\'', '"']) {
-                let quote = body.as_bytes()[0] as char;
-                let mut chars = body[1..].char_indices();
-                let end = loop {
-                    let (i, c) = chars.next().ok_or_else(invalid)?;
-                    if c == '\\' {
-                        chars.next().ok_or_else(invalid)?;
-                    } else if c == quote {
-                        break i + 1;
-                    }
-                };
-                remaining = body[end + 1..].strip_prefix(']').ok_or_else(invalid)?;
-                elements.push(VariantPathElement::field(unescape_key(
-                    &body[1..end],
-                    quote,
-                )));
-            } else {
-                let end = body.find(']').ok_or_else(invalid)?;
-                let index = &body[..end];
-                if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
-                    return Err(invalid());
-                }
-                let index = index.parse::<i32>().map_err(|_| invalid())? as usize;
-                elements.push(VariantPathElement::index(index));
-                remaining = &body[end + 1..];
-            }
-        } else {
-            return Err(invalid());
-        }
-    }
-    if elements.is_empty() {
+    if !path.starts_with('$') {
         return Err(invalid());
     }
-    Ok(VariantPath::new(elements))
-}
-
-fn unescape_key(raw: &str, quote: char) -> String {
-    let mut output = String::new();
-    let mut remaining = raw;
-    while let Some((before, after)) = remaining.split_once('\\') {
-        output.push_str(before);
-        let c = after
-            .chars()
-            .next()
-            .expect("parser checked escape terminator");
-        let mut consumed = c.len_utf8();
-        match c {
-            'b' => output.push('\x08'),
-            'f' => output.push('\x0c'),
-            'n' => output.push('\n'),
-            'r' => output.push('\r'),
-            't' => output.push('\t'),
-            '/' | '\\' => output.push(c),
-            c if c == quote => output.push(c),
-            'u' => {
-                // Let serde decode valid Unicode escapes (including surrogate
-                // pairs). Spark preserves malformed escapes and lone surrogates.
-                let decoded = [11, 5].into_iter().find_map(|n| {
-                    let escape = after.get(..n)?;
-                    if !escape.as_bytes()[1..5].iter().all(u8::is_ascii_hexdigit)
-                        || (n == 11
-                            && (!escape.as_bytes()[5..].starts_with(b"\\u")
-                                || !escape.as_bytes()[7..].iter().all(u8::is_ascii_hexdigit)))
-                    {
-                        return None;
-                    }
-                    let value = serde_json::from_str::<String>(&format!("\"\\{escape}\"")).ok()?;
-                    Some((n, value))
-                });
-                if let Some((n, value)) = decoded {
-                    consumed = n;
-                    output.push_str(&value);
-                } else {
-                    output.push_str("\\u");
-                }
-            }
-            c => {
-                output.push('\\');
-                output.push(c);
-            }
-        }
-        remaining = &after[consumed..];
-    }
-    output.push_str(remaining);
-    output
+    crate::variant_path::parse_variant_path(path, false).map_err(|_| invalid())
 }

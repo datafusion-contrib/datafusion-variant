@@ -9,11 +9,13 @@ use arrow::array::{Array, ArrayRef, cast::AsArray};
 use arrow_schema::Fields;
 use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
-use datafusion::error::{DataFusionError, Result};
+use datafusion::error::Result;
 use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs};
 use datafusion::{common::exec_err, scalar::ScalarValue};
 use parquet_variant::{Variant, VariantPath, VariantPathElement};
 use parquet_variant_compute::{VariantArray, VariantType};
+
+use crate::variant_path::parse_variant_path;
 
 #[cfg(test)]
 use parquet_variant_compute::VariantArrayBuilder;
@@ -140,7 +142,7 @@ pub fn variant_get_array_values<T>(
 
 /// Build a [`VariantPath`] from a scalar value.
 ///
-/// - **String** scalars use dot-notation parsing (e.g. `'a.b.c'` → path `[a, b, c]`)
+/// - **String** scalars use the shared rooted/rootless path parser.
 /// - **List** scalars treat each element as a single field name
 ///   (e.g. `['a.b', 'c']` → path `[a.b, c]`), which is critical for keys that
 ///   contain dots such as OTEL attribute keys like `http.response.status_code`.
@@ -149,8 +151,7 @@ pub(crate) fn path_from_scalar(scalar: &ScalarValue) -> Result<VariantPath<'stat
         ScalarValue::Utf8(Some(s))
         | ScalarValue::Utf8View(Some(s))
         | ScalarValue::LargeUtf8(Some(s)) => {
-            let parsed =
-                VariantPath::try_from(s.as_str()).map_err(Into::<DataFusionError>::into)?;
+            let parsed = parse_variant_path(s.as_str(), true)?;
             Ok(to_owned_path(&parsed))
         }
         ScalarValue::Utf8(None) | ScalarValue::Utf8View(None) | ScalarValue::LargeUtf8(None) => {
@@ -244,8 +245,7 @@ pub fn invoke_variant_get_typed<T>(
                 .zip(paths)
                 .map(|(variant, path_str)| {
                     let path_str = path_str.unwrap_or_default();
-                    let path =
-                        VariantPath::try_from(path_str).map_err(Into::<DataFusionError>::into)?;
+                    let path = parse_variant_path(path_str, true)?;
 
                     let Some(variant) = variant else {
                         return Ok(None);
@@ -272,8 +272,7 @@ pub fn invoke_variant_get_typed<T>(
                 .iter()
                 .map(|path_str| {
                     let path_str = path_str.unwrap_or_default();
-                    let path =
-                        VariantPath::try_from(path_str).map_err(Into::<DataFusionError>::into)?;
+                    let path = parse_variant_path(path_str, true)?;
                     variant_get_single_value(&variant_array, 0, &path, extract)
                 })
                 .collect::<Result<_>>()?;

@@ -3,7 +3,7 @@
 # SQL function reference
 
 Documented scalar and aggregate functions registered by `register_all`.
-See the [README](../README.md) for setup and common workflows.
+See the [README](https://github.com/datafusion-contrib/datafusion-variant/blob/main/README.md) for setup and common workflows.
 
 - [is_valid_variant](#is_valid_variant)
 - [is_variant_null](#is_variant_null)
@@ -415,7 +415,7 @@ value:field::type
 ### Arguments
 
 - **value**: Variant expression to extract from.
-- **path**: String expression selecting fields with dots and array elements with zero-based brackets, such as `a.b[0]`. Use `["a.b"]` for a literal key containing a dot. An empty string or SQL NULL selects the root. Use field paths without Spark's leading `$`; here `$` is treated as a field name. Keys containing `]` currently require escaping that bracket with a backslash, even inside quotes.
+- **path**: String expression such as `$.a.b[0]` or `a.b[0]`. `$`, an empty string, or SQL NULL selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Rooted quoted keys preserve backslashes (Spark 4.2); rootless paths use Arrow escaping.
 - **type**: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`.
 
 ### Example

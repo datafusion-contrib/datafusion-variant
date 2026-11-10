@@ -42,7 +42,7 @@ First, enable Variant in your project by adding the following to `Cargo.toml`:
 ```toml
 [dependencies]
 datafusion-variant = { git = "https://github.com/datafusion-contrib/datafusion-variant.git" }
-datafusion = { git = "https://github.com/apache/datafusion.git", rev = "484183dc34ea565190d9cd4a66db6d24789f95d0" } # match this crate
+datafusion = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" } # match this crate
 parquet = { version = "60", features = ["variant_experimental"] } # enable Parquet Variant support
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
@@ -112,22 +112,21 @@ You can extract fields from a Variant column using the Spark SQL-style `:`
 field-access operator or the `variant_get` UDF. For example, to select the
 `service` and `latency_ms` fields of events whose `status` is at least 400, run:
 
-<!-- TODO: remove the `as` alias when https://github.com/datafusion-contrib/datafusion-variant/issues/158 is ready -->
 <!-- TODO: remove the `::BIGINT` explicit typecasts when https://github.com/datafusion-contrib/datafusion-variant/issues/159 is ready -->
 ```sql
-SELECT event:service::VARCHAR AS service,
-       event:latency_ms::BIGINT AS latency_ms
+SELECT event:service::VARCHAR,
+       event:latency_ms::BIGINT
 FROM events
 WHERE event:status::BIGINT >= 400;
 ```
 
 ```text
-+---------+------------+
-| service | latency_ms |
-+---------+------------+
-| api     | 85         |
-| api     | NULL       |
-+---------+------------+
++----------------------+-------------------------+
+| events.event:service | events.event:latency_ms |
++----------------------+-------------------------+
+| api                  | 85                      |
+| api                  | NULL                    |
++----------------------+-------------------------+
 ```
 
 The `:` syntax is automatically rewritten to `variant_get`, so this is an
@@ -252,9 +251,8 @@ SELECT CAST(42 AS VARIANT) AS int_value,
 +-----------+---------------+
 ```
 
-To convert a struct or list to Variant, use `to_variant_object`:
+To convert a list, struct, or map to Variant, use `to_variant_object`:
 
-<!-- CAST support tracked by https://github.com/datafusion-contrib/datafusion-variant/issues/112 -->
 ```sql
 SELECT to_variant_object([1, 2, 3]) AS list_value,
        to_variant_object([{a: 1, b: 2}, {b: 3, a: 4}]) AS struct_list_value;
@@ -313,9 +311,6 @@ Extract a field as a SQL type before filtering, aggregating, or joining on it.
 A missing field returns SQL NULL. A JSON `null` is a distinct Variant null
 value: use `is_variant_null` to detect it, and `IS NULL` to detect SQL NULL.
 
-`CAST(value AS VARIANT)` accepts scalars and arrays; structs and string-keyed maps
-require `to_variant_object`.
-
 ## More examples and benchmarks
 
 For an interactive SQL shell with the Variant functions preinstalled, see
@@ -330,8 +325,7 @@ including baseline comparison commands.
 Contributions are welcome, including compatibility fixes, regression tests,
 benchmarks, documentation, and integration examples.
 
-Use a current stable Rust toolchain with `rustfmt` and `clippy`, and install
-the Protocol Buffers compiler (`protoc`).
+Use a current stable Rust toolchain with `rustfmt` and `clippy`.
 
 Run the development checks from the repository root:
 
@@ -342,7 +336,7 @@ cargo clippy -- -D warnings
 ```
 
 `cargo test` also checks the Rust example and the SQL results in this README
-and in `docs/shredding.md`.
+and in the pages under `docs/`.
 
 Regenerate the SQL reference after changing function documentation.
 `cargo test` checks its examples, and CI fails if the committed file is stale:

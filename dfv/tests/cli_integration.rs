@@ -84,7 +84,7 @@ fn snapshot_output(cmd: &mut assert_cmd::Command) -> String {
 /// Try:
 ///   -- Build a table of Variant values by parsing JSON    <--- Captured
 /// ...                                                     <--- Captured
-/// See https://github.com/datafusion-contrib/datafusion-variant#functions for all functions.
+/// See https://... for all functions.
 /// ```
 ///
 /// Panics if the output has no examples banner.
@@ -548,7 +548,7 @@ fn test_banner_examples_run_end_to_end() {
           ) AS input(json_data);
 
           -- Select fields from the Variant values using the `:` operator and filter by a field value
-          SELECT event:service AS service
+          SELECT event:service
           FROM events
           WHERE event:status::BIGINT >= 400;
 
@@ -575,12 +575,12 @@ fn test_banner_examples_run_end_to_end() {
         0 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 
-        +---------+
-        | service |
-        +---------+
-        | "api"   |
-        | "api"   |
-        +---------+
+        +----------------------+
+        | events.event:service |
+        +----------------------+
+        | "api"                |
+        | "api"                |
+        +----------------------+
         2 row(s) fetched.
         Elapsed [ELAPSED] seconds.
 

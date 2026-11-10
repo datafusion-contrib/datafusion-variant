@@ -1,0 +1,88 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Rooted and existing rootless paths share traversal but retain their dialects.
+query III
+SELECT variant_get(parse_json('{"a":{"b":[7]}}'), '$.a.b[0]', 'INT'),
+       try_variant_get(parse_json('{"a":{"b":[7]}}'), '$.a.b[0]', 'INT'),
+       variant_get(parse_json('{"a":{"b":[7]}}'), 'a.b[0]', 'INT');
+----
+7 7 7
+
+query TT
+SELECT to_json(variant_get(parse_json('{"$":42}'), '$')),
+       variant_get_json(parse_json('{"$":42}'), '$');
+----
+{"$":42} {"$":42}
+
+query II
+SELECT variant_get(parse_json('{"$":42,"a.b":8}'), '$["$"]', 'INT'),
+       variant_get(parse_json('{"$":42,"a.b":8}'), '$["a.b"]', 'INT');
+----
+42 8
+
+query T
+SELECT CAST(variant_object_keys(parse_json('{"a":{"key":1}}'), '$.a') AS VARCHAR);
+----
+[key]
+
+query ITT rowsort
+SELECT variant_get(parse_json(j), p, 'INT'),
+       variant_get_json(parse_json(j), p),
+       variant_get_json(parse_json('{"a":5}'), p)
+FROM (VALUES ('{"a":1}', '$.a'), ('{"a":2}', 'a')) t(j,p);
+----
+1 1 5
+2 2 5
+
+statement error invalid Variant path
+SELECT try_variant_get(parse_json('{}'), '$[');
+
+statement error invalid Variant path
+SELECT variant_get_json(parse_json('{}'), '$..a');
+
+statement error invalid Variant path
+SELECT variant_object_keys(parse_json('{}'), '$bad');
+
+# Both path dialects agree on shredded and unshredded storage.
+# Cross-layout missing/null equivalence is an existing upstream Arrow gap.
+query I
+SELECT count(*) FROM shredded_null_objects
+WHERE to_json(variant_get(v, '$.a')) IS DISTINCT FROM
+      to_json(variant_get(v, 'a'))
+   OR to_json(variant_get(original, '$.a')) IS DISTINCT FROM
+      to_json(variant_get(original, 'a'));
+----
+0
+
+# Literal field names are not interpreted as root markers, including in SQL access.
+query ITT
+SELECT parse_json('{"$":42}'):['$']::INT,
+       variant_get_json(parse_json('{"$":42}'), ['$']),
+       variant_get_json(parse_json('{"$":42}'), '["$"]');
+----
+42 42 42
+
+# A scalar Variant broadcast over dynamic paths exercises both getter policies.
+query III rowsort
+SELECT variant_get(parse_json('{"a":5}'), p, 'INT'),
+       try_variant_get(parse_json('{"a":5}'), p, 'INT'),
+       CAST(variant_get(parse_json('{"a":5}'), p) AS INT)
+FROM (VALUES ('$.a'), ('a')) t(p);
+----
+5 5 5
+5 5 5
+
+query II
+SELECT variant_get(parse_json('7'), '$', 'INT'),
+       TRY_CAST(variant_get(parse_json('7'), '$') AS INT);
+----
+7 7
+
+statement error invalid Variant path
+SELECT try_variant_get(parse_json('{}'), p) FROM (VALUES ('$[')) t(p);
+
+# Spark 4.2 preserves backslashes in quoted keys.
+query I
+SELECT variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT');
+----
+1

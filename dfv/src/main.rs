@@ -178,7 +178,7 @@ Try:
   ) AS input(json_data);
 
   -- Select fields from the Variant values using the `:` operator and filter by a field value
-  SELECT event:service AS service
+  SELECT event:service
   FROM events
   WHERE event:status::BIGINT >= 400;
 
@@ -199,7 +199,7 @@ Try:
   CREATE TABLE bsky AS SELECT parse_json(json_data) AS event FROM load_bsky(1);
   SELECT event:kind::VARCHAR AS kind, count(*) FROM bsky GROUP BY kind ORDER BY 2 DESC;
 
-See https://github.com/datafusion-contrib/datafusion-variant#functions for all functions.
+See https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/sql-reference.md for all functions.
 
 Enter \q to exit.
 "###;
