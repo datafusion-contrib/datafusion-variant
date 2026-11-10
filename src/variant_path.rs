@@ -20,7 +20,9 @@ pub(crate) fn parse_variant_path(path: &str, allow_root: bool) -> Result<Variant
 }
 
 // Spark 4.2: quoted keys retain backslashes.
-// https://github.com/apache/spark/blob/branch-4.2/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
+// https://github.com/apache/spark/blob/v4.2.0/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
+// TODO(arrow-rs): drop this parser once `VariantPath` parses Spark-style paths.
+// https://github.com/apache/arrow-rs/issues/11627
 fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
     let invalid = || exec_datafusion_err!("invalid Variant path {path:?}");
     let mut remaining = path.strip_prefix('$').ok_or_else(invalid)?;
@@ -36,19 +38,13 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
         } else if let Some(body) = remaining.strip_prefix('[') {
             if body.starts_with(['\'', '"']) {
                 let quote = body.as_bytes()[0] as char;
-                let mut chars = body[1..].char_indices();
-                let end = loop {
-                    let (i, c) = chars.next().ok_or_else(invalid)?;
-                    if c == quote {
-                        break i + 1;
-                    }
-                };
+                let end = body[1..].find(quote).ok_or_else(invalid)? + 1;
                 remaining = body[end + 1..].strip_prefix(']').ok_or_else(invalid)?;
                 elements.push(VariantPathElement::field(&body[1..end]));
             } else {
                 let end = body.find(']').ok_or_else(invalid)?;
                 let index = &body[..end];
-                if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+                if !index.bytes().all(|b| b.is_ascii_digit()) {
                     return Err(invalid());
                 }
                 let index = index.parse::<i32>().map_err(|_| invalid())? as usize;
@@ -109,6 +105,7 @@ mod tests {
             "$.",
             "$[",
             "$['a'",
+            "$[]",
             "$[-1]",
             "$[2147483648]",
             "$[*]",

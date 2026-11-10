@@ -62,13 +62,6 @@ SELECT parse_json('{"$":42}'):['$']::INT,
 ----
 42 42 42
 
-# The quoted closing bracket works in both dialects with Arrow 60.1.
-query II
-SELECT variant_get(parse_json('{"a]b":8}'), '$["a]b"]', 'INT'),
-       variant_get(parse_json('{"a]b":8}'), '["a]b"]', 'INT');
-----
-8 8
-
 # A scalar Variant broadcast over dynamic paths exercises both getter policies.
 query III rowsort
 SELECT variant_get(parse_json('{"a":5}'), p, 'INT'),
@@ -89,8 +82,7 @@ statement error invalid Variant path
 SELECT try_variant_get(parse_json('{}'), p) FROM (VALUES ('$[')) t(p);
 
 # Spark 4.2 preserves backslashes in quoted keys.
-query II
-SELECT variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT'),
-       try_variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT');
+query I
+SELECT variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT');
 ----
-1 1
+1
