@@ -504,7 +504,7 @@ impl TableProviderFactory for VariantListingTableFactory {
 
         // TODO: avoid recreating the ListingTable when we have an API
         // to get a ListingTableConfig from the listing table
-        // <TODO FILE DataFusion ISSUE>
+        // <https://github.com/apache/datafusion/issues/27314>
 
         // `ListingTable::schema()` has the partition columns appended;
         // `ListingTableConfig` wants the file schema without them.
