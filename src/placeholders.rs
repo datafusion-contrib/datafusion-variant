@@ -471,6 +471,9 @@ const PARQUET: &str = "PARQUET";
 
 #[async_trait]
 impl TableProviderFactory for VariantListingTableFactory {
+    /// Create a new table provider for cmd.
+    ///
+    /// Wraps the provider returned by `self.inner`
     async fn create(
         &self,
         state: &dyn Session,
