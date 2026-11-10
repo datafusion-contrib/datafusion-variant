@@ -487,6 +487,10 @@ impl TableProviderFactory for VariantListingTableFactory {
             return Ok(provider);
         }
 
+        // TODO: avoid recreating the ListingTable when we have an API
+        // to get a ListingTableConfig from the listing table
+        // <TODO FILE DataFusion ISSUE>
+
         // `ListingTable::schema()` has the partition columns appended;
         // `ListingTableConfig` wants the file schema without them.
         let partition_cols: Vec<&String> = table
