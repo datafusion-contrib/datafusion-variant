@@ -224,12 +224,13 @@ FROM 'shredded_objects.parquet';
 
 #### Files with different shredding layouts
 
-It is also possible to read files with different shredding layouts as the
-same table, which is often referred to as schema evolution: The optimal shredding
-may evolve over time, or different producers may have different knowledge of the data.
-It is important such datasets can be read without rewriting the existing files. 
+It is also possible to read files with different shredding layouts as a single
+table, which is often referred to as schema evolution. This can happen when the
+optimal shredding evolves over time, or different producers shred the same data
+differently. DataFusion transparently unifies the different shredding layouts
+into a single table.
 
-For example, you could write `file1.parquet` with the `id` and `status` fields
+For example, if you write `file1.parquet` with the `id` and `status` fields
 shredded, and `file2.parquet` with just the `id` field shredded:
 
 ```sql
@@ -259,46 +260,23 @@ OPTIONS (
 );
 ```
 
-On read, DataFusion will unify them into a single table:
+DataFusion reads `event` from both files as a single column.
 
 ```sql
-CREATE EXTERNAL TABLE mixed_events STORED AS PARQUET LOCATION 'mixed_events/';
-
-SELECT event:id::BIGINT AS id,
-       event:service::VARCHAR AS service,
-       event:status::BIGINT AS status
-FROM mixed_events
-ORDER BY id;
+SELECT event:id, event FROM 'mixed_events' ORDER BY event:id::BIGINT;
 ```
 
 ```text
-+----+---------+--------+
-| id | service | status |
-+----+---------+--------+
-| 5  | api     | 200    |
-| 6  | api     | 500    |
-| 7  | web     | 504    |
-| 8  | api     | 200    |
-| 9  | db      | 503    |
-+----+---------+--------+
-```
-
-The whole value reads back the same from both files:
-
-```sql
-SELECT event FROM mixed_events ORDER BY event:id::BIGINT;
-```
-
-```text
-+---------------------------------------+
-| event                                 |
-+---------------------------------------+
-| {"id":5,"service":"api","status":200} |
-| {"id":6,"service":"api","status":500} |
-| {"id":7,"service":"web","status":504} |
-| {"id":8,"service":"api","status":200} |
-| {"id":9,"service":"db","status":503}  |
-+---------------------------------------+
++-----------------------+---------------------------------------+
+| mixed_events.event:id | event                                 |
++-----------------------+---------------------------------------+
+| 5                     | {"id":5,"service":"api","status":200} |
+| 6                     | {"id":6,"service":"api","status":500} |
+| 7                     | {"id":7,"service":"web","status":504} |
+| 8                     | {"id":8,"service":"api","status":200} |
+| 9                     | {"id":9,"service":"db","status":503}  |
++-----------------------+---------------------------------------+
+5 row(s) fetched.
 ```
 
 See the documentation on [`VariantExprAdapterFactory`](../src/expr_adapter.rs)
