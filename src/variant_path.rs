@@ -38,18 +38,17 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
         } else if let Some(body) = remaining.strip_prefix('[') {
             if body.starts_with(['\'', '"']) {
                 let quote = body.as_bytes()[0] as char;
-                let end = body[1..].find(quote).ok_or_else(invalid)? + 1;
-                remaining = body[end + 1..].strip_prefix(']').ok_or_else(invalid)?;
-                elements.push(VariantPathElement::field(&body[1..end]));
+                let (key, rest) = body[1..].split_once(quote).ok_or_else(invalid)?;
+                remaining = rest.strip_prefix(']').ok_or_else(invalid)?;
+                elements.push(VariantPathElement::field(key));
             } else {
-                let end = body.find(']').ok_or_else(invalid)?;
-                let index = &body[..end];
+                let (index, rest) = body.split_once(']').ok_or_else(invalid)?;
                 if !index.bytes().all(|b| b.is_ascii_digit()) {
                     return Err(invalid());
                 }
                 let index = index.parse::<i32>().map_err(|_| invalid())? as usize;
                 elements.push(VariantPathElement::index(index));
-                remaining = &body[end + 1..];
+                remaining = rest;
             }
         } else {
             return Err(invalid());
