@@ -104,7 +104,7 @@ impl Default for VariantExprAdapterFactory {
 
 impl VariantExprAdapterFactory {
     /// Create a new `VariantExprAdapterFactory` that wraps the output of `inner`
-    /// with [`VariantExprAdapter`]. 
+    /// with [`VariantExprAdapter`].
     pub fn new(inner: Arc<dyn PhysicalExprAdapterFactory>) -> Self {
         Self { inner }
     }
@@ -132,12 +132,12 @@ impl PhysicalExprAdapterFactory for VariantExprAdapterFactory {
     }
 }
 
-/// A [`PhysicalExprAdapter`] that adapts a Parquet files schema to a table schema.  
-/// 
+/// A [`PhysicalExprAdapter`] that adapts a Parquet files schema to a table schema.
+///
 /// These are created by [`VariantExprAdapterFactory`].
 ///
 /// It replaces Variant column with [`VariantReshredExpr`] when the Variant
-/// layout differs from the table's. Other columns are not modified. 
+/// layout differs from the table's. Other columns are not modified.
 #[derive(Debug)]
 pub struct VariantExprAdapter {
     inner: Arc<dyn PhysicalExprAdapter>,
@@ -186,10 +186,10 @@ impl PhysicalExprAdapter for VariantExprAdapter {
 }
 
 impl VariantExprAdapter {
-    /// A [`VariantReshredExpr`] over the file column for `column`, when it is a
-    /// Variant column whose file layout differs from the table layout; `None`
-    /// otherwise, including when the file lacks the column entirely (the
-    /// wrapped adapter null-fills it).
+    /// Returns a [`VariantReshredExpr`] that reshreds a Variant column whose
+    /// file layout differs from the table layout;
+    ///
+    /// Returns `None` if the column doesn't need reshredding
     fn reshred_expr(&self, column: &Column) -> Option<Arc<dyn PhysicalExpr>> {
         let logical = self
             .logical_file_schema
@@ -200,6 +200,7 @@ impl VariantExprAdapter {
         }
         let index = self.physical_file_schema.index_of(column.name()).ok()?;
         let physical = self.physical_file_schema.field(index);
+        // Does it need reshredding?
         if physical.data_type() == logical.data_type()
             || !is_variant_storage(physical.data_type())
             || !is_variant_storage(logical.data_type())
@@ -213,8 +214,7 @@ impl VariantExprAdapter {
     }
 }
 
-/// Stand-in for a cut-out subtree while the wrapped adapter runs. Never
-/// evaluated.
+/// Left in an expression tree while another adapter is running
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Placeholder {
     id: usize,
@@ -223,7 +223,7 @@ struct Placeholder {
 
 impl Display for Placeholder {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "variant_hole({})", self.id)
+        write!(f, "variant_placeholder({})", self.id)
     }
 }
 
@@ -238,7 +238,7 @@ impl PhysicalExpr for Placeholder {
 
     fn evaluate(&self, _batch: &RecordBatch) -> Result<ColumnarValue> {
         exec_err!(
-            "variant_hole({}) was not replaced after the schema rewrite",
+            "variant_placeholder({}) was not replaced after the schema rewrite",
             self.id
         )
     }
