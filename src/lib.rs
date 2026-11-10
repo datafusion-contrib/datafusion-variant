@@ -121,8 +121,10 @@ mod tests {
 
     use arrow::array::AsArray;
     use arrow::datatypes::Int64Type;
+    use datafusion::catalog::{Session, TableProvider, TableProviderFactory};
+    use datafusion::datasource::provider::DefaultTableFactory;
     use datafusion::execution::SessionStateBuilder;
-    use datafusion::prelude::SessionContext;
+    use datafusion::logical_expr::CreateExternalTable;
 
     /// Counts the tables it is asked to create, then defers to the stock factory.
     #[derive(Debug, Default)]
@@ -149,7 +151,7 @@ mod tests {
         let counting = Arc::new(CountingFactory::default());
         let state = SessionStateBuilder::new()
             .with_default_features()
-            .with_table_factory(PARQUET.to_string(), counting.clone())
+            .with_table_factory(String::from("PARQUET"), counting.clone())
             .build();
         let mut ctx = SessionContext::new_with_state(state);
         crate::register_all(&mut ctx)?;
@@ -177,7 +179,7 @@ mod tests {
         ctx.sql(&format!(
             "CREATE EXTERNAL TABLE t STORED AS PARQUET LOCATION '{dir}/'"
         ))
-            .await?;
+        .await?;
         assert_eq!(counting.calls.load(Ordering::SeqCst), 1);
 
         // The Variant adapter is attached: no row of the unshredded file is lost.

@@ -19,7 +19,6 @@ use datafusion::catalog::{Session, TableProvider, TableProviderFactory};
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Result, exec_err, plan_err};
 use datafusion::datasource::listing::{ListingTable, ListingTableConfig};
-use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::session_state::SessionState;
 use datafusion::logical_expr::CreateExternalTable;
 use datafusion::physical_expr::PhysicalExpr;
@@ -492,41 +491,11 @@ impl PhysicalExpr for VariantReshredExpr {
     }
 }
 
-/// A [`TableProviderFactory`] for `CREATE EXTERNAL TABLE ... STORED AS PARQUET`
-/// that attaches [`VariantExprAdapterFactory`] to the table it creates.
-///
-/// DataFusion's [`ListingTableFactory`] builds a [`ListingTable`] with no
-/// expression adapter and offers no way to pass one through SQL. This factory
-/// runs another factory, then rebuilds the [`ListingTable`] it returns with the
-/// adapter installed. Tables of any other kind are returned unchanged.
-///
-/// [`register_all`](crate::register_all) wraps the session's `PARQUET` factory
-/// in this one (see [`Self::register`]), so there is normally no need to
-/// register it by hand.
-///
-/// # Tables that are not covered
-///
-/// Only tables made with `CREATE EXTERNAL TABLE` go through a table factory.
-/// These still use DataFusion's default adapter:
-///
-/// * `SELECT ... FROM '<path>'`, `SessionContext::read_parquet` and
-///   `SessionContext::register_parquet`. DataFusion builds these tables itself
-///   and has no hook to change the adapter; see
-///   <https://github.com/apache/datafusion/issues/27089>.
-/// * A [`ListingTable`] built in Rust. Set [`VariantExprAdapterFactory`] on its
-///   config; see the example there.
-///
-/// [`ListingTableFactory`]: datafusion::datasource::listing_table_factory::ListingTableFactory
+/// A [`TableProviderFactory`] that wraps another factory and adds
+/// a Variant adapter to all tables.
 #[derive(Debug)]
 pub struct VariantListingTableFactory {
     inner: Arc<dyn TableProviderFactory>,
-}
-
-impl Default for VariantListingTableFactory {
-    /// Wraps DataFusion's stock factory for file-backed tables.
-    fn default() -> Self {
-        Self::new(Arc::new(DefaultTableFactory::new()))
-    }
 }
 
 impl VariantListingTableFactory {
@@ -535,17 +504,15 @@ impl VariantListingTableFactory {
         Self { inner }
     }
 
-    /// Replace `state`'s `PARQUET` table factory with one that wraps it (or
-    /// DataFusion's stock factory, if there is none), so that every
-    /// `CREATE EXTERNAL TABLE ... STORED AS PARQUET` reads Variant columns
-    /// through [`VariantExprAdapterFactory`].
+    /// Replace `state`'s `PARQUET` table factory with one that knows how to
+    /// adapt variant schemas
     pub fn register(state: &mut SessionState) {
         let factories = state.table_factories_mut();
-        let factory = match factories.remove(PARQUET) {
-            Some(inner) => Self::new(inner),
-            None => Self::default(),
+        let Some(existing_factory) = factories.remove(PARQUET) else {
+            return;
         };
-        factories.insert(PARQUET.into(), Arc::new(factory));
+        let wrapped_factory = Self::new(existing_factory);
+        factories.insert(PARQUET.into(), Arc::new(wrapped_factory));
     }
 }
 
