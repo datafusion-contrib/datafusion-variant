@@ -1,12 +1,19 @@
 # datafusion-variant
 
-This crate provides a [Variant] SQL type and functions for querying
-semi-structured data using [Apache DataFusion], and reading and writing
-such data to [Apache Parquet] files.
+<!-- The docs home page (docs/index.md) includes the text between these markers. -->
+<!-- docs-intro-start -->
+This crate provides a
+[Variant](https://parquet.apache.org/docs/file-format/types/variantencoding/)
+SQL type and functions for querying semi-structured data using
+[Apache DataFusion](https://datafusion.apache.org/), and reading and writing
+such data to [Apache Parquet](https://parquet.apache.org/) files.
 
-This crate is under active development and aims to match [Apache Spark] Variant
-behavior. Compatibility is incomplete, and APIs may change. See the
-[roadmap][roadmap] for more details.
+This crate is under active development and aims to match
+[Apache Spark](https://spark.apache.org/) Variant behavior. Compatibility is
+incomplete, and APIs may change. See the
+[roadmap](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
+for more details.
+<!-- docs-intro-end -->
 
 ## What is Variant?
 
@@ -36,11 +43,6 @@ The documentation sources are in [`docs/`](docs/).
 
 Licensed under the [Apache License, Version 2.0][license].
 
-[Variant]: https://parquet.apache.org/docs/file-format/types/variantencoding/
-[Apache DataFusion]: https://datafusion.apache.org/
-[Apache Parquet]: https://parquet.apache.org/
-[Apache Spark]: https://spark.apache.org/
-[roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [docs]: https://datafusion-contrib.github.io/datafusion-variant/
 [getting-started]: https://datafusion-contrib.github.io/datafusion-variant/getting-started.html
 [cookbook]: https://datafusion-contrib.github.io/datafusion-variant/cookbook/load-and-query-json.html

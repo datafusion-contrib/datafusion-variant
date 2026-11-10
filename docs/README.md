@@ -1,13 +1,3 @@
-# Introduction
-
-This crate provides a [Variant] SQL type and functions for querying
-semi-structured data using [Apache DataFusion], and reading and writing
-such data to [Apache Parquet] files.
-
-This crate is under active development and aims to match [Apache Spark] Variant
-behavior. Compatibility is incomplete, and APIs may change. See the
-[roadmap][roadmap] for more details.
-
 ## What is Variant?
 
 Variant is a type for storing semi-structured data, similar to JSON. Each value
@@ -43,11 +33,6 @@ and the [shredding guide](shredding.md) for more details.
 - [Custom types using metadata in DataFusion][datafusion-custom-types-blog]
 - [Iceberg Variant proposal (design background)][iceberg-variant-proposal]
 
-[Variant]: https://parquet.apache.org/docs/file-format/types/variantencoding/
-[Apache DataFusion]: https://datafusion.apache.org/
-[Apache Parquet]: https://parquet.apache.org/
-[Apache Spark]: https://spark.apache.org/
-[roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [parquet-variant-blog]: https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/
 [spark-docs]: https://spark.apache.org/docs/4.2.0/
 [parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/

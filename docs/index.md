@@ -1,3 +1,10 @@
+# Introduction
+
+```{include} ../README.md
+:start-after: <!-- docs-intro-start -->
+:end-before: <!-- docs-intro-end -->
+```
+
 ```{include} README.md
 ```
 
