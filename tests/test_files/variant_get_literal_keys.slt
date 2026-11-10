@@ -29,17 +29,13 @@ SELECT
 ----
 3 5 6
 
-# Arrow currently requires escaping a closing bracket even inside quotes.
+# Arrow accepts a closing bracket inside quotes with or without a backslash.
 query II
 SELECT variant_get(parse_json('{"a]b":1}'), '["a\]b"]', 'BIGINT'),
        variant_get(parse_json('{"[0]":2}'), '["[0\]"]', 'BIGINT');
 ----
 1 2
 
-# TODO(arrow-rs): parquet-variant/src/utils.rs::parse_in_bracket terminates at
-# an unescaped ] before respecting quotes. SQL parsing succeeds. Keep the
-# ordinary quoted spelling and expected values until the upstream fix lands.
-skipif DataFusion
 query II
 SELECT variant_get(parse_json('{"a]b":1}'), '["a]b"]', 'BIGINT'),
        variant_get(parse_json('{"[0]":2}'), '["[0]"]', 'BIGINT');
