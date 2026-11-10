@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Adapter to read Parquet files with different Variant shredding.
+//! Adapters to read Parquet files with different Variant shredding layouts.
 //!
-//! * [`VariantListingTableFactory`]: Wraps existing table factories to attach `VariantExprAdapterFactory`
-//! * [`VariantExprAdapterFactory`]: Adapts expressions for tables
+//! * [`VariantListingTableFactory`]: wraps an existing table factory to attach
+//!   [`VariantExprAdapterFactory`] to tables
+//! * [`VariantExprAdapterFactory`]: creates a [`VariantExprAdapter`] for each file
 //! * [`VariantExprAdapter`]: per-file adapter
-//! * [`VariantReshredExpr`]: function to convert shredding
+//! * [`VariantReshredExpr`]: expression that converts a Variant column from one
+//!   shredding layout to another
 
 use std::fmt::{self, Display, Formatter};
 use std::hash::Hash;
@@ -34,19 +36,20 @@ use crate::variant_type::is_variant;
 /// Adapts the output of Parquet files whose Variant shredding layout differs
 /// from the table's.
 ///
-/// Implemented as  [`PhysicalExprAdapterFactory`] that  wraps another factory
-/// and adds a function call, if necessary, to any variant columns so they all
-/// match across schemas. See [`VariantExprAdapter`] for more details
+/// Implemented as a [`PhysicalExprAdapterFactory`] that wraps another factory
+/// and, if necessary, wraps Variant columns in a [`VariantReshredExpr`] so that
+/// every file returns them in the table's layout. See [`VariantExprAdapter`] for
+/// more details.
 ///
 /// # Example
 ///
-/// Given a directory `events/` with two files that have a column `event`. One
-/// file stores the column unshredded, and a newer one stores the column with
-/// `service` and `status` shredded into typed columns:
+/// Consider a directory `events/` with two files that have a Variant column
+/// `event`. One file stores the column unshredded, and a newer one stores it
+/// with `service` and `status` shredded into typed columns:
 ///
 /// ```text
 /// events/unshredded.parquet
-///   Schema
+///   Schema:
 ///     event: Struct<metadata, value>
 ///
 ///   value (variant bytes)
@@ -66,18 +69,19 @@ use crate::variant_type::is_variant;
 ///   NULL                   db                   504
 /// ```
 ///
-/// The overall table's schema is the result of merging the two schemas. In this
-/// case that would be
+/// The table's schema is the result of merging the two file schemas. In this
+/// case that is:
 ///
 /// ```text
 /// Unified Schema:
 ///   event: Struct<metadata, value, typed_value: Struct<service, status>>
 /// ```
 ///
-/// This adapter factory adds a [`VariantReshredExpr`] to convert the unshredded
-/// column to match the shredded schema
+/// This adapter factory adds a [`VariantReshredExpr`] to convert the
+/// unshredded file's column to the table's shredded layout.
 ///
-/// With this adapter factory on the table, both files return every field:
+/// With this adapter factory on the table, both files return every field. For
+/// example, extracting `service`, `status` and `latency_ms` from `event` returns:
 ///
 /// ```text
 /// +---------+--------+------------+
@@ -132,12 +136,14 @@ impl PhysicalExprAdapterFactory for VariantExprAdapterFactory {
     }
 }
 
-/// A [`PhysicalExprAdapter`] that adapts a Parquet files schema to a table schema.
+/// A [`PhysicalExprAdapter`] that adapts expressions written against the table
+/// schema to one Parquet file's schema.
 ///
 /// These are created by [`VariantExprAdapterFactory`].
 ///
-/// It replaces Variant column with [`VariantReshredExpr`] when the Variant
-/// layout differs from the table's. Other columns are not modified.
+/// It wraps each reference to a Variant column in a [`VariantReshredExpr`] when
+/// the file's shredding layout differs from the table's. Everything else is
+/// rewritten by the wrapped adapter.
 #[derive(Debug)]
 pub struct VariantExprAdapter {
     inner: Arc<dyn PhysicalExprAdapter>,
@@ -168,11 +174,11 @@ impl PhysicalExprAdapter for VariantExprAdapter {
             })
             .data()?;
 
-        // Call the wrapper adapter to do schema rewriting as normal, which will
-        // ignore the placeholders.
+        // 2. Call the wrapped adapter to do schema rewriting as normal. It
+        // ignores the placeholders.
         let expr = self.inner.rewrite(expr)?;
 
-        // Put the reshreded expressions back into the main expressionn
+        // 3. Put the reshredding expressions back in place of the placeholders.
         expr.transform_down(|expr| match expr.downcast_ref::<Placeholder>() {
             Some(placeholder) => Ok(Transformed::new(
                 Arc::clone(&placeholders[placeholder.id]),
@@ -187,9 +193,13 @@ impl PhysicalExprAdapter for VariantExprAdapter {
 
 impl VariantExprAdapter {
     /// Returns a [`VariantReshredExpr`] that reshreds a Variant column whose
-    /// file layout differs from the table layout;
+    /// file layout differs from the table layout.
     ///
-    /// Returns `None` if the column doesn't need reshredding
+    /// Returns `None` if the column doesn't need reshredding.
+    ///
+    /// `column` refers to the table (logical) schema. The file may store its
+    /// columns in a different order, or lack some, so the file's column is
+    /// found by name.
     fn reshred_expr(&self, column: &Column) -> Option<Arc<dyn PhysicalExpr>> {
         let logical = self
             .logical_file_schema
@@ -201,10 +211,7 @@ impl VariantExprAdapter {
         let index = self.physical_file_schema.index_of(column.name()).ok()?;
         let physical = self.physical_file_schema.field(index);
         // Does it need reshredding?
-        if physical.data_type() == logical.data_type()
-            || !is_variant_storage(physical.data_type())
-            || !is_variant_storage(logical.data_type())
-        {
+        if !is_variant(physical) || physical.data_type() == logical.data_type() {
             return None;
         }
         Some(Arc::new(VariantReshredExpr::new(
@@ -214,7 +221,8 @@ impl VariantExprAdapter {
     }
 }
 
-/// Left in an expression tree while another adapter is running
+/// Stands in for a reshredded Variant column while the wrapped adapter rewrites
+/// the rest of the expression tree.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Placeholder {
     id: usize,
@@ -259,19 +267,6 @@ impl PhysicalExpr for Placeholder {
     }
 }
 
-/// Is this a Variant datatype?
-///
-/// TODO This should check for variant metadata, not the field shape
-fn is_variant_storage(data_type: &DataType) -> bool {
-    match data_type {
-        DataType::Struct(fields) => {
-            fields.iter().any(|f| f.name() == "metadata")
-                && fields.iter().any(|f| f.name() == "value")
-        }
-        _ => false,
-    }
-}
-
 /// Returns the `typed_value` child of a Variant storage type, if it has one.
 fn typed_value_type(data_type: &DataType) -> Option<&DataType> {
     match data_type {
@@ -283,12 +278,14 @@ fn typed_value_type(data_type: &DataType) -> Option<&DataType> {
     }
 }
 
-/// Return the shredding schema needed for [`shred_variant`] from  a
-/// `typed_value` column.
+/// Returns the shredding schema that [`shred_variant`] needs to produce the
+/// given `typed_value` storage type.
 ///
-/// For example,
-/// * Input: the shredded field `Struct<value, typed_value: T>`
-/// * Output: `T`
+/// The storage type wraps every object field and list element in
+/// `Struct<value, typed_value: T>`; the shredding schema has just `T`. For
+/// example:
+/// * Input: `Struct<service: Struct<value, typed_value: Utf8>>`
+/// * Output: `Struct<service: Utf8>`
 fn shredding_schema(storage: &DataType) -> Result<DataType> {
     Ok(match storage {
         DataType::Struct(fields) => DataType::Struct(
@@ -323,12 +320,11 @@ fn shredded_field_type(field: &Field) -> Result<DataType> {
     }
 }
 
-/// PhysicalExpr that reads a Variant column stored in one shredding layout and
-/// returns it in another.
+/// [`PhysicalExpr`] that reads a Variant column stored in one shredding layout
+/// and returns it in another.
 ///
-///
-/// Each batch is unshredded and shredded again to the
-/// target `typed_value` schema, so every row is valid for the target layout.
+/// Each batch is unshredded and shredded again to the target `typed_value`
+/// schema, so every row is valid for the target layout.
 #[derive(Debug, Clone, Eq)]
 pub struct VariantReshredExpr {
     input: Arc<dyn PhysicalExpr>,
@@ -351,26 +347,25 @@ impl Hash for VariantReshredExpr {
 }
 
 impl VariantReshredExpr {
-    /// Create a new reshredding expression
+    /// Create a new reshredding expression.
     ///
-    /// * `input`:  evaluates to a Variant column;
-    /// * `target`: is the target shredding field (including Variant extension
-    ///   metadata).
+    /// * `input`: evaluates to a Variant column.
+    /// * `target`: the output field: the Variant storage type to produce.
     pub fn new(input: Arc<dyn PhysicalExpr>, target: FieldRef) -> Self {
         Self { input, target }
     }
 
-    /// Return the input expression
+    /// The input expression.
     pub fn input(&self) -> &Arc<dyn PhysicalExpr> {
         &self.input
     }
 
-    /// The output field type
+    /// The output field.
     pub fn target(&self) -> &FieldRef {
         &self.target
     }
 
-    /// Perform the actual reshredding
+    /// Perform the actual reshredding.
     fn reshred(&self, array: ArrayRef) -> Result<ArrayRef> {
         let variant = VariantArray::try_new(array.as_ref())?;
         let unshredded = unshred_variant(&variant)?;
@@ -441,8 +436,10 @@ impl PhysicalExpr for VariantReshredExpr {
     }
 }
 
-/// A [`TableProviderFactory`] that wraps another factory and adds
-/// a Variant adapter to all tables it produces.
+/// A [`TableProviderFactory`] that wraps another factory and attaches
+/// [`VariantExprAdapterFactory`] to the [`ListingTable`]s it creates.
+///
+/// Tables of any other kind are returned unchanged.
 #[derive(Debug)]
 pub struct VariantListingTableFactory {
     inner: Arc<dyn TableProviderFactory>,
@@ -454,8 +451,10 @@ impl VariantListingTableFactory {
         Self { inner }
     }
 
-    /// Replace `state`'s `PARQUET` table factory with one that knows how to
-    /// adapt variant schemas
+    /// Replace `state`'s `PARQUET` table factory with one that wraps it and
+    /// knows how to adapt Variant shredding layouts.
+    ///
+    /// Does nothing if `state` has no `PARQUET` table factory.
     pub fn register(state: &mut SessionState) {
         let factories = state.table_factories_mut();
         let Some(existing_factory) = factories.remove(PARQUET) else {
@@ -471,9 +470,10 @@ const PARQUET: &str = "PARQUET";
 
 #[async_trait]
 impl TableProviderFactory for VariantListingTableFactory {
-    /// Create a new table provider for cmd.
+    /// Create a new table provider for `cmd`.
     ///
-    /// Wraps the provider returned by `self.inner`
+    /// If the provider returned by `self.inner` is a [`ListingTable`], rebuilds
+    /// it with [`VariantExprAdapterFactory`] attached.
     async fn create(
         &self,
         state: &dyn Session,
