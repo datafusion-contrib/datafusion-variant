@@ -17,7 +17,7 @@ use arrow::datatypes::{DataType, Field, FieldRef, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider, TableProviderFactory};
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
-use datafusion::common::{Result, exec_err, plan_err};
+use datafusion::common::{Result, exec_err, internal_err, plan_err};
 use datafusion::datasource::listing::{ListingTable, ListingTableConfig};
 use datafusion::execution::session_state::SessionState;
 use datafusion::logical_expr::CreateExternalTable;
@@ -259,8 +259,7 @@ impl PhysicalExpr for Placeholder {
     }
 }
 
-/// A struct with `metadata` and `value` children: the storage shape of a
-/// Variant, shredded or not.
+/// Is this a Variant datatype?
 ///
 /// TODO This should check for variant metadata, not the field shape
 fn is_variant_storage(data_type: &DataType) -> bool {
@@ -273,7 +272,7 @@ fn is_variant_storage(data_type: &DataType) -> bool {
     }
 }
 
-/// The `typed_value` child of a Variant storage type, if it has one.
+/// Returns the `typed_value` child of a Variant storage type, if it has one.
 fn typed_value_type(data_type: &DataType) -> Option<&DataType> {
     match data_type {
         DataType::Struct(fields) => fields
@@ -284,9 +283,12 @@ fn typed_value_type(data_type: &DataType) -> Option<&DataType> {
     }
 }
 
-/// Turn the storage type of a `typed_value` column back into the shredding
-/// schema [`shred_variant`] takes: each shredded field `Struct<value,
-/// typed_value: T>` becomes `T`, recursively through objects and lists.
+/// Return the shredding schema needed for [`shred_variant`] from  a
+/// `typed_value` column.
+///
+/// For example,
+/// * Input: the shredded field `Struct<value, typed_value: T>`
+/// * Output: `T`
 fn shredding_schema(storage: &DataType) -> Result<DataType> {
     Ok(match storage {
         DataType::Struct(fields) => DataType::Struct(
@@ -321,9 +323,12 @@ fn shredded_field_type(field: &Field) -> Result<DataType> {
     }
 }
 
-/// Reads a Variant column stored in one shredding layout and returns it in
-/// another. Each batch is unshredded and shredded again to the target
-/// `typed_value` schema, so every row is valid for the target layout.
+/// PhysicalExpr that reads a Variant column stored in one shredding layout and
+/// returns it in another.
+///
+///
+/// Each batch is unshredded and shredded again to the
+/// target `typed_value` schema, so every row is valid for the target layout.
 #[derive(Debug, Clone, Eq)]
 pub struct VariantReshredExpr {
     input: Arc<dyn PhysicalExpr>,
@@ -346,22 +351,26 @@ impl Hash for VariantReshredExpr {
 }
 
 impl VariantReshredExpr {
-    /// `input` evaluates to the file's Variant column; `target` is the table's
-    /// field for it, including the Variant extension metadata.
+    /// Create a new reshredding expression
+    ///
+    /// * `input`:  evaluates to a Variant column;
+    /// * `target`: is the target shredding field (including Variant extension
+    ///   metadata).
     pub fn new(input: Arc<dyn PhysicalExpr>, target: FieldRef) -> Self {
         Self { input, target }
     }
 
-    /// The expression evaluated against the file.
+    /// Return the input expression
     pub fn input(&self) -> &Arc<dyn PhysicalExpr> {
         &self.input
     }
 
-    /// The table field the result matches.
+    /// The output field type
     pub fn target(&self) -> &FieldRef {
         &self.target
     }
 
+    /// Perform the actual reshredding
     fn reshred(&self, array: ArrayRef) -> Result<ArrayRef> {
         let variant = VariantArray::try_new(array.as_ref())?;
         let unshredded = unshred_variant(&variant)?;
@@ -377,7 +386,7 @@ impl VariantReshredExpr {
         // binary encodings with the table type.
         match cast(&out, self.target.data_type()) {
             Ok(aligned) => Ok(aligned),
-            Err(e) => exec_err!(
+            Err(e) => internal_err!(
                 "Variant column '{}' reshredded to {} but the table expects {}: {e}",
                 self.target.name(),
                 out.data_type(),
@@ -402,16 +411,8 @@ impl PhysicalExpr for VariantReshredExpr {
         self.input.nullable(input_schema)
     }
 
-    fn return_field(&self, input_schema: &Schema) -> Result<FieldRef> {
-        let nullable = self.nullable(input_schema)?;
-        Ok(Arc::new(
-            Field::new(
-                self.target.name(),
-                self.target.data_type().clone(),
-                nullable,
-            )
-            .with_metadata(self.target.metadata().clone()),
-        ))
+    fn return_field(&self, _input_schema: &Schema) -> Result<FieldRef> {
+        Ok(Arc::clone(&self.target))
     }
 
     fn evaluate(&self, batch: &RecordBatch) -> Result<ColumnarValue> {
@@ -441,7 +442,7 @@ impl PhysicalExpr for VariantReshredExpr {
 }
 
 /// A [`TableProviderFactory`] that wraps another factory and adds
-/// a Variant adapter to all tables.
+/// a Variant adapter to all tables it produces.
 #[derive(Debug)]
 pub struct VariantListingTableFactory {
     inner: Arc<dyn TableProviderFactory>,

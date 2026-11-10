@@ -10,12 +10,12 @@ mod shared;
 mod shredding;
 mod sql_type;
 
-mod placeholders;
 mod expr_planner;
 mod impl_variant_get;
 mod is_valid_variant;
 mod is_variant_null;
 mod parse_json;
+mod placeholders;
 mod schema_of_variant;
 mod to_json;
 mod variant_conversion;
@@ -32,11 +32,11 @@ mod variant_object_keys;
 mod variant_path;
 mod variant_type;
 
-pub use placeholders::*;
 pub use expr_planner::*;
 pub use is_valid_variant::*;
 pub use is_variant_null::*;
 pub use parse_json::*;
+pub use placeholders::*;
 pub use schema_of_variant::*;
 pub use to_json::*;
 pub use variant_conversion::*;
