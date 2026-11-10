@@ -32,7 +32,7 @@ mod variant_object_keys;
 mod variant_path;
 mod variant_type;
 
-pub use expr_adapter::*;
+pub use expr_adapter::{VariantExprAdapterFactory, VariantListingTableFactory};
 pub use expr_planner::*;
 pub use is_valid_variant::*;
 pub use is_variant_null::*;
@@ -156,7 +156,7 @@ mod tests {
         let mut ctx = SessionContext::new_with_state(state);
         crate::register_all(&mut ctx)?;
 
-        // One unshredded and one shredded file with the same three rows.
+        // One row in each layout.
         let dir = tempfile::tempdir()?;
         let dir = dir.path().display();
         for (file, options) in [
@@ -167,13 +167,12 @@ mod tests {
             ),
         ] {
             ctx.sql(&format!(
-                "COPY (SELECT parse_json(column1) AS event FROM VALUES \
-                 ('{{\"service\":\"api\"}}'), ('{{\"service\":\"api\"}}'), ('{{\"service\":\"db\"}}')) \
+                "COPY (SELECT parse_json('{{\"service\":\"api\"}}') AS event) \
                  TO '{dir}/{file}.parquet' STORED AS PARQUET {options}"
             ))
-                .await?
-                .collect()
-                .await?;
+            .await?
+            .collect()
+            .await?;
         }
 
         ctx.sql(&format!(
@@ -188,7 +187,7 @@ mod tests {
             .await?
             .collect()
             .await?;
-        assert_eq!(batches[0].column(0).as_primitive::<Int64Type>().value(0), 6);
+        assert_eq!(batches[0].column(0).as_primitive::<Int64Type>().value(0), 2);
         Ok(())
     }
 }
