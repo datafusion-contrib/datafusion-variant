@@ -1,0 +1,178 @@
+# SPDX-License-Identifier: Apache-2.0
+
+control substitution on
+
+# One table, two Parquet files with the same rows and the same Variant column,
+# written with different shredding layouts.
+statement ok
+CREATE TABLE raw_events (id BIGINT, j VARCHAR);
+
+statement ok
+INSERT INTO raw_events VALUES
+  (1, '{"service":"api","status":200,"latency_ms":12}'),
+  (2, '{"service":"api","status":500,"latency_ms":85}'),
+  (3, '{"service":"db","status":504}');
+
+statement ok
+CREATE VIEW events AS SELECT id, parse_json(j) AS event FROM raw_events;
+
+query I
+COPY events TO '$__TEST_DIR__/mixed/unshredded.parquet' STORED AS PARQUET;
+----
+3
+
+query I
+COPY events TO '$__TEST_DIR__/mixed/shredded.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR, status BIGINT>"}');
+----
+3
+
+# Read with DataFusion's default adapter. The merged schema has typed_value, so
+# the unshredded file's rows are cast to it with typed_value = NULL. The
+# shredding specification reads that as "not an object": every shredded field
+# of those rows is NULL, with no error. latency_ms is unshredded in both files
+# and reads correctly.
+query ITII
+SELECT id,
+       variant_get(event, 'service', 'VARCHAR') AS service,
+       event:status::BIGINT AS status,
+       event:latency_ms::BIGINT AS latency_ms
+FROM '$__TEST_DIR__/mixed/'
+ORDER BY id, service NULLS FIRST;
+----
+1 NULL NULL 12
+1 api 200 12
+2 NULL NULL 85
+2 api 500 85
+3 NULL NULL NULL
+3 db 504 NULL
+
+query I
+SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM '$__TEST_DIR__/mixed/';
+----
+3
+
+# Read files back -- they should be  reshredded to the table's layout
+
+statement ok
+CREATE EXTERNAL TABLE mixed STORED AS PARQUET LOCATION '$__TEST_DIR__/mixed/';
+
+query ITII
+SELECT id,
+       variant_get(event, 'service', 'VARCHAR') AS service,
+       event:status::BIGINT AS status,
+       event:latency_ms::BIGINT AS latency_ms
+FROM mixed
+ORDER BY id, service NULLS FIRST;
+----
+1 api 200 12
+1 api 200 12
+2 api 500 85
+2 api 500 85
+3 db 504 NULL
+3 db 504 NULL
+
+query I
+SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM mixed;
+----
+6
+
+# Two files shredded on different fields. Each file's typed_value lacks the
+# other's fields, so without the adapter each file reads the other's shredded
+# fields as NULL; with it, every row has every field.
+query I
+COPY events TO '$__TEST_DIR__/keys/service_status.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR, status BIGINT>"}');
+----
+3
+
+query I
+COPY events TO '$__TEST_DIR__/keys/latency.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<latency_ms BIGINT>"}');
+----
+3
+
+query III
+SELECT count(variant_get(event, 'service', 'VARCHAR')),
+       count(event:status::BIGINT),
+       count(event:latency_ms::BIGINT)
+FROM '$__TEST_DIR__/keys/';
+----
+3 3 2
+
+statement ok
+CREATE EXTERNAL TABLE keys STORED AS PARQUET LOCATION '$__TEST_DIR__/keys/';
+
+query III
+SELECT count(variant_get(event, 'service', 'VARCHAR')),
+       count(event:status::BIGINT),
+       count(event:latency_ms::BIGINT)
+FROM keys;
+----
+6 6 4
+
+# The same two files, field by field: every row has every field.
+query TII
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       event:status::BIGINT AS status,
+       event:latency_ms::BIGINT AS latency_ms
+FROM keys
+ORDER BY status, latency_ms NULLS FIRST;
+----
+api 200 12
+api 200 12
+api 500 85
+api 500 85
+db 504 NULL
+db 504 NULL
+
+# Two files with the same layout are read unchanged.
+query I
+COPY events TO '$__TEST_DIR__/same/a.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR, status BIGINT>"}');
+----
+3
+
+query I
+COPY events TO '$__TEST_DIR__/same/b.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR, status BIGINT>"}');
+----
+3
+
+statement ok
+CREATE EXTERNAL TABLE same STORED AS PARQUET LOCATION '$__TEST_DIR__/same/';
+
+query TII
+SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+       event:status::BIGINT AS status,
+       event:latency_ms::BIGINT AS latency_ms
+FROM same
+ORDER BY status, latency_ms NULLS FIRST;
+----
+api 200 12
+api 200 12
+api 500 85
+api 500 85
+db 504 NULL
+db 504 NULL
+
+# An unshredded file and one shredded on a single field. Every row is a valid
+# Variant for the table's layout: status comes back for all six.
+query I
+COPY events TO '$__TEST_DIR__/whole/a_unshredded.parquet' STORED AS PARQUET;
+----
+3
+
+query I
+COPY events TO '$__TEST_DIR__/whole/b_shredded.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"event":"STRUCT<status BIGINT>"}');
+----
+3
+
+statement ok
+CREATE EXTERNAL TABLE whole STORED AS PARQUET LOCATION '$__TEST_DIR__/whole/';
+
+query I
+SELECT count(event:status::BIGINT) FROM whole;
+----
+6

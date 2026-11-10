@@ -10,6 +10,7 @@ mod shared;
 mod shredding;
 mod sql_type;
 
+mod expr_adapter;
 mod expr_planner;
 mod impl_variant_get;
 mod is_valid_variant;
@@ -31,6 +32,7 @@ mod variant_object_keys;
 mod variant_path;
 mod variant_type;
 
+pub use expr_adapter::*;
 pub use expr_planner::*;
 pub use is_valid_variant::*;
 pub use is_variant_null::*;
@@ -49,26 +51,28 @@ pub use variant_object_insert::*;
 pub use variant_object_keys::*;
 pub use variant_type::*;
 
-/// Register all Variant scalar, aggregate, and table functions, cast rewrites,
-/// `:` field access, SQL `VARIANT` type syntax, and JSON display of Variant values.
+use datafusion::error::Result;
+use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
+use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
+use datafusion::prelude::SessionContext;
+use std::sync::Arc;
+
+/// Register all Variant functionality with a DataFusion [`SessionContext`]
 ///
 /// JSON display applies to DataFusion's extension-aware formatters, including
 /// `DataFrame::show` and `DataFrame::to_string`.
 /// `DESCRIBE`, `SHOW COLUMNS`, and `information_schema.columns` report top-level
 /// Variant fields as `Variant`.
 /// Parquet `COPY` supports `variant.shredding`, mapping column names to SQL types.
+/// Tables made with `CREATE EXTERNAL TABLE ... STORED AS PARQUET` read files
+/// whose Variant shredding layouts differ; see [`VariantListingTableFactory`].
 ///
 /// Existing functions with the same names, the Variant extension registration,
-/// and the session's type planner are replaced. Call during session setup, before
+/// and the session's type planner are replaced. The session's `PARQUET` table
+/// factory is wrapped, not replaced. Call during session setup, before
 /// preparing statements: installing the type planner rebuilds the session state
 /// and clears prepared statements.
-pub fn register_all(
-    ctx: &mut datafusion::prelude::SessionContext,
-) -> datafusion::error::Result<()> {
-    use datafusion::execution::{FunctionRegistry, SessionStateBuilder};
-    use datafusion::logical_expr::{AggregateUDF, ScalarUDF};
-    use std::sync::Arc;
-
+pub fn register_all(ctx: &mut SessionContext) -> Result<()> {
     {
         let state = ctx.state_ref();
         let mut state = state.write();
@@ -76,6 +80,7 @@ pub fn register_all(
             .with_session_id(state.session_id().to_owned())
             .with_type_planner(Arc::new(VariantTypePlanner))
             .build();
+        VariantListingTableFactory::register(&mut state);
     }
 
     variant_display::register(ctx)?;
@@ -106,4 +111,84 @@ pub fn register_all(
     register_variant_conversion_functions(ctx)?;
     register_variant_explode_functions(ctx)?;
     ctx.register_expr_planner(Arc::new(VariantExprPlanner))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use arrow::array::AsArray;
+    use arrow::datatypes::Int64Type;
+    use datafusion::catalog::{Session, TableProvider, TableProviderFactory};
+    use datafusion::datasource::provider::DefaultTableFactory;
+    use datafusion::execution::SessionStateBuilder;
+    use datafusion::logical_expr::CreateExternalTable;
+
+    /// Counts the tables it is asked to create, then defers to the stock factory.
+    #[derive(Debug, Default)]
+    struct CountingFactory {
+        calls: AtomicUsize,
+        inner: DefaultTableFactory,
+    }
+
+    #[async_trait]
+    impl TableProviderFactory for CountingFactory {
+        async fn create(
+            &self,
+            state: &dyn Session,
+            cmd: &CreateExternalTable,
+        ) -> Result<Arc<dyn TableProvider>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.create(state, cmd).await
+        }
+    }
+
+    /// A `PARQUET` table factory the session already has is wrapped, not replaced.
+    #[tokio::test]
+    async fn register_all_wraps_existing_parquet_factory() -> Result<()> {
+        let counting = Arc::new(CountingFactory::default());
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_table_factory(String::from("PARQUET"), counting.clone())
+            .build();
+        let mut ctx = SessionContext::new_with_state(state);
+        crate::register_all(&mut ctx)?;
+
+        // One unshredded and one shredded file with the same three rows.
+        let dir = tempfile::tempdir()?;
+        let dir = dir.path().display();
+        for (file, options) in [
+            ("unshredded", ""),
+            (
+                "shredded",
+                r#"OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR>"}')"#,
+            ),
+        ] {
+            ctx.sql(&format!(
+                "COPY (SELECT parse_json(column1) AS event FROM VALUES \
+                 ('{{\"service\":\"api\"}}'), ('{{\"service\":\"api\"}}'), ('{{\"service\":\"db\"}}')) \
+                 TO '{dir}/{file}.parquet' STORED AS PARQUET {options}"
+            ))
+                .await?
+                .collect()
+                .await?;
+        }
+
+        ctx.sql(&format!(
+            "CREATE EXTERNAL TABLE t STORED AS PARQUET LOCATION '{dir}/'"
+        ))
+        .await?;
+        assert_eq!(counting.calls.load(Ordering::SeqCst), 1);
+
+        // The Variant adapter is attached: no row of the unshredded file is lost.
+        let batches = ctx
+            .sql("SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM t")
+            .await?
+            .collect()
+            .await?;
+        assert_eq!(batches[0].column(0).as_primitive::<Int64Type>().value(0), 6);
+        Ok(())
+    }
 }

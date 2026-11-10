@@ -163,16 +163,20 @@ async fn check_markdown(name: &str, markdown: &str) -> Result<()> {
         match language {
             "sql" => {
                 executed += 1;
-                // Keep documented relative filenames without changing the process cwd:
-                // every `'name.parquet'` literal is redirected into the temporary directory.
+                // Keep documented relative paths without changing the process cwd:
+                // every `'name.parquet'`, `'dir/name.parquet'` and `'dir/'` literal is
+                // redirected into the temporary directory.
                 let mut sql = String::new();
                 for (index, part) in block.split('\'').enumerate() {
                     if index > 0 {
                         sql.push('\'');
                     }
-                    if index % 2 == 1 && part.ends_with(".parquet") && !part.contains('/') {
-                        let path = output.path().join(part);
-                        sql.push_str(&path.display().to_string().replace('\'', "''"));
+                    let is_path = (part.ends_with(".parquet") || part.ends_with('/'))
+                        && !part.starts_with('/')
+                        && !part.contains(char::is_whitespace);
+                    if index % 2 == 1 && is_path {
+                        let path = output.path().display().to_string();
+                        sql.push_str(&format!("{path}/{part}").replace('\'', "''"));
                     } else {
                         sql.push_str(part);
                     }

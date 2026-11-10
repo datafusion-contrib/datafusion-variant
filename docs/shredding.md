@@ -1,7 +1,7 @@
 # Variant shredding
 
 The standard Variant binary encoding is efficient and compact, but it must still
-be read and decoded for every query. The [Parquet Variant shredding
+read and decode each value for every query. The [Parquet Variant shredding
 specification][parquet-variant-shredding] describes an optional on-disk layout
 for Variant columns that stores some fields in typed Parquet columns. Queries on
 the shredded fields read the typed columns directly, which is significantly
@@ -221,6 +221,73 @@ FROM 'shredded_objects.parquet';
 | {"c":3}          | {a: 1, b: 2}    |
 +------------------+-----------------+
 ```
+
+#### Files with different shredding layouts
+
+It is also possible to read files with different shredding layouts as a single
+table, which is often referred to as schema evolution. This can happen when the
+optimal shredding evolves over time, or different producers shred the same data
+differently. DataFusion transparently unifies the different shredding layouts
+into a single table.
+
+For example, if you write `file1.parquet` with the `id` and `status` fields
+shredded, and `file2.parquet` with just the `id` field shredded:
+
+```sql
+-- file1.parquet: shredded on id and status
+COPY (
+  SELECT parse_json(event) AS event FROM (VALUES
+      ('{"id": 5, "service":"api", "status":200}'),
+      ('{"id": 6, "service":"api", "status":500}'),
+      ('{"id": 7, "service":"web", "status":504}')
+  ) AS input(event)
+) TO 'mixed_events/file1.parquet' STORED AS PARQUET
+OPTIONS (
+  'variant.shredding'
+  '{"event": "STRUCT<id BIGINT, status BIGINT>"}' -- shred id and status
+);
+
+-- file2.parquet: shredded on id
+COPY (
+  SELECT parse_json(event) AS event FROM (VALUES
+      ('{"id": 8, "service":"api", "status":200}'),
+      ('{"id": 9, "service":"db", "status":503}')
+  ) AS input(event)
+) TO 'mixed_events/file2.parquet' STORED AS PARQUET
+OPTIONS (
+  'variant.shredding'
+  '{"event": "STRUCT<id BIGINT>"}' -- shred id
+);
+```
+
+Create a table over the directory, and DataFusion reads `event` from both files
+as a single column:
+
+```sql
+CREATE EXTERNAL TABLE mixed_events STORED AS PARQUET LOCATION 'mixed_events/';
+
+SELECT event:id, event FROM mixed_events ORDER BY event:id::BIGINT;
+```
+
+```text
++-----------------------+---------------------------------------+
+| mixed_events.event:id | event                                 |
++-----------------------+---------------------------------------+
+| 5                     | {"id":5,"service":"api","status":200} |
+| 6                     | {"id":6,"service":"api","status":500} |
+| 7                     | {"id":7,"service":"web","status":504} |
+| 8                     | {"id":8,"service":"api","status":200} |
+| 9                     | {"id":9,"service":"db","status":503}  |
++-----------------------+---------------------------------------+
+```
+
+Use `CREATE EXTERNAL TABLE` for such directories. Reading the directory directly
+with `SELECT ... FROM 'mixed_events/'` does not unify the layouts yet and
+returns an error or NULL for the fields that are shredded differently
+([apache/datafusion#27089](https://github.com/apache/datafusion/issues/27089)).
+
+See the documentation on [`VariantExprAdapterFactory`](../src/expr_adapter.rs)
+for more details.
 
 ## Supported types
 

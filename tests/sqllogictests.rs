@@ -194,6 +194,9 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         register_all(&mut ctx)?;
 
+        // Allow querying files directly: `SELECT ... FROM '<path>'`
+        let ctx = ctx.enable_url_table();
+
         if relative_path == Path::new("parquet_shredding.slt") {
             ctx.register_udtf(
                 "parquet_metadata",
