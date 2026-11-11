@@ -222,7 +222,7 @@ FROM 'shredded_objects.parquet';
 +------------------+-----------------+
 ```
 
-#### Files with different shredding layouts
+## Files with different shredding layouts
 
 It is also possible to read files with different shredding layouts as a single
 table, which is often referred to as schema evolution. This can happen when the
