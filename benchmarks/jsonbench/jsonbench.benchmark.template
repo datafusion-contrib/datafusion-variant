@@ -1,0 +1,11 @@
+# One JSONBench query over one Parquet layout. table.sql reads data relative
+# to the current directory, so run from the repository root.
+load ${BENCHMARK_DIR}/jsonbench/${LAYOUT}/table.sql
+
+name Q${QUERY_NUMBER_PADDED}
+group jsonbench
+subgroup ${LAYOUT}
+
+run ${BENCHMARK_DIR}/jsonbench/queries/q${QUERY_NUMBER}.sql
+
+result ${BENCHMARK_DIR}/jsonbench/results/q${QUERY_NUMBER}.csv

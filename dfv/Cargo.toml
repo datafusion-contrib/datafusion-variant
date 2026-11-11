@@ -16,6 +16,7 @@ path = "src/main.rs"
 url = "2"
 datafusion = { workspace = true }
 datafusion-cli = { workspace = true }
+datafusion-benchmarks = { workspace = true }
 datafusion-variant = { path = ".." }
 parquet = { workspace = true }
 

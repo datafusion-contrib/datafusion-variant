@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! `dfv`: DataFusion CLI with the Variant functions preinstalled.
+mod bench;
 mod cli_context;
 #[path = "../../src/display_shim.rs"]
 mod display;
@@ -9,13 +10,14 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Instant;
 
 use clap::Parser;
 use datafusion::config::ConfigOptions;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionConfig;
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 use datafusion::logical_expr::ExplainFormat;
 use datafusion::prelude::SessionContext;
 use datafusion_cli::catalog::DynamicObjectStoreCatalog;
@@ -36,9 +38,12 @@ mod load_bsky;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-#[derive(Debug, Parser, PartialEq)]
-#[clap(author, version, about, long_about = None)]
+#[derive(Debug, Parser)]
+#[clap(author, version, about, long_about = None, args_conflicts_with_subcommands = true)]
 struct Args {
+    #[command(subcommand)]
+    subcommand: Option<Subcommand>,
+
     #[clap(
         short = 'c',
         long,
@@ -56,6 +61,21 @@ struct Args {
         value_parser(parse_valid_file)
     )]
     file: Vec<String>,
+
+    #[clap(
+        short,
+        long,
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u32).range(1..),
+        help = "Run the -f files and -c commands this many times, printing the elapsed time of each run"
+    )]
+    iterations: u32,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Subcommand {
+    /// Run DataFusion SQL benchmark (`.benchmark`) files with the Variant functions installed
+    Bench(bench::BenchArgs),
 }
 
 impl Args {
@@ -82,12 +102,21 @@ pub async fn main() -> ExitCode {
 
 async fn main_inner() -> Result<()> {
     env_logger::init();
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     println!(
         "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v{DATAFUSION_CLI_VERSION}",
         env!("CARGO_PKG_VERSION")
     );
+
+    if let Some(Subcommand::Bench(bench_args)) = args.subcommand.take() {
+        return bench::run(bench_args).await;
+    }
+    if args.iterations > 1 && args.reads_sql_from_stdin() {
+        return Err(DataFusionError::Configuration(
+            "--iterations needs SQL from -c or -f files other than stdin".to_string(),
+        ));
+    }
 
     // This is mostly copied setup code from datafusion-cli -- it might be nice to encapsulate this more
     let session_config = get_session_config(&args)?;
@@ -96,7 +125,55 @@ async fn main_inner() -> Result<()> {
     let runtime_env = RuntimeEnvBuilder::new()
         .with_object_store_registry(instrumented_registry.clone())
         .build_arc()?;
+    let ctx = session_context(session_config, runtime_env).await?;
 
+    let mut print_options = PrintOptions {
+        format: PrintFormat::Automatic,
+        quiet: false,
+        maxrows: MaxRows::Limited(40),
+        color: false,
+        instrumented_registry,
+    };
+
+    let cli_ctx = cli_context::DisplayContext(&ctx);
+    if args.repl_mode() {
+        print_examples();
+        return exec::exec_from_repl(&cli_ctx, &mut print_options)
+            .await
+            .map_err(|e| DataFusionError::External(Box::new(e)));
+    }
+
+    let mut elapsed = Vec::new();
+    for iteration in 1..=args.iterations {
+        let start = Instant::now();
+        if !args.file.is_empty() {
+            exec::exec_from_files(&cli_ctx, args.file.clone(), &print_options).await?;
+        }
+        if !args.command.is_empty() {
+            exec::exec_from_commands(&cli_ctx, args.command.clone(), &print_options).await?;
+        }
+        if args.iterations > 1 {
+            let ms = start.elapsed().as_secs_f64() * 1000.0;
+            println!("Iteration {iteration}: {ms:.1} ms");
+            elapsed.push(ms);
+        }
+    }
+    if args.iterations > 1 {
+        let min = elapsed.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = elapsed.iter().copied().fold(0.0, f64::max);
+        let avg = elapsed.iter().sum::<f64>() / elapsed.len() as f64;
+        println!("Iterations: min {min:.1} ms, avg {avg:.1} ms, max {max:.1} ms");
+    }
+
+    Ok(())
+}
+
+/// Builds a session with the Variant functions, `load_bsky`, and the
+/// `datafusion-cli` table functions installed.
+async fn session_context(
+    session_config: SessionConfig,
+    runtime_env: Arc<RuntimeEnv>,
+) -> Result<SessionContext> {
     let state = SessionStateBuilder::new()
         .with_config(session_config)
         .with_runtime_env(runtime_env)
@@ -137,31 +214,7 @@ async fn main_inner() -> Result<()> {
     // register `load_bsky(n)` to download and load sample Bluesky JSON data
     ctx.register_udtf("load_bsky", Arc::new(load_bsky::LoadBskyFunc));
 
-    let mut print_options = PrintOptions {
-        format: PrintFormat::Automatic,
-        quiet: false,
-        maxrows: MaxRows::Limited(40),
-        color: false,
-        instrumented_registry,
-    };
-
-    let cli_ctx = cli_context::DisplayContext(&ctx);
-    if args.repl_mode() {
-        print_examples();
-        return exec::exec_from_repl(&cli_ctx, &mut print_options)
-            .await
-            .map_err(|e| DataFusionError::External(Box::new(e)));
-    }
-
-    if !args.file.is_empty() {
-        exec::exec_from_files(&cli_ctx, args.file, &print_options).await?;
-    }
-
-    if !args.command.is_empty() {
-        exec::exec_from_commands(&cli_ctx, args.command, &print_options).await?;
-    }
-
-    Ok(())
+    Ok(ctx)
 }
 
 /// Print example commands when starting the interactive shell.

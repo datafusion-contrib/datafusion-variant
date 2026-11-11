@@ -1,0 +1,4 @@
+template ${BENCHMARK_DIR}/jsonbench/jsonbench.benchmark.template
+LAYOUT=mixed
+QUERY_NUMBER=3
+QUERY_NUMBER_PADDED=03

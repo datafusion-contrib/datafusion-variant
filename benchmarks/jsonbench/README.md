@@ -1,74 +1,46 @@
 # JSONBench on Parquet Variant
 
-The five [JSONBench queries](https://github.com/ClickHouse/JSONBench/blob/e6c7c98dc766394d51f7d506a3dd2b5d51165d70/clickhouse/queries.sql)
-use `variant_get(data, path, type)` and scan Parquet directly.
-
-```sh
-cargo run --release --example jsonbench -- prepare
-cargo run --release --example jsonbench -- run
-```
-
-Preparation downloads the original million-row Bluesky gzip file to
-`data/bluesky` (also used by `download_data.sh`) and writes these layouts under
-`data/jsonbench`:
+The five [JSONBench queries](https://github.com/ClickHouse/JSONBench/blob/e6c7c98dc766394d51f7d506a3dd2b5d51165d70/clickhouse/queries.sql) over the Bluesky event data, stored as Parquet Variant in four layouts ([#175](https://github.com/datafusion-contrib/datafusion-variant/issues/175)). See the [SQL benchmarks README](../README.md) for how to run suites.
 
 | Layout | Fields shredded |
 | --- | --- |
 | `unshredded` | None |
 | `partial` | `kind`, `did`, `time_us` |
-| `query-fields` | The above plus `commit.collection`, `commit.operation` |
+| `shredded` | The above plus `commit.collection` and `commit.operation` |
+| `mixed` | None in file 1, as in `shredded` in files 2 to 5 |
 
-Other fields remain in the residual Variant. Strings use Utf8 and `time_us`
-uses Int64. Conversion reads gzip in 8,192-row batches and writes Snappy Parquet
-with 65,536-row groups (`prepare --batch-size` and `--row-group-size`).
-Each layout is converted separately. Temporary output is renamed after closing
-the Parquet writer.
+Other fields stay in the residual Variant. Strings are `VARCHAR` and `time_us` is `BIGINT`.
 
-Like DataFusion's ClickBench downloader, source reuse checks file size and
-incomplete downloads resume. Sizes come from HTTP Content-Length. Prepared
-Parquet is reused when its footer has the expected row count; when all layouts
-exist, preparation needs no network access. There are no manifests or checksums.
-Delete prepared files to regenerate after changing conversion settings or code.
+## Preparing the data
 
-Both commands accept `--size 1m|10m|100m|1000m` and `--rows N` (a smaller prefix).
-Use the same selection for preparation and execution; filenames include the row
-count so smaller runs can coexist. Override paths with `--data-dir` and
-`prepare --source-dir`.
+Each layout directory has a `prepare.sql` that reads Bluesky files 1 to 5 (5M rows) with `load_bsky` and writes Snappy Parquet with 65,536-row row groups to `data/jsonbench/<layout>`. `load_bsky` downloads missing files to `data/bluesky` (about 135 MB each).
 
 ```sh
-cargo run --release --example jsonbench -- prepare --rows 10000
-cargo run --release --example jsonbench -- run --rows 10000 --iterations 1
+for layout in unshredded partial shredded mixed; do
+  dfv -f benchmarks/jsonbench/$layout/prepare.sql
+done
 ```
 
-By default the runner requires all three layouts and executes all five queries,
-five iterations each. Use `--layout partial --query 3` to select a case.
-Other run options are `--partitions` (4), `--batch-size` (8192),
-`--memory-limit-mib` (1024), and `--debug` (show plans outside timing).
-UTC and Parquet extension metadata are enabled for the Variant queries.
+Some source documents are truncated at 65,535 bytes (line 91,840 of `file_0005.json.gz`), so the scripts parse with `try_parse_json`, which stores them as NULL. `dfv -f` reports a failed statement but still exits successfully, so check the output for errors. Edit the `COPY` statements to change a layout or add files.
 
-Timing follows DataFusion ClickBench: SQL planning through result collection,
-including Parquet reads. Preparation and table registration are outside timing.
-There is no explicit warmup; the OS may cache data between iterations.
-Results default to `data/jsonbench/results.json` and use DataFusion's comparison
-format (milliseconds and result row counts):
+## Running
 
 ```sh
-cargo run --release --example jsonbench -- run -o data/jsonbench/base.json
-# Repeat on the other revision with -o data/jsonbench/change.json.
-python ../datafusion/benchmarks/compare.py \
-  data/jsonbench/base.json data/jsonbench/change.json
+dfv bench jsonbench
+dfv bench jsonbench --subgroup mixed --query 3 -i 10
+dfv bench jsonbench --result-mode validate
 ```
 
-Use identical fixtures and options when comparing. Python's `rich` is required.
-Query errors stop the run; output is written after all selected cases succeed.
+Each case is one query over one layout, named like `jsonbench/Q01/shredded`. Its `table.sql` registers the `bluesky` table outside timing, and the timing covers planning through the last result batch. The `results/` files were recorded from the five default files, so `--result-mode validate` only applies to that data.
 
-`cargo test --example jsonbench` checks document preservation, all five queries
-across the three layouts, and expected results.
-SQL uses `VARCHAR`/`BIGINT` extraction, UTC hours, and deterministic tie ordering.
-Q5 divides each positive epoch-microsecond endpoint by 1,000 before subtraction
-to match ClickHouse's millisecond-boundary `dateDiff` semantics.
+To try a change to a query or layout by hand:
 
-Sources (Apache-2.0): [JSONBench data and queries](https://github.com/ClickHouse/JSONBench),
-[Xiangpeng Hao's conversion example](https://github.com/XiangpengHao/liquid-cache-bench/tree/aa9559b451b85e6dec430321bf29a2eb174d0e46/json_bench),
-and [DataFusion's ClickBench runner](https://github.com/apache/datafusion/blob/main/benchmarks/src/clickbench.rs)
-and [result format](https://github.com/apache/datafusion/blob/main/benchmarks/src/util/run.rs).
+```sh
+dfv -i 10 -f benchmarks/jsonbench/shredded/table.sql -f benchmarks/jsonbench/queries/q1.sql
+```
+
+## Queries
+
+The queries extract `VARCHAR` and `BIGINT` values with `variant_get(data, path, type)`, report UTC hours, and order ties deterministically. Q5 divides each positive epoch-microsecond endpoint by 1,000 before subtracting, to count millisecond boundaries as ClickHouse's `dateDiff` does.
+
+Sources (Apache-2.0): [JSONBench data and queries](https://github.com/ClickHouse/JSONBench) and [DataFusion's SQL benchmark runner](https://github.com/apache/datafusion/tree/main/benchmarks/sql_benchmarks).

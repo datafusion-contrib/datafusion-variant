@@ -51,6 +51,7 @@ fn test_version_and_banner() {
 fn dfv_snapshot_settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     settings.add_filter(r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds.");
+    settings.add_filter(r"\b[0-9]+\.[0-9] ms\b", "[MS] ms");
     settings.add_filter(r"Loading .*/(file_\d+\.json\.gz)", "Loading [BSKY_DIR]/$1");
     // test_version_and_banner checks the dfv version
     settings.add_filter(
@@ -290,12 +291,18 @@ fn test_help_and_unsupported_options() {
         datafusion-cli with the DataFusion Variant functions preinstalled
 
         Usage: dfv [OPTIONS]
+               dfv <COMMAND>
+
+        Commands:
+          bench  Run DataFusion SQL benchmark (`.benchmark`) files with the Variant functions installed
+          help   Print this message or the help of the given subcommand(s)
 
         Options:
-          -c, --command [<COMMAND>...]  Execute the given command string(s), then exit. Commands are expected to be non empty.
-          -f, --file [<FILE>...]        Execute commands from file(s), then exit
-          -h, --help                    Print help
-          -V, --version                 Print version
+          -c, --command [<COMMAND>...]   Execute the given command string(s), then exit. Commands are expected to be non empty.
+          -f, --file [<FILE>...]         Execute commands from file(s), then exit
+          -i, --iterations <ITERATIONS>  Run the -f files and -c commands this many times, printing the elapsed time of each run [default: 1]
+          -h, --help                     Print help
+          -V, --version                  Print version
 
         stderr:
 
@@ -307,6 +314,7 @@ fn test_help_and_unsupported_options() {
         error: unexpected argument '--format' found
 
         Usage: dfv [OPTIONS]
+               dfv <COMMAND>
 
         For more information, try '--help'.
 
@@ -318,6 +326,7 @@ fn test_help_and_unsupported_options() {
         error: unexpected argument '--quiet' found
 
         Usage: dfv [OPTIONS]
+               dfv <COMMAND>
 
         For more information, try '--help'.
 
@@ -329,6 +338,7 @@ fn test_help_and_unsupported_options() {
         error: unexpected argument '--memory-limit' found
 
         Usage: dfv [OPTIONS]
+               dfv <COMMAND>
 
         For more information, try '--help'.
 
@@ -340,6 +350,7 @@ fn test_help_and_unsupported_options() {
         error: unexpected argument '--spark' found
 
         Usage: dfv [OPTIONS]
+               dfv <COMMAND>
 
         For more information, try '--help'.
         ");
@@ -799,6 +810,261 @@ fn test_load_bsky_rejects_bad_arguments() {
         stdout:
         dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
         Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+
+        stderr:
+        ");
+    });
+}
+
+/// `-i N` runs the `-f` files and `-c` commands N times and reports the time
+/// of each run. SQL from stdin cannot be read again, so it is rejected.
+#[test]
+fn test_iterations() {
+    let mut context =
+        snapshot_output(cargo_bin_cmd!("dfv").args(["-i", "2", "-c", "SELECT 1 AS one"]));
+    context += &snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .args(["-i", "2"])
+            .write_stdin("SELECT 1;"),
+    );
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        +-----+
+        | one |
+        +-----+
+        | 1   |
+        +-----+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        Iteration 1: [MS] ms
+        +-----+
+        | one |
+        +-----+
+        | 1   |
+        +-----+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        Iteration 2: [MS] ms
+        Iterations: min [MS] ms, avg [MS] ms, max [MS] ms
+
+        stderr:
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Invalid or Unsupported Configuration: --iterations needs SQL from -c or -f files other than stdin
+
+        stderr:
+        ");
+    });
+}
+
+/// Rows whose JSONBench answers change if a layout drops or misreads a field,
+/// including SQL NULL fields, residual fields the queries do not visit, and a
+/// document truncated like some in the source data.
+const JSONBENCH_ROWS: [&str; 12] = [
+    r#"{"kind":"commit","did":"alice","time_us":1999999,"commit":{"operation":"create","collection":"app.bsky.feed.post","record":{"text":"a","langs":["en"]}}}"#,
+    r#"{"kind":"commit","did":"alice","time_us":3000001,"commit":{"operation":"create","collection":"app.bsky.feed.post"}}"#,
+    r#"{"kind":"commit","did":"bob","time_us":3600001000,"commit":{"operation":"create","collection":"app.bsky.feed.post"}}"#,
+    r#"{"kind":"commit","did":"bob","time_us":3600002999,"commit":{"operation":"create","collection":"app.bsky.feed.post"}}"#,
+    r#"{"kind":"commit","did":"carol","time_us":2,"commit":{"operation":"create","collection":"app.bsky.feed.repost"}}"#,
+    r#"{"kind":"identity","did":"other","time_us":3,"identity":{"handle":"x"}}"#,
+    r#"{"kind":"commit","did":"alice","time_us":2,"commit":{"operation":"create","collection":"app.bsky.feed.like"}}"#,
+    r#"{"kind":"commit","did":"dave","time_us":1,"commit":{"operation":"delete","collection":"app.bsky.feed.post"}}"#,
+    r#"{"kind":"commit","did":"eve","time_us":2000000,"commit":{"operation":"create","collection":"app.bsky.feed.post"}}"#,
+    r#"{"kind":"commit","did":"frank","time_us":2000000,"commit":{"operation":"create","collection":"app.bsky.feed.post"}}"#,
+    r#"{"kind":"commit","did":null,"time_us":4,"commit":{"operation":"create","collection":null}}"#,
+    r#"{"kind":"commit","did":"zed","time_us":5,"commit":{"operation":"create","collection":"app.bsky.feed.po"#,
+];
+
+/// Every JSONBench `prepare.sql` writes its layout from the five source
+/// files, all five queries return the same results from every layout, and
+/// `dfv bench` runs each query against each layout.
+#[test]
+fn test_jsonbench_layouts() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    // Not `bluesky`: dfv would resolve the `bluesky` table name to that directory
+    let bsky_dir = temp_dir.path().join("source");
+    std::fs::create_dir(&bsky_dir).unwrap();
+    let files = [
+        &JSONBENCH_ROWS[..3],
+        &JSONBENCH_ROWS[3..5],
+        &JSONBENCH_ROWS[5..7],
+        &JSONBENCH_ROWS[7..9],
+        &JSONBENCH_ROWS[9..],
+    ];
+    for (n, rows) in (1..).zip(files) {
+        write_bsky_file(&bsky_dir, n, rows);
+    }
+
+    let benchmark_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../benchmarks");
+    let suite = benchmark_dir.join("jsonbench");
+    let layouts = ["unshredded", "partial", "shredded", "mixed"];
+    for layout in layouts {
+        cargo_bin_cmd!("dfv")
+            .current_dir(temp_dir.path())
+            .env("DFV_BSKY_DIR", &bsky_dir)
+            .arg("-f")
+            .arg(suite.join(layout).join("prepare.sql"))
+            .assert()
+            .success();
+    }
+
+    let typed_columns = layouts
+        .iter()
+        .flat_map(|layout| {
+            (1..=5).map(move |n| {
+                format!(
+                    "SELECT '{layout}' AS layout, {n} AS file, count(DISTINCT path_in_schema) AS n \
+                     FROM parquet_metadata('data/jsonbench/{layout}/file_{n:04}.parquet') \
+                     WHERE path_in_schema LIKE '%typed_value%'"
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ");
+    let typed_columns = snapshot_output(cargo_bin_cmd!("dfv").current_dir(temp_dir.path()).args([
+        "-c",
+        &format!(
+            "SELECT layout, string_agg(n::VARCHAR, ' ' ORDER BY file) AS typed_columns_per_file \
+             FROM ({typed_columns}) GROUP BY layout ORDER BY layout"
+        ),
+    ]));
+
+    let results = layouts.map(|layout| {
+        let mut cmd = cargo_bin_cmd!("dfv");
+        cmd.current_dir(temp_dir.path())
+            .arg("-f")
+            .arg(suite.join(layout).join("table.sql"));
+        for q in 1..=5 {
+            cmd.arg("-f").arg(suite.join(format!("queries/q{q}.sql")));
+        }
+        let output = snapshot_output(&mut cmd);
+        output
+            .lines()
+            .filter(|line| !line.starts_with("Elapsed "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    });
+    for (layout, result) in layouts.iter().zip(&results) {
+        assert_eq!(
+            result, &results[0],
+            "{layout} results differ from unshredded"
+        );
+    }
+
+    let bench = snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .current_dir(temp_dir.path())
+            .args(["bench", "jsonbench", "-i", "1", "--benchmark-dir"])
+            .arg(&benchmark_dir),
+    );
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(typed_columns, @r"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        +------------+------------------------+
+        | layout     | typed_columns_per_file |
+        +------------+------------------------+
+        | mixed      | 0 11 11 11 11          |
+        | partial    | 6 6 6 6 6              |
+        | shredded   | 11 11 11 11 11         |
+        | unshredded | 0 0 0 0 0              |
+        +------------+------------------------+
+        4 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        ");
+        insta::assert_snapshot!(results[0], @r"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        0 row(s) fetched.
+
+        +----------------------+-------+
+        | event                | count |
+        +----------------------+-------+
+        | app.bsky.feed.post   | 7     |
+        | NULL                 | 3     |
+        | app.bsky.feed.like   | 1     |
+        | app.bsky.feed.repost | 1     |
+        +----------------------+-------+
+        4 row(s) fetched.
+
+        +----------------------+-------+-------+
+        | event                | count | users |
+        +----------------------+-------+-------+
+        | app.bsky.feed.post   | 6     | 4     |
+        | NULL                 | 1     | 0     |
+        | app.bsky.feed.like   | 1     | 1     |
+        | app.bsky.feed.repost | 1     | 1     |
+        +----------------------+-------+-------+
+        4 row(s) fetched.
+
+        +----------------------+-------------+-------+
+        | event                | hour_of_day | count |
+        +----------------------+-------------+-------+
+        | app.bsky.feed.like   | 0           | 1     |
+        | app.bsky.feed.post   | 0           | 4     |
+        | app.bsky.feed.repost | 0           | 1     |
+        | app.bsky.feed.post   | 1           | 2     |
+        +----------------------+-------------+-------+
+        4 row(s) fetched.
+
+        +---------+----------------------------+
+        | user_id | first_post_ts              |
+        +---------+----------------------------+
+        | alice   | 1970-01-01T00:00:01.999999 |
+        | eve     | 1970-01-01T00:00:02        |
+        | frank   | 1970-01-01T00:00:02        |
+        +---------+----------------------------+
+        3 row(s) fetched.
+
+        +---------+---------------+
+        | user_id | activity_span |
+        +---------+---------------+
+        | alice   | 1001          |
+        | bob     | 1             |
+        | eve     | 0             |
+        +---------+---------------+
+        3 row(s) fetched.
+
+
+        stderr:
+        ");
+        insta::assert_snapshot!(bench, @r"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        jsonbench/Q01/mixed iteration 0: [MS] ms, 4 rows
+        jsonbench/Q01/partial iteration 0: [MS] ms, 4 rows
+        jsonbench/Q01/shredded iteration 0: [MS] ms, 4 rows
+        jsonbench/Q01/unshredded iteration 0: [MS] ms, 4 rows
+        jsonbench/Q02/mixed iteration 0: [MS] ms, 4 rows
+        jsonbench/Q02/partial iteration 0: [MS] ms, 4 rows
+        jsonbench/Q02/shredded iteration 0: [MS] ms, 4 rows
+        jsonbench/Q02/unshredded iteration 0: [MS] ms, 4 rows
+        jsonbench/Q03/mixed iteration 0: [MS] ms, 4 rows
+        jsonbench/Q03/partial iteration 0: [MS] ms, 4 rows
+        jsonbench/Q03/shredded iteration 0: [MS] ms, 4 rows
+        jsonbench/Q03/unshredded iteration 0: [MS] ms, 4 rows
+        jsonbench/Q04/mixed iteration 0: [MS] ms, 3 rows
+        jsonbench/Q04/partial iteration 0: [MS] ms, 3 rows
+        jsonbench/Q04/shredded iteration 0: [MS] ms, 3 rows
+        jsonbench/Q04/unshredded iteration 0: [MS] ms, 3 rows
+        jsonbench/Q05/mixed iteration 0: [MS] ms, 3 rows
+        jsonbench/Q05/partial iteration 0: [MS] ms, 3 rows
+        jsonbench/Q05/shredded iteration 0: [MS] ms, 3 rows
+        jsonbench/Q05/unshredded iteration 0: [MS] ms, 3 rows
 
         stderr:
         ");
