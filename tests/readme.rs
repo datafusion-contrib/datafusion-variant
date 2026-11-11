@@ -2,7 +2,8 @@
 
 //! Execute the SQL examples in the README and in the pages under `docs/` and
 //! compare their results with the copy/pasted output. The generated
-//! `docs/sql-reference.md` is checked by `generate_function_docs` instead.
+//! `docs/sql-reference.md` is checked by `generate_function_docs` instead, and
+//! `docs/benchmarks.md` has no SQL to run.
 //!
 //! Each `sql` fence is run, and its output must match the next `text` fence
 //! exactly. For example, this Markdown passes:
@@ -63,7 +64,9 @@ async fn docs_sql() -> Result<()> {
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<std::io::Result<Vec<_>>>()?;
     pages.retain(|page| {
-        page.extension().is_some_and(|ext| ext == "md") && !page.ends_with("sql-reference.md")
+        page.extension().is_some_and(|ext| ext == "md")
+            && !page.ends_with("sql-reference.md")
+            && !page.ends_with("benchmarks.md")
     });
     pages.sort();
     ensure!(!pages.is_empty(), "no pages found under docs/");

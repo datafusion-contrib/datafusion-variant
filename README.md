@@ -373,7 +373,7 @@ Licensed under the [Apache License, Version 2.0][license].
 [session-context-sql]: https://docs.rs/datafusion/latest/datafusion/execution/context/struct.SessionContext.html#method.sql
 [parquet-variant-encoding]: https://parquet.apache.org/docs/file-format/types/variantencoding/
 [parquet-variant-blog]: https://parquet.apache.org/blog/2026/02/27/variant-type-in-apache-parquet-for-semi-structured-data/
-[benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
+[benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/docs/benchmarks.md
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
 [issue-tracker]: https://github.com/datafusion-contrib/datafusion-variant/issues
 [spark-docs]: https://spark.apache.org/docs/4.2.0/

@@ -56,23 +56,8 @@ partial-state merging, including nulls, nested values, widening, and shredded in
 Input construction and validation are outside timing.
 See [the source](schema_of_variant.rs) for workloads and timing boundaries.
 
-To compare a change, save a baseline before making it, then rerun afterward:
-
-```sh
-# Before the change
-cargo bench --bench variant_get -- --save-baseline before
-
-# After the change
-cargo bench --bench variant_get -- --baseline before
-```
-
-Use the same machine and build settings, and preserve `target/criterion`
-between runs. Include relevant results when proposing performance changes.
+See [Benchmarks](../docs/benchmarks.md) for comparing a change against a
+baseline and for the SQL benchmarks over Parquet.
 
 Broader benchmark coverage is tracked in
 [#19](https://github.com/datafusion-contrib/datafusion-variant/issues/19).
-
-For realistic Parquet workloads, the [SQL benchmarks](../benchmarks/README.md)
-run with `dfv bench`. [JSONBench](../benchmarks/jsonbench/README.md) runs the
-five JSONBench queries over Bluesky data stored as unshredded, partially
-shredded, shredded, and mixed Variant.
