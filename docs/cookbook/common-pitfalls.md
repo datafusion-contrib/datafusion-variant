@@ -27,6 +27,9 @@ Comparison operators do not accept Variant values, so
 `WHERE event:status >= 400` fails to plan. Cast the field to a SQL type first,
 as in [Query](load-and-query-json.md#query).
 
+Removing the need for the cast is tracked in
+[#159](https://github.com/datafusion-contrib/datafusion-variant/issues/159).
+
 ## Cast fields before grouping or joining on them
 
 Grouping and join keys compare Variant values by their binary encoding, which
@@ -82,6 +85,9 @@ GROUP BY event:service::VARCHAR;
 | api     | 3      |
 +---------+--------+
 ```
+
+Making grouping and joins match equal Variant values is tracked in
+[#183](https://github.com/datafusion-contrib/datafusion-variant/issues/183).
 
 ## Tell SQL NULL from Variant null
 
