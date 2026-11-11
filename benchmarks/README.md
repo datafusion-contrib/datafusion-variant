@@ -34,7 +34,7 @@ python ../datafusion/benchmarks/compare.py base.json change.json
 For quick manual checks, `dfv -i N` runs SQL files N times and prints the time of each run:
 
 ```sh
-dfv -i 10 -f benchmarks/jsonbench/shredded/table.sql -f benchmarks/jsonbench/queries/q1.sql
+dfv -i 10 -f benchmarks/jsonbench/shredded/table.sql -f benchmarks/jsonbench/queries/q01.sql
 ```
 
 Every run includes `table.sql`, whose `CREATE EXTERNAL TABLE IF NOT EXISTS` only does work the first time.

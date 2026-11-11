@@ -942,7 +942,8 @@ fn test_jsonbench_layouts() {
             .arg("-f")
             .arg(suite.join(layout).join("table.sql"));
         for q in 1..=5 {
-            cmd.arg("-f").arg(suite.join(format!("queries/q{q}.sql")));
+            cmd.arg("-f")
+                .arg(suite.join(format!("queries/q{q:02}.sql")));
         }
         let output = snapshot_output(&mut cmd);
         output

@@ -2,7 +2,7 @@
 # to the current directory, so run from the repository root.
 load ${BENCHMARK_DIR}/jsonbench/${LAYOUT}/table.sql
 
-name Q${QUERY_NUMBER_PADDED}
+name Q${QUERY_NUMBER}
 group jsonbench
 subgroup ${LAYOUT}
 

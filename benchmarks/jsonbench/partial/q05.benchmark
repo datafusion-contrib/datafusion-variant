@@ -1,4 +1,3 @@
 template ${BENCHMARK_DIR}/jsonbench/jsonbench.benchmark.template
 LAYOUT=partial
-QUERY_NUMBER=5
-QUERY_NUMBER_PADDED=05
+QUERY_NUMBER=05

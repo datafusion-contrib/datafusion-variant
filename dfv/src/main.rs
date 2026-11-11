@@ -15,9 +15,8 @@ use std::time::Instant;
 use clap::Parser;
 use datafusion::config::ConfigOptions;
 use datafusion::error::{DataFusionError, Result};
-use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionConfig;
-use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::logical_expr::ExplainFormat;
 use datafusion::prelude::SessionContext;
 use datafusion_cli::catalog::DynamicObjectStoreCatalog;
@@ -125,7 +124,11 @@ async fn main_inner() -> Result<()> {
     let runtime_env = RuntimeEnvBuilder::new()
         .with_object_store_registry(instrumented_registry.clone())
         .build_arc()?;
-    let ctx = session_context(session_config, runtime_env).await?;
+    let ctx = session_context(SessionContext::new_with_config_rt(
+        session_config,
+        runtime_env,
+    ))
+    .await?;
 
     let mut print_options = PrintOptions {
         format: PrintFormat::Automatic,
@@ -168,20 +171,11 @@ async fn main_inner() -> Result<()> {
     Ok(())
 }
 
-/// Builds a session with the Variant functions, `load_bsky`, and the
-/// `datafusion-cli` table functions installed.
-async fn session_context(
-    session_config: SessionConfig,
-    runtime_env: Arc<RuntimeEnv>,
-) -> Result<SessionContext> {
-    let state = SessionStateBuilder::new()
-        .with_config(session_config)
-        .with_runtime_env(runtime_env)
-        .with_default_features()
-        .build();
-
+/// Installs the Variant functions, `load_bsky`, and the `datafusion-cli`
+/// table functions in `ctx`.
+async fn session_context(ctx: SessionContext) -> Result<SessionContext> {
     // enable dynamic file query (`SELECT .. FROM 'file.parquet'`)
-    let mut ctx = SessionContext::new_with_state(state).enable_url_table();
+    let mut ctx = ctx.enable_url_table();
     // register the Variant functions, `:` field access, and SQL `VARIANT` type
     register_all(&mut ctx)?;
     ctx.refresh_catalogs().await?;

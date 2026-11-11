@@ -1,4 +1,3 @@
 template ${BENCHMARK_DIR}/jsonbench/jsonbench.benchmark.template
 LAYOUT=shredded
-QUERY_NUMBER=4
-QUERY_NUMBER_PADDED=04
+QUERY_NUMBER=04

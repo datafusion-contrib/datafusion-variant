@@ -5,8 +5,8 @@
 //!
 //! DataFusion's `benchmark_runner` builds its own `SessionContext`, so it
 //! cannot run suites that call Variant functions. This mirrors its non
-//! Criterion mode on top of the `datafusion-benchmarks` library, with each
-//! case getting a fresh [`crate::session_context`].
+//! Criterion mode on top of the `datafusion-benchmarks` library, installing
+//! [`crate::session_context`] on each case's fresh `make_ctx` session.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_benchmarks::sql_benchmark::SqlBenchmark;
 use datafusion_benchmarks::sql_benchmark_runner::{
     BenchmarkFilter, SqlRunConfig, ensure_selection, filter_benchmarks, finish_benchmark,
-    format_benchmark_list, load_benchmark_definitions, prepare_benchmark,
+    format_benchmark_list, load_benchmark_definitions, make_ctx, prepare_benchmark,
 };
 use datafusion_benchmarks::util::{BenchmarkRun, CommonOpt, print_memory_stats};
 
@@ -111,7 +111,7 @@ pub async fn run(args: BenchArgs) -> Result<()> {
 }
 
 async fn context(common: &CommonOpt) -> Result<SessionContext> {
-    crate::session_context(common.config()?, common.build_runtime()?).await
+    crate::session_context(make_ctx(common)?).await
 }
 
 async fn run_case(
