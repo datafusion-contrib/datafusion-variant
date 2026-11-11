@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml)
 [![Docs](https://img.shields.io/badge/docs-datafusion--contrib.github.io-blue)][docs]
+[![API docs](https://docs.rs/datafusion-variant/badge.svg)][api-docs]
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)][license]
 
 <!-- The docs home page (docs/index.md) includes the text between these markers. -->
@@ -19,6 +20,9 @@ such data to [Apache Parquet](https://parquet.apache.org/) files.
 > [roadmap](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
 > for more details.
 <!-- docs-intro-end -->
+
+Please see the [main site][docs] for documentation, and [docs.rs][api-docs] for
+the Rust API reference.
 
 For example, to read fields from JSON documents:
 
@@ -67,6 +71,7 @@ tasks: converting JSON, querying fields, and reading and writing Parquet.
 
 - [User guide][docs]
 - [SQL function reference][sql-reference]
+- [Rust API reference (docs.rs)][api-docs]
 - [Contributing][contributing]
 
 The documentation sources are in [`docs/`](docs/).
@@ -79,5 +84,6 @@ Licensed under the [Apache License, Version 2.0][license].
 [getting-started]: https://datafusion-contrib.github.io/datafusion-variant/getting-started.html
 [cookbook]: https://datafusion-contrib.github.io/datafusion-variant/cookbook/load-and-query-json.html
 [sql-reference]: https://datafusion-contrib.github.io/datafusion-variant/sql-reference.html
+[api-docs]: https://docs.rs/datafusion-variant
 [contributing]: https://datafusion-contrib.github.io/datafusion-variant/contributing.html
 [license]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/LICENSE.txt
