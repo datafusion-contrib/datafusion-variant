@@ -3,8 +3,8 @@
 #![warn(clippy::all)]
 
 #[cfg(doctest)]
-#[doc = include_str!("../README.md")]
-struct ReadmeDoctests;
+#[doc = include_str!("../docs/getting-started.md")]
+struct GettingStartedDoctests;
 
 mod shared;
 mod shredding;

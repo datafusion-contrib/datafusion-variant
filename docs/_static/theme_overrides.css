@@ -1,0 +1,88 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+
+/* Customizing with theme CSS variables */
+
+:root {
+    /* Make the top navbar more compact (theme default is 4rem) */
+    --pst-header-height: 3rem;
+}
+
+/* pydata-sphinx-theme 0.24 pads the header around --pst-header-height. */
+.bd-header .bd-header__inner {
+    padding-block: 0;
+}
+
+/* Inline code: gentle, theme-aware. Uses the body text color on a subtle chip
+   instead of the harsh brand red, so it's easy on the eyes and clearly set off
+   from prose. (Code blocks are styled separately via Pygments.) */
+code.literal {
+    color: var(--pst-color-text-base);
+    background-color: rgba(129, 139, 152, 0.15);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+}
+
+/* Function names in headings keep the heading style, not the chip. */
+:is(h1, h2, h3, h4) code.literal {
+    background-color: transparent;
+    border: 0;
+    padding: 0;
+}
+
+/* With navbar_center empty, push search and the theme switch to the right. */
+.navbar-header-items__end {
+    margin-left: auto;
+}
+
+/* Tables fit their content instead of spanning the full width. */
+.pst-scrollable-table-container {
+    display: inline-block;
+    max-width: 100%;
+}
+
+/* Mostly monochrome, like DuckDB's docs: links and accents use the text color. */
+html[data-theme="light"],
+html[data-theme="dark"] {
+    --pst-color-primary: var(--pst-color-text-base);
+    --pst-color-link: var(--pst-color-text-base);
+    --pst-color-link-hover: var(--pst-color-text-muted);
+    --pst-color-table-heading-bg: transparent;
+    --pst-color-table-row-zebra-low-bg: transparent;
+    --pst-color-table-row-zebra-high-bg: transparent;
+    --pst-color-table-row-hover-bg: var(--pst-color-surface);
+}
+
+.bd-content .table thead tr {
+    border-bottom: 1px solid var(--pst-color-border);
+}
+
+.bd-content table td:first-child code {
+    white-space: nowrap;
+}
+
+.bd-article h1 { font-size: 2rem; font-weight: 600; }
+.bd-article h2 { font-size: 1.5rem; font-weight: 600; }
+.bd-article h3 { font-size: 1.2rem; font-weight: 600; }
+
+/* The SQL reference's per-function tables have an empty header row. */
+.bd-content table thead:has(p:empty):not(:has(p:not(:empty))) {
+    display: none;
+}
