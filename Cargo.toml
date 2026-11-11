@@ -30,13 +30,10 @@ tempfile = { workspace = true }
 criterion = { version = "0.8", default-features = false }
 mimalloc = { workspace = true }
 anyhow = "1.0.100"
-arrow-cast = "60"
-flate2 = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 datafusion-sqllogictest = { workspace = true }
 sqllogictest = "0.29"
 env_logger = { workspace = true }
-insta = "1.43.2"
 
 [[bench]]
 name = "variant_get"

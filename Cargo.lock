@@ -2243,7 +2243,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow",
- "arrow-cast",
  "arrow-schema",
  "async-trait",
  "criterion",
@@ -2253,9 +2252,7 @@ dependencies = [
  "datafusion-macros",
  "datafusion-sqllogictest",
  "env_logger",
- "flate2",
  "futures",
- "insta",
  "mimalloc",
  "parquet",
  "parquet-variant",
