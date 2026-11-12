@@ -22,21 +22,6 @@ steps:
 | `['name']` or `["name"]` | The field `name`, which can contain any character except the quote around it. |
 | `[n]`                    | The array element at index `n`, starting from 0.                               |
 
-<!--
-```sql
-SELECT to_json(variant_get(request, '$')) = to_json(request) AS whole
-FROM requests;
-```
-
-```text
-+-------+
-| whole |
-+-------+
-| true  |
-+-------+
-```
--->
-
 ```sql
 SELECT variant_get(request, '$.user.id', 'INT') AS id,
        variant_get(request, '$.user.roles[1]', 'VARCHAR') AS second_role,
@@ -54,25 +39,27 @@ FROM requests;
 
 <!--
 ```sql
-SELECT variant_get(request, '$.user.name') IS NULL AS missing_field,
+SELECT to_json(variant_get(request, '$')) = to_json(request) AS whole,
+       variant_get(request, '$.user.name') IS NULL AS missing_field,
        variant_get(request, '$.user.roles[2]') IS NULL AS past_end,
        variant_get(request, '$.user.roles.id') IS NULL AS field_of_array,
-       variant_get(request, '$.User') IS NULL AS other_case
+       variant_get(request, '$.User') IS NULL AS other_case,
+       variant_get(parse_json('{"*":1}'), '$.*', 'INT') AS star
 FROM requests;
 ```
 
 ```text
-+---------------+----------+----------------+------------+
-| missing_field | past_end | field_of_array | other_case |
-+---------------+----------+----------------+------------+
-| true          | true     | true           | true       |
-+---------------+----------+----------------+------------+
++-------+---------------+----------+----------------+------------+------+
+| whole | missing_field | past_end | field_of_array | other_case | star |
++-------+---------------+----------+----------------+------------+------+
+| true  | true          | true     | true           | true       | 1    |
++-------+---------------+----------+----------------+------------+------+
 ```
 -->
 
-Field names are case-sensitive. A path that does not match the value, such as a
-missing field, an index past the end of an array, or a field step on an array,
-returns SQL NULL.
+Field names are case-sensitive, and `$.*` selects a field named `*`, not every
+field. A path that does not match the value, such as a missing field, an index
+past the end of an array, or a field step on an array, returns SQL NULL.
 
 <!--
 ```sql
@@ -106,24 +93,10 @@ SELECT variant_get(request, '$..id') FROM requests;
 ```
 -->
 
-<!--
-```sql
-SELECT variant_get(parse_json('{"*":1}'), '$.*', 'INT') AS star;
-```
-
-```text
-+------+
-| star |
-+------+
-| 1    |
-+------+
-```
--->
-
 A path that does not start with `$`, such as `user.id` or an empty string, is
 invalid. Paths have no wildcards, slices, filters, negative indexes, or
-recursive descent (`..`), and `$.*` selects a field named `*`. An invalid path
-raises an error, even in `try_variant_get`.
+recursive descent (`..`). An invalid path raises an error, even in
+`try_variant_get`.
 
 <!-- readme-test: error: variant_delete: invalid path -->
 <!--
@@ -179,12 +152,8 @@ Every character between the quotes is part of the name, including `]`, `$`, and
 ## The `:` operator
 
 `value:path` is shorthand for `variant_get` with `$.` in front of the path, or
-`$` when the path starts with `[`:
-
-| Shorthand                 | Path               |
-|---------------------------|--------------------|
-| `request:user.roles[0]`   | `$.user.roles[0]`  |
-| `request:['http.status']` | `$['http.status']` |
+`$` when the path starts with `[`. So `request:user.roles[0]` reads
+`$.user.roles[0]`, and `request:['http.status']` reads `$['http.status']`:
 
 ```sql
 SELECT request:user.roles[0]::VARCHAR AS first_role,
