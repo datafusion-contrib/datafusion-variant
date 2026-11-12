@@ -1,28 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The `load_bsky(n)` table function: sample Bluesky JSON data.
+//! The `load_bsky` table function: sample Bluesky JSON data.
 //!
 //! `load_bsky(n)` returns the `n`th file of the [ClickHouse Bluesky dataset]
 //! as a table with a single `json_data` column holding one JSON document per
-//! row. The file is read from `DFV_BSKY_DIR/data/bluesky/file_000n.json.gz`
+//! row, and `load_bsky(first, last)` returns files `first` to `last` in order.
+//! Files are read from `DFV_BSKY_DIR` (default `data/bluesky`), for example
+//! `data/bluesky/file_0001.json.gz`.
 //!
-//! If the file does not exist it is downloaded first (about 135 MB per file).
+//! Missing files are downloaded first (about 135 MB per file). Files are read
+//! one at a time as the query consumes them, so a range does not have to fit
+//! in memory.
 //!
 //! [ClickHouse Bluesky dataset]: https://clickhouse.com/docs/getting-started/example-datasets/bluesky
 
 use std::fs::{File, TryLockError};
 use std::io::{BufRead, BufReader};
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arrow::array::{RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use async_trait::async_trait;
-use datafusion::catalog::{Session, TableFunctionArgs, TableFunctionImpl, TableProvider};
+use datafusion::catalog::streaming::StreamingTable;
+use datafusion::catalog::{TableFunctionArgs, TableFunctionImpl, TableProvider};
 use datafusion::common::{DataFusionError, Result, plan_err};
-use datafusion::datasource::memory::MemorySourceConfig;
-use datafusion::logical_expr::{Expr, TableType};
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::logical_expr::Expr;
+use datafusion::physical_plan::stream::RecordBatchReceiverStream;
+use datafusion::physical_plan::streaming::PartitionStream;
 use datafusion::scalar::ScalarValue;
 use flate2::read::GzDecoder;
 use futures::StreamExt;
@@ -30,6 +36,7 @@ use object_store::ObjectStoreExt;
 use object_store::http::HttpBuilder;
 use object_store::path::Path as ObjectPath;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc::Sender;
 
 /// Where the dataset files are downloaded from.
 const BASE_URL: &str = "https://clickhouse-public-datasets.s3.amazonaws.com";
@@ -42,32 +49,46 @@ const MAX_FILE_NUMBER: i64 = 1000;
 /// Rows per output `RecordBatch`.
 const BATCH_SIZE: usize = 8192;
 
-/// `load_bsky(n)` table function. See the module documentation.
+/// `load_bsky(n)` and `load_bsky(first, last)` table function. See the module
+/// documentation.
 #[derive(Debug, Default)]
 pub struct LoadBskyFunc;
 
 impl TableFunctionImpl for LoadBskyFunc {
     fn call_with_args(&self, args: TableFunctionArgs) -> Result<Arc<dyn TableProvider>> {
-        let file_number = match args.exprs() {
-            [] => 1,
-            [Expr::Literal(ScalarValue::Int64(Some(n)), _)]
-                if (1..=MAX_FILE_NUMBER).contains(n) =>
-            {
-                *n
+        let file_number = |expr: &Expr| match expr {
+            Expr::Literal(ScalarValue::Int64(Some(n)), _) if (1..=MAX_FILE_NUMBER).contains(n) => {
+                Some(*n)
             }
-            _ => {
-                return plan_err!(
-                    "load_bsky expects a single file number between 1 and {MAX_FILE_NUMBER}, e.g. load_bsky(1)"
-                );
-            }
+            _ => None,
+        };
+        let files = match args.exprs() {
+            [] => Some(1..=1),
+            [n] => file_number(n).map(|n| n..=n),
+            [first, last] => file_number(first)
+                .zip(file_number(last))
+                .map(|(first, last)| first..=last)
+                .filter(|files| !files.is_empty()),
+            _ => None,
+        };
+        let Some(files) = files else {
+            return plan_err!(
+                "load_bsky expects a file number or a range of file numbers between 1 and {MAX_FILE_NUMBER}, e.g. load_bsky(1) or load_bsky(1, 10)"
+            );
         };
         let dir = std::env::var_os(DIR_ENV)
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DIR));
-        Ok(Arc::new(BskyTable {
-            file_name: format!("file_{file_number:04}.json.gz"),
-            path: dir.join(format!("file_{file_number:04}.json.gz")),
-        }))
+        let schema = bsky_schema();
+        let files = BskyFiles {
+            schema: Arc::clone(&schema),
+            dir,
+            files,
+        };
+        Ok(Arc::new(StreamingTable::try_new(
+            schema,
+            vec![Arc::new(files)],
+        )?))
     }
 }
 
@@ -79,54 +100,44 @@ fn bsky_schema() -> SchemaRef {
     )]))
 }
 
-/// One Bluesky file as a table. The file is downloaded if needed and read
-/// from disk on every scan.
+/// Bluesky files read in order as a single partition, which DataFusion
+/// repartitions as needed. Each file is downloaded if needed when the scan
+/// reaches it.
 #[derive(Debug)]
-struct BskyTable {
-    file_name: String,
-    path: PathBuf,
+struct BskyFiles {
+    schema: SchemaRef,
+    dir: PathBuf,
+    files: RangeInclusive<i64>,
 }
 
-impl BskyTable {
-    async fn batches(&self) -> Result<Vec<RecordBatch>> {
-        if !self.path.is_file() {
-            download(&self.file_name, &self.path).await?;
-        }
-        eprintln!("Loading {}", self.path.display());
-        let path = self.path.clone();
-        let batches = tokio::task::spawn_blocking(move || read_json_lines(&path))
-            .await
-            .map_err(|e| DataFusionError::External(Box::new(e)))??;
-        let rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
-        eprintln!("Loaded {rows} rows");
-        Ok(batches)
-    }
-}
-
-#[async_trait]
-impl TableProvider for BskyTable {
-    fn schema(&self) -> SchemaRef {
-        bsky_schema()
+impl PartitionStream for BskyFiles {
+    fn schema(&self) -> &SchemaRef {
+        &self.schema
     }
 
-    fn table_type(&self) -> TableType {
-        TableType::Base
-    }
-
-    async fn scan(
-        &self,
-        _state: &dyn Session,
-        projection: Option<&[usize]>,
-        _filters: &[Expr],
-        _limit: Option<usize>,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        let batches = self.batches().await?;
-        // A single partition; DataFusion repartitions as needed.
-        Ok(MemorySourceConfig::try_new_exec(
-            &[batches],
-            self.schema(),
-            projection.map(<[usize]>::to_vec),
-        )?)
+    fn execute(&self, _ctx: Arc<TaskContext>) -> SendableRecordBatchStream {
+        let mut builder = RecordBatchReceiverStream::builder(Arc::clone(&self.schema), 2);
+        let tx = builder.tx();
+        let schema = Arc::clone(&self.schema);
+        let dir = self.dir.clone();
+        let files = self.files.clone();
+        builder.spawn(async move {
+            for n in files {
+                let file_name = format!("file_{n:04}.json.gz");
+                let path = dir.join(&file_name);
+                if !path.is_file() {
+                    download(&file_name, &path).await?;
+                }
+                eprintln!("Loading {}", path.display());
+                let (schema, tx) = (Arc::clone(&schema), tx.clone());
+                let rows = tokio::task::spawn_blocking(move || read_json_lines(&path, schema, &tx))
+                    .await
+                    .map_err(|e| DataFusionError::External(Box::new(e)))??;
+                eprintln!("Loaded {rows} rows");
+            }
+            Ok(())
+        });
+        builder.build()
     }
 }
 
@@ -189,28 +200,31 @@ async fn download(file_name: &str, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Read a gzipped newline-delimited JSON file into `json_data` batches.
-fn read_json_lines(path: &Path) -> Result<Vec<RecordBatch>> {
-    let schema = bsky_schema();
-    let reader = BufReader::new(GzDecoder::new(File::open(path)?));
-    let mut batches = Vec::new();
-    let mut rows = Vec::with_capacity(BATCH_SIZE);
-    let mut flush = |rows: &mut Vec<String>| -> Result<()> {
-        let array = StringArray::from(std::mem::take(rows));
-        batches.push(RecordBatch::try_new(
+/// Send the lines of a gzipped newline-delimited JSON file to `tx` as
+/// `json_data` batches and return the number of rows sent. Stops early when
+/// the query no longer needs rows.
+fn read_json_lines(
+    path: &Path,
+    schema: SchemaRef,
+    tx: &Sender<Result<RecordBatch>>,
+) -> Result<usize> {
+    let mut lines = BufReader::new(GzDecoder::new(File::open(path)?)).lines();
+    let mut rows = 0;
+    loop {
+        let batch = lines
+            .by_ref()
+            .take(BATCH_SIZE)
+            .collect::<std::io::Result<Vec<_>>>()?;
+        if batch.is_empty() {
+            return Ok(rows);
+        }
+        rows += batch.len();
+        let batch = RecordBatch::try_new(
             Arc::clone(&schema),
-            vec![Arc::new(array)],
-        )?);
-        Ok(())
-    };
-    for line in reader.lines() {
-        rows.push(line?);
-        if rows.len() == BATCH_SIZE {
-            flush(&mut rows)?;
+            vec![Arc::new(StringArray::from(batch))],
+        )?;
+        if tx.blocking_send(Ok(batch)).is_err() {
+            return Ok(rows);
         }
     }
-    if !rows.is_empty() {
-        flush(&mut rows)?;
-    }
-    Ok(batches)
 }

@@ -9,6 +9,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Instant;
 
 use clap::Parser;
 use datafusion::config::ConfigOptions;
@@ -56,6 +57,15 @@ struct Args {
         value_parser(parse_valid_file)
     )]
     file: Vec<String>,
+
+    #[clap(
+        short,
+        long,
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u32).range(1..),
+        help = "Run the -f files and -c commands this many times, printing the time of each run"
+    )]
+    iterations: u32,
 }
 
 impl Args {
@@ -88,6 +98,12 @@ async fn main_inner() -> Result<()> {
         "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v{DATAFUSION_CLI_VERSION}",
         env!("CARGO_PKG_VERSION")
     );
+
+    if args.iterations > 1 && args.reads_sql_from_stdin() {
+        return Err(DataFusionError::Configuration(
+            "--iterations needs SQL from -c or -f files other than stdin".to_string(),
+        ));
+    }
 
     // This is mostly copied setup code from datafusion-cli -- it might be nice to encapsulate this more
     let session_config = get_session_config(&args)?;
@@ -134,7 +150,7 @@ async fn main_inner() -> Result<()> {
         "list_files_cache",
         Arc::new(ListFilesCacheFunc::new(cache_manager)),
     );
-    // register `load_bsky(n)` to download and load sample Bluesky JSON data
+    // register `load_bsky(n)` and `load_bsky(first, last)` to download and load sample Bluesky JSON data
     ctx.register_udtf("load_bsky", Arc::new(load_bsky::LoadBskyFunc));
 
     let mut print_options = PrintOptions {
@@ -153,12 +169,28 @@ async fn main_inner() -> Result<()> {
             .map_err(|e| DataFusionError::External(Box::new(e)));
     }
 
-    if !args.file.is_empty() {
-        exec::exec_from_files(&cli_ctx, args.file, &print_options).await?;
-    }
+    let mut elapsed_ms = Vec::new();
+    for iteration in 1..=args.iterations {
+        let start = Instant::now();
+        if !args.file.is_empty() {
+            exec::exec_from_files(&cli_ctx, args.file.clone(), &print_options).await?;
+        }
 
-    if !args.command.is_empty() {
-        exec::exec_from_commands(&cli_ctx, args.command, &print_options).await?;
+        if !args.command.is_empty() {
+            exec::exec_from_commands(&cli_ctx, args.command.clone(), &print_options).await?;
+        }
+
+        if args.iterations > 1 {
+            let ms = start.elapsed().as_secs_f64() * 1000.0;
+            println!("Iteration {iteration}: {ms:.1} ms");
+            elapsed_ms.push(ms);
+        }
+    }
+    if args.iterations > 1 {
+        elapsed_ms.sort_by(f64::total_cmp);
+        let (min, max) = (elapsed_ms[0], elapsed_ms[elapsed_ms.len() - 1]);
+        let median = elapsed_ms[elapsed_ms.len() / 2];
+        println!("Iterations: min {min:.1} ms, median {median:.1} ms, max {max:.1} ms");
     }
 
     Ok(())

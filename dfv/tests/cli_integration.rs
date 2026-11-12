@@ -51,6 +51,7 @@ fn test_version_and_banner() {
 fn dfv_snapshot_settings() -> insta::Settings {
     let mut settings = insta::Settings::clone_current();
     settings.add_filter(r"Elapsed [0-9.]+ seconds\.", "Elapsed [ELAPSED] seconds.");
+    settings.add_filter(r"\b[0-9]+\.[0-9] ms\b", "[MS] ms");
     settings.add_filter(r"Loading .*/(file_\d+\.json\.gz)", "Loading [BSKY_DIR]/$1");
     // test_version_and_banner checks the dfv version
     settings.add_filter(
@@ -267,7 +268,7 @@ SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
     });
 }
 
-/// Only `-c` and `-f` are supported; other `datafusion-cli` options are
+/// Only `-c`, `-f`, and `-i` are supported; other `datafusion-cli` options are
 /// rejected by clap before any SQL runs.
 #[test]
 fn test_help_and_unsupported_options() {
@@ -292,10 +293,11 @@ fn test_help_and_unsupported_options() {
         Usage: dfv [OPTIONS]
 
         Options:
-          -c, --command [<COMMAND>...]  Execute the given command string(s), then exit. Commands are expected to be non empty.
-          -f, --file [<FILE>...]        Execute commands from file(s), then exit
-          -h, --help                    Print help
-          -V, --version                 Print version
+          -c, --command [<COMMAND>...]   Execute the given command string(s), then exit. Commands are expected to be non empty.
+          -f, --file [<FILE>...]         Execute commands from file(s), then exit
+          -i, --iterations <ITERATIONS>  Run the -f files and -c commands this many times, printing the time of each run [default: 1]
+          -h, --help                     Print help
+          -V, --version                  Print version
 
         stderr:
 
@@ -715,6 +717,46 @@ fn test_load_bsky_reads_local_file() {
     });
 }
 
+/// `load_bsky(first, last)` reads files `first` to `last` in order, one at a
+/// time.
+#[test]
+fn test_load_bsky_reads_file_range() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    for n in 1..=3 {
+        write_bsky_file(temp_dir.path(), n, &BSKY_ROWS);
+    }
+
+    let context = snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .env("DFV_BSKY_DIR", temp_dir.path())
+            .args(["-c", "SELECT count(*) AS rows FROM load_bsky(1, 3)"]),
+    );
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        +------+
+        | rows |
+        +------+
+        | 9    |
+        +------+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        Loading [BSKY_DIR]/file_0001.json.gz
+        Loaded 3 rows
+        Loading [BSKY_DIR]/file_0002.json.gz
+        Loaded 3 rows
+        Loading [BSKY_DIR]/file_0003.json.gz
+        Loaded 3 rows
+        ");
+    });
+}
+
 /// Wait for another process to publish the file, then reuse it without downloading.
 #[test]
 fn test_load_bsky_waits_for_download() {
@@ -756,11 +798,12 @@ fn test_load_bsky_waits_for_download() {
     assert!(!stderr.contains("Downloading"), "{stderr}");
 }
 
-/// `load_bsky` requires a single file number between 1 and 1000.
+/// `load_bsky` requires a file number or an ascending range of file numbers
+/// between 1 and 1000.
 #[test]
 fn test_load_bsky_rejects_bad_arguments() {
     let mut context = String::new();
-    for args in ["0", "1001", "'x'", "1, 2"] {
+    for args in ["0", "1001", "'x'", "2, 1", "1, 2, 3"] {
         let sql = format!("SELECT * FROM load_bsky({args})");
         context += &format!(
             "=== {sql} ===\n{}\n",
@@ -774,7 +817,7 @@ fn test_load_bsky_rejects_bad_arguments() {
         exit code: 1
         stdout:
         dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
-        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+        Error: Error during planning: load_bsky expects a file number or a range of file numbers between 1 and 1000, e.g. load_bsky(1) or load_bsky(1, 10)
 
         stderr:
 
@@ -782,7 +825,7 @@ fn test_load_bsky_rejects_bad_arguments() {
         exit code: 1
         stdout:
         dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
-        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+        Error: Error during planning: load_bsky expects a file number or a range of file numbers between 1 and 1000, e.g. load_bsky(1) or load_bsky(1, 10)
 
         stderr:
 
@@ -790,15 +833,72 @@ fn test_load_bsky_rejects_bad_arguments() {
         exit code: 1
         stdout:
         dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
-        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+        Error: Error during planning: load_bsky expects a file number or a range of file numbers between 1 and 1000, e.g. load_bsky(1) or load_bsky(1, 10)
 
         stderr:
 
-        === SELECT * FROM load_bsky(1, 2) ===
+        === SELECT * FROM load_bsky(2, 1) ===
         exit code: 1
         stdout:
         dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
-        Error: Error during planning: load_bsky expects a single file number between 1 and 1000, e.g. load_bsky(1)
+        Error: Error during planning: load_bsky expects a file number or a range of file numbers between 1 and 1000, e.g. load_bsky(1) or load_bsky(1, 10)
+
+        stderr:
+
+        === SELECT * FROM load_bsky(1, 2, 3) ===
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Error during planning: load_bsky expects a file number or a range of file numbers between 1 and 1000, e.g. load_bsky(1) or load_bsky(1, 10)
+
+        stderr:
+        ");
+    });
+}
+
+/// `-i N` runs the `-f` files and `-c` commands N times in one session and
+/// prints the time of each run. SQL from stdin cannot be read again, so it is
+/// rejected.
+#[test]
+fn test_iterations() {
+    let mut context =
+        snapshot_output(cargo_bin_cmd!("dfv").args(["-i", "2", "-c", "SELECT 1 AS one"]));
+    context += &snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .args(["-i", "2"])
+            .write_stdin("SELECT 1;"),
+    );
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        +-----+
+        | one |
+        +-----+
+        | 1   |
+        +-----+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        Iteration 1: [MS] ms
+        +-----+
+        | one |
+        +-----+
+        | 1   |
+        +-----+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        Iteration 2: [MS] ms
+        Iterations: min [MS] ms, median [MS] ms, max [MS] ms
+
+        stderr:
+        exit code: 1
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        Error: Invalid or Unsupported Configuration: --iterations needs SQL from -c or -f files other than stdin
 
         stderr:
         ");

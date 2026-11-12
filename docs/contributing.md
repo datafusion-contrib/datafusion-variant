@@ -45,12 +45,9 @@ broken links between pages fail it.
 
 ## Benchmarks
 
-See the [benchmark guide][benchmark-guide]
-for extraction, parsing, serialization, schema inference, and JSONBench workloads,
-including baseline comparison commands.
+See [Benchmarks](benchmarks.md) for the function benchmarks and JSONBench.
 
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files
 [issue-tracker]: https://github.com/datafusion-contrib/datafusion-variant/issues
 [roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [Sphinx]: https://www.sphinx-doc.org/
-[benchmark-guide]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/benches/README.md
