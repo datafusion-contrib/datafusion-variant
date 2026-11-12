@@ -315,7 +315,7 @@ SELECT parse_json('1', '2');
 
 # Both results are usable by the same downstream Variant getter.
 query II
-SELECT variant_get(parse_json('{"a":7}'), 'a', 'INT'),
-       variant_get(try_parse_json('{"a":7}'), 'a', 'INT');
+SELECT variant_get(parse_json('{"a":7}'), '$.a', 'INT'),
+       variant_get(try_parse_json('{"a":7}'), '$.a', 'INT');
 ----
 7 7

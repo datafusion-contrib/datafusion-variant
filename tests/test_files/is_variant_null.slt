@@ -9,12 +9,12 @@
 # Spark's scalar field-extraction examples. The other four examples are covered
 # by the value matrix below.
 query B
-SELECT is_variant_null(variant_get(parse_json('{"a":null, "b":"spark"}'), 'c'));
+SELECT is_variant_null(variant_get(parse_json('{"a":null, "b":"spark"}'), '$.c'));
 ----
 false
 
 query B
-SELECT is_variant_null(variant_get(parse_json('{"a":null, "b":"spark"}'), 'a'));
+SELECT is_variant_null(variant_get(parse_json('{"a":null, "b":"spark"}'), '$.a'));
 ----
 true
 
@@ -89,8 +89,8 @@ FROM shredded_null_objects ORDER BY id;
 # Reuse the unshredded fixture for column extraction. Assert both predicates:
 # explicit null is present, while missing fields and SQL-null parents are absent.
 query IBB
-SELECT id, variant_get(original, 'a') IS NULL,
-       is_variant_null(variant_get(original, 'a'))
+SELECT id, variant_get(original, '$.a') IS NULL,
+       is_variant_null(variant_get(original, '$.a'))
 FROM shredded_null_objects ORDER BY id;
 ----
 1 true false
@@ -107,7 +107,7 @@ FROM shredded_null_objects ORDER BY id;
 # planning promises only metadata/value, so DataFusion rejects the result.
 skipif DataFusion
 query IBB
-SELECT id, variant_get(v, 'a') IS NULL, is_variant_null(variant_get(v, 'a'))
+SELECT id, variant_get(v, '$.a') IS NULL, is_variant_null(variant_get(v, '$.a'))
 FROM shredded_null_objects ORDER BY id;
 ----
 1 true false
@@ -138,8 +138,8 @@ FROM shredded_null_lists ORDER BY id;
 skipif DataFusion
 query IBBBB
 SELECT id,
-       variant_get(v, '[0]') IS NULL, is_variant_null(variant_get(v, '[0]')),
-       variant_get(v, '[1]') IS NULL, is_variant_null(variant_get(v, '[1]'))
+       variant_get(v, '$[0]') IS NULL, is_variant_null(variant_get(v, '$[0]')),
+       variant_get(v, '$[1]') IS NULL, is_variant_null(variant_get(v, '$[1]'))
 FROM shredded_null_lists ORDER BY id;
 ----
 1 true false true false
@@ -153,8 +153,8 @@ FROM shredded_null_lists ORDER BY id;
 # Keep the unshredded list controls executable while shredded getters are blocked.
 query IBBBB
 SELECT id,
-       variant_get(original, '[0]') IS NULL, is_variant_null(variant_get(original, '[0]')),
-       variant_get(original, '[1]') IS NULL, is_variant_null(variant_get(original, '[1]'))
+       variant_get(original, '$[0]') IS NULL, is_variant_null(variant_get(original, '$[0]')),
+       variant_get(original, '$[1]') IS NULL, is_variant_null(variant_get(original, '$[1]'))
 FROM shredded_null_lists ORDER BY id;
 ----
 1 true false true false

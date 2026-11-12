@@ -1,12 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
-# Rooted and existing rootless paths share traversal but retain their dialects.
-query III
+query II
 SELECT variant_get(parse_json('{"a":{"b":[7]}}'), '$.a.b[0]', 'INT'),
-       try_variant_get(parse_json('{"a":{"b":[7]}}'), '$.a.b[0]', 'INT'),
-       variant_get(parse_json('{"a":{"b":[7]}}'), 'a.b[0]', 'INT');
+       try_variant_get(parse_json('{"a":{"b":[7]}}'), '$.a.b[0]', 'INT');
 ----
-7 7 7
+7 7
 
 query TT
 SELECT to_json(variant_get(parse_json('{"$":42}'), '$')),
@@ -29,7 +27,7 @@ query ITT rowsort
 SELECT variant_get(parse_json(j), p, 'INT'),
        variant_get_json(parse_json(j), p),
        variant_get_json(parse_json('{"a":5}'), p)
-FROM (VALUES ('{"a":1}', '$.a'), ('{"a":2}', 'a')) t(j,p);
+FROM (VALUES ('{"a":1}', '$.a'), ('{"a":2}', '$["a"]')) t(j,p);
 ----
 1 1 5
 2 2 5
@@ -43,22 +41,11 @@ SELECT variant_get_json(parse_json('{}'), '$..a');
 statement error invalid Variant path
 SELECT variant_object_keys(parse_json('{}'), '$bad');
 
-# Both path dialects agree on shredded and unshredded storage.
-# Cross-layout missing/null equivalence is an existing upstream Arrow gap.
-query I
-SELECT count(*) FROM shredded_null_objects
-WHERE to_json(variant_get(v, '$.a')) IS DISTINCT FROM
-      to_json(variant_get(v, 'a'))
-   OR to_json(variant_get(original, '$.a')) IS DISTINCT FROM
-      to_json(variant_get(original, 'a'));
-----
-0
-
 # Literal field names are not interpreted as root markers, including in SQL access.
 query ITT
 SELECT parse_json('{"$":42}'):['$']::INT,
        variant_get_json(parse_json('{"$":42}'), ['$']),
-       variant_get_json(parse_json('{"$":42}'), '["$"]');
+       variant_get_json(parse_json('{"$":42}'), '$["$"]');
 ----
 42 42 42
 
@@ -67,7 +54,7 @@ query III rowsort
 SELECT variant_get(parse_json('{"a":5}'), p, 'INT'),
        try_variant_get(parse_json('{"a":5}'), p, 'INT'),
        CAST(variant_get(parse_json('{"a":5}'), p) AS INT)
-FROM (VALUES ('$.a'), ('a')) t(p);
+FROM (VALUES ('$.a'), ('$["a"]')) t(p);
 ----
 5 5 5
 5 5 5
@@ -86,3 +73,69 @@ query I
 SELECT variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT');
 ----
 1
+
+# Paths start with `$`, as in Spark. Rootless paths and the empty string are invalid.
+statement error invalid Variant path "a": paths start with
+SELECT variant_get(parse_json('{"a":1}'), 'a');
+
+statement error invalid Variant path "": paths start with
+SELECT variant_get(parse_json('{"a":1}'), '');
+
+statement error invalid Variant path "a.b": paths start with
+SELECT try_variant_get(parse_json('{"a":{"b":1}}'), 'a.b', 'INT');
+
+statement error invalid Variant path "\[0\]": paths start with
+SELECT variant_get_json(parse_json('[1]'), '[0]');
+
+statement error invalid Variant path "a": paths start with
+SELECT variant_object_keys(parse_json('{"a":{}}'), 'a');
+
+statement error invalid Variant path "a": paths start with
+SELECT try_variant_get(parse_json('{"a":1}'), p) FROM (VALUES ('a')) t(p);
+
+# A SQL NULL path returns SQL NULL, as in Spark.
+statement ok
+CREATE TABLE null_paths AS
+SELECT * FROM (VALUES (1, '{"a":1}', '$.a'), (2, '{"a":2}', NULL)) t(id, j, p);
+
+query IBBI
+SELECT id,
+       variant_get(parse_json(j), p) IS NULL,
+       variant_get_json(parse_json(j), p) IS NULL,
+       try_variant_get(parse_json(j), p, 'INT')
+FROM null_paths ORDER BY id;
+----
+1 false false 1
+2 true true NULL
+
+query IIT
+SELECT id,
+       variant_get(parse_json('{"a":5}'), p, 'INT'),
+       variant_get_json(parse_json('{"a":5}'), p)
+FROM null_paths ORDER BY id;
+----
+1 5 5
+2 NULL NULL
+
+query IBBI
+SELECT id,
+       variant_get(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
+       variant_get_json(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
+       variant_get(parse_json(j), CAST(NULL AS VARCHAR), 'INT')
+FROM null_paths ORDER BY id;
+----
+1 true true NULL
+2 true true NULL
+
+query BBI
+SELECT variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL,
+       variant_get_json(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL,
+       try_variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR), 'INT');
+----
+true true NULL
+
+# Casting a Variant reads it at the root.
+query I
+SELECT CAST(parse_json('7') AS INT);
+----
+7

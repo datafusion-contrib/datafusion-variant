@@ -33,7 +33,7 @@ container null. This predicate does not validate the full Variant contents.",
 +--------------+----------+
 | true         | false    |
 +--------------+----------+
-> SELECT is_variant_null(variant_get(parse_json('{"a":null}'), 'a')) AS present, is_variant_null(variant_get(parse_json('{"a":null}'), 'b')) AS missing;
+> SELECT is_variant_null(variant_get(parse_json('{"a":null}'), '$.a')) AS present, is_variant_null(variant_get(parse_json('{"a":null}'), '$.b')) AS missing;
 +---------+---------+
 | present | missing |
 +---------+---------+
