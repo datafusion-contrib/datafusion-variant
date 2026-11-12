@@ -17,6 +17,7 @@ Introduction <self>
 :caption: User Guide
 :hidden:
 getting-started
+paths
 shredding
 sql-reference
 benchmarks
