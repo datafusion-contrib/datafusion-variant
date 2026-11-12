@@ -67,22 +67,22 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
 /// | `inner`   | `outer` | combined     | notes                                 |
 /// |-----------|---------|--------------|---------------------------------------|
 /// | `a`       | `b`     | `$.a.b`      | field then field                      |
-/// | `$.a`     | `$.b`   | `$.a.b`      | rooted inputs                         |
 /// | `a.b`     | `c[1]`  | `$.a.b.c[1]` | multiple elements per path            |
-/// | `a[0]`    | `[1]`   | `$.a[0][1]`  | list index then list index            |
-/// | `['x.y']` | `z`     | `$['x.y'].z` | a key with `.` or `[` stays quoted    |
-/// | `a`       | `$`     | `$.a`        | `$` or an empty path selects the root |
 ///
-/// Returns `None` if either path is invalid or the combination can not be
-/// written as a rooted path, in which case the nested calls must be kept.
-pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Option<String> {
-    let inner = parse_variant_path(inner, true).ok()?;
-    let outer = parse_variant_path(outer, true).ok()?;
+/// Returns an error if either path is invalid.
+///
+/// Returns `None` if the combination can not be written as a rooted path, in
+/// which case the nested calls must be kept.
+pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Result<Option<String>> {
+    let inner = parse_variant_path(inner, true)?;
+    let outer = parse_variant_path(outer, true)?;
     let mut combined = String::from("$");
     for element in inner.iter().chain(outer.iter()) {
-        write_rooted_element(&mut combined, element)?;
+        if write_rooted_element(&mut combined, element).is_none() {
+            return Ok(None);
+        }
     }
-    Some(combined)
+    Ok(Some(combined))
 }
 
 /// Append `element` in the syntax accepted by [`parse_rooted_path`].
@@ -129,12 +129,10 @@ mod tests {
             ("$['a[0]']", "b", Some("$['a[0]'].b")),
             (r#"$["it's.x"]"#, "$['']", Some(r#"$["it's.x"]['']"#)),
             (r#"$['say "hi"']"#, "a b", Some(r#"$.say "hi".a b"#)),
-            // invalid paths are left for execution to report
-            ("a", "$bad", None),
-            ("$[", "a", None),
+            // valid, but the index does not fit the rooted syntax
             ("a", "[2147483648]", None),
         ] {
-            let combined = concat_variant_paths(inner, outer);
+            let combined = concat_variant_paths(inner, outer).unwrap();
             assert_eq!(combined.as_deref(), expected, "{inner:?} + {outer:?}");
             let Some(combined) = combined else { continue };
             // The combined path parses back to the elements of both inputs.
@@ -144,6 +142,17 @@ mod tests {
             assert_eq!(
                 parse_variant_path(&combined, true).unwrap().path(),
                 &elements
+            );
+        }
+    }
+
+    #[test]
+    fn concat_invalid_paths() {
+        for (inner, outer) in [("a", "$bad"), ("$[", "a"), ("$..a", "$[")] {
+            let err = concat_variant_paths(inner, outer).unwrap_err();
+            assert!(
+                err.to_string().contains("invalid Variant path"),
+                "{inner:?} + {outer:?}: {err}"
             );
         }
     }

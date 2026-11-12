@@ -8,7 +8,7 @@ use arrow::{
 };
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use datafusion::{
-    common::{config::ConfigOptions, exec_datafusion_err, exec_err},
+    common::{config::ConfigOptions, exec_datafusion_err, exec_err, tree_node::Transformed},
     error::{DataFusionError, Result},
     logical_expr::{
         ColumnarValue, Expr, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl,
@@ -251,10 +251,14 @@ fn literal_path(expr: &Expr) -> Option<&str> {
 ///
 /// This is common in practice as `:` syntax such as `v:a:b[0]` is initially
 /// planned as `variant_get` calls.
-fn collapse_nested_getters(getter: ScalarUDF, mut args: Vec<Expr>) -> ExprSimplifyResult {
-    let combined = (|| {
-        let Expr::ScalarFunction(ScalarFunction { func, args: inner }) = args.first()? else {
-            return None;
+///
+/// Takes the arguments of the outer call and returns its new arguments, or
+/// the original arguments if the calls can not be collapsed. Returns an error
+/// if either literal path is invalid.
+fn collapse_nested_getters(mut args: Vec<Expr>) -> Result<Transformed<Vec<Expr>>> {
+    let combined = (|| -> Result<Option<(Expr, String)>> {
+        let Some(Expr::ScalarFunction(ScalarFunction { func, args: inner })) = args.first() else {
+            return Ok(None);
         };
 
         // Can only combine the path access when the inner
@@ -268,23 +272,40 @@ fn collapse_nested_getters(getter: ScalarUDF, mut args: Vec<Expr>) -> ExprSimpli
                 .downcast_ref::<TryVariantGetUdf>()
                 .is_some_and(TryVariantGetUdf::is_untyped);
         let [input, inner_path] = inner.as_slice() else {
-            return None;
+            return Ok(None);
         };
         if !is_untyped {
-            return None;
+            return Ok(None);
         }
-        let inner_path = literal_path(inner_path)?;
-        let outer_path = literal_path(args.get(1)?)?;
+        let (Some(inner_path), Some(outer_path)) =
+            (literal_path(inner_path), args.get(1).and_then(literal_path))
+        else {
+            return Ok(None);
+        };
         let path = concat_variant_paths(inner_path, outer_path)?;
-        Some((input.clone(), path))
+        Ok(path.map(|path| (input.clone(), path)))
     })();
 
-    let Some((input, path)) = combined else {
-        return ExprSimplifyResult::Original(args);
+    let Some((input, path)) = combined? else {
+        return Ok(Transformed::no(args));
     };
     args[0] = input;
     args[1] = lit(path);
-    ExprSimplifyResult::Simplified(getter.call(args))
+    Ok(Transformed::yes(args))
+}
+
+/// Shared [`ScalarUDFImpl::simplify`] for the getters. `simplify` only has
+/// `&self`, so `getter` is cloned to build the new call, but only on a rewrite.
+fn simplify_getter<T>(getter: &T, args: Vec<Expr>) -> Result<ExprSimplifyResult>
+where
+    T: ScalarUDFImpl + Clone + 'static,
+{
+    let args = collapse_nested_getters(args)?;
+    if !args.transformed {
+        return Ok(ExprSimplifyResult::Original(args.data));
+    }
+    let getter = ScalarUDF::new_from_impl(getter.clone());
+    Ok(ExprSimplifyResult::Simplified(getter.call(args.data)))
 }
 
 impl_variant_get_typed!(
@@ -458,8 +479,7 @@ impl ScalarUDFImpl for VariantGetUdf {
     }
 
     fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
-        let getter = ScalarUDF::new_from_impl(self.clone());
-        Ok(collapse_nested_getters(getter, args))
+        simplify_getter(self, args)
     }
 
     fn invoke_with_args(
@@ -603,8 +623,7 @@ impl ScalarUDFImpl for TryVariantGetUdf {
     }
 
     fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
-        let getter = ScalarUDF::new_from_impl(self.clone());
-        Ok(collapse_nested_getters(getter, args))
+        simplify_getter(self, args)
     }
 
     fn invoke_with_args(
