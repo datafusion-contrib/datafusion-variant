@@ -38,6 +38,12 @@ strings are `VARCHAR` and `time_us` is `BIGINT`. Some source documents are
 truncated, so the scripts parse with `try_parse_json`, which stores them as
 NULL.
 
+JSONBench also reports how much storage each layout takes:
+
+```sh
+du -sh data/jsonbench/*
+```
+
 ## Running the queries
 
 Each layout's `create.sql` creates the `bluesky` table over its files, so pass

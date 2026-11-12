@@ -19,6 +19,7 @@ Introduction <self>
 getting-started
 shredding
 sql-reference
+benchmarks
 contributing
 ```
 
