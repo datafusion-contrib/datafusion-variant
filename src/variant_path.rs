@@ -57,8 +57,21 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
     Ok(VariantPath::new(elements))
 }
 
-/// Combine two path strings into one equivalent rooted path, so that
-/// `variant_get(variant_get(v, inner), outer)` equals `variant_get(v, combined)`.
+/// Combine two path strings into one equivalent rooted path
+///
+/// The result is such that `variant_get(variant_get(v, inner), outer)` equals
+/// `variant_get(v, combined)`.
+///
+/// For example
+///
+/// | `inner`   | `outer` | combined     | notes                                 |
+/// |-----------|---------|--------------|---------------------------------------|
+/// | `a`       | `b`     | `$.a.b`      | field then field                      |
+/// | `$.a`     | `$.b`   | `$.a.b`      | rooted inputs                         |
+/// | `a.b`     | `c[1]`  | `$.a.b.c[1]` | multiple elements per path            |
+/// | `a[0]`    | `[1]`   | `$.a[0][1]`  | list index then list index            |
+/// | `['x.y']` | `z`     | `$['x.y'].z` | a key with `.` or `[` stays quoted    |
+/// | `a`       | `$`     | `$.a`        | `$` or an empty path selects the root |
 ///
 /// Returns `None` if either path is invalid or the combination can not be
 /// written as a rooted path, in which case the nested calls must be kept.

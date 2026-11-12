@@ -231,24 +231,34 @@ fn literal_path(expr: &Expr) -> Option<&str> {
     Some(value.try_as_str()?.unwrap_or_default())
 }
 
-/// Collapse a getter whose input is an untyped getter into one getter over the
-/// combined path, when both paths are literals:
+/// Collapse nested `variant_get` or `try_variant_get`  calls into a single
+/// call with a combined path.
 ///
-/// ```text
-/// variant_get(variant_get(v, 'a'), 'b')  =>  variant_get(v, '$.a.b')
+/// A single call is more efficient as it can read shredded columns directly,
+/// whereas the nested form rebuilds an intermediate Variant for every row.
+///
+/// For example, this function chain
+///
+/// ```sql
+/// variant_get(variant_get(v, 'a'), 'b')
 /// ```
 ///
-/// This is what chained `:` access such as `v:a:b[0]` plans to. A single
-/// getter can read shredded columns directly, whereas the nested form has to
-/// rebuild the intermediate Variant for every row first.
+/// is rewritten to
 ///
-/// `getter` is the outer function; its type hint, if any, is retained.
+/// ```sql
+/// variant_get(v, '$.a.b')
+/// ```
+///
+/// This is common in practice as `:` syntax such as `v:a:b[0]` is initially
+/// planned as `variant_get` calls.
 fn collapse_nested_getters(getter: ScalarUDF, mut args: Vec<Expr>) -> ExprSimplifyResult {
     let combined = (|| {
         let Expr::ScalarFunction(ScalarFunction { func, args: inner }) = args.first()? else {
             return None;
         };
-        // An untyped getter never converts, so `variant_get` and `try_variant_get` agree.
+
+        // Can only combine the path access when the inner
+        // function returns a variant.
         let is_untyped = func
             .inner()
             .downcast_ref::<VariantGetUdf>()
@@ -263,7 +273,9 @@ fn collapse_nested_getters(getter: ScalarUDF, mut args: Vec<Expr>) -> ExprSimpli
         if !is_untyped {
             return None;
         }
-        let path = concat_variant_paths(literal_path(inner_path)?, literal_path(args.get(1)?)?)?;
+        let inner_path = literal_path(inner_path)?;
+        let outer_path = literal_path(args.get(1)?)?;
+        let path = concat_variant_paths(inner_path, outer_path)?;
         Some((input.clone(), path))
     })();
 
@@ -392,6 +404,8 @@ impl VariantGetUdf {
         }
     }
 
+    /// Returns true if this function returns a Variant (aka
+    /// does not convert the result into another type)
     pub(crate) fn is_untyped(&self) -> bool {
         self.target.is_none()
     }
