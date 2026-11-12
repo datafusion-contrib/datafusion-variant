@@ -183,7 +183,7 @@ mod tests {
 
         // The Variant adapter is attached: no row of the unshredded file is lost.
         let batches = ctx
-            .sql("SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM t")
+            .sql("SELECT count(variant_get(event, '$.service', 'VARCHAR')) FROM t")
             .await?
             .collect()
             .await?;

@@ -115,10 +115,10 @@ CREATE EXTERNAL TABLE reshredded STORED AS PARQUET LOCATION '$__TEST_DIR__/reshr
 # Root Variant extraction reconstructs a common representation before JSON
 # comparison; DataFusion cannot directly compare different physical layouts.
 query IB
-SELECT count(*), bool_and(to_json(variant_get(s."Event", '', 'VARIANT'))
-                           IS NOT DISTINCT FROM to_json(variant_get(r."Event", '', 'VARIANT'))
-                         AND to_json(variant_get(s.metric, '', 'VARIANT'))
-                           IS NOT DISTINCT FROM to_json(variant_get(r.metric, '', 'VARIANT'))
+SELECT count(*), bool_and(to_json(variant_get(s."Event", '\$', 'VARIANT'))
+                           IS NOT DISTINCT FROM to_json(variant_get(r."Event", '\$', 'VARIANT'))
+                         AND to_json(variant_get(s.metric, '\$', 'VARIANT'))
+                           IS NOT DISTINCT FROM to_json(variant_get(r.metric, '\$', 'VARIANT'))
                          AND s.original IS NOT DISTINCT FROM r.original)
 FROM saved s JOIN reshredded r USING (id);
 ----
