@@ -241,7 +241,7 @@ mod tests {
                 "user": {"name": "Alice", "age": 30},
                 "scores": [1, 2]
             })),
-            Some("user"),
+            Some("$.user"),
         );
         let result = udf.invoke_with_args(args).unwrap();
 
@@ -257,7 +257,7 @@ mod tests {
         let udf = VariantObjectKeys::default();
         let args = make_args(
             scalar_from_json(serde_json::json!({"items": [1, 2, 3]})),
-            Some("items"),
+            Some("$.items"),
         );
         let result = udf.invoke_with_args(args).unwrap();
 
@@ -272,7 +272,7 @@ mod tests {
         let udf = VariantObjectKeys::default();
         let args = make_args(
             scalar_from_json(serde_json::json!({"a": 1})),
-            Some("nonexistent"),
+            Some("$.nonexistent"),
         );
         let result = udf.invoke_with_args(args).unwrap();
 
@@ -332,7 +332,7 @@ mod tests {
         let variant_input = Arc::new(input) as ArrayRef;
 
         let udf = VariantObjectKeys::default();
-        let args = make_args(ColumnarValue::Array(variant_input), Some("info"));
+        let args = make_args(ColumnarValue::Array(variant_input), Some("$.info"));
         let result = udf.invoke_with_args(args).unwrap();
 
         let ColumnarValue::Array(array) = result else {

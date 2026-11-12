@@ -19,9 +19,9 @@ true false true false
 # https://github.com/apache/parquet-format/blob/2d7b634c7ddba87bbebb3da18a20978b6db399a3/VariantShredding.md#objects
 query BBB
 SELECT
-  variant_get(parse_json('{"a":null}'), 'a') IS NULL,
-  is_variant_null(variant_get(parse_json('{"a":null}'), 'a')),
-  variant_get(parse_json('{"a":null}'), 'missing') IS NULL;
+  variant_get(parse_json('{"a":null}'), '$.a') IS NULL,
+  is_variant_null(variant_get(parse_json('{"a":null}'), '$.a')),
+  variant_get(parse_json('{"a":null}'), '$.missing') IS NULL;
 ----
 false true true
 
@@ -30,18 +30,18 @@ false true true
 # https://github.com/apache/parquet-format/blob/2d7b634c7ddba87bbebb3da18a20978b6db399a3/VariantEncoding.md#value-encoding
 query BBB
 SELECT
-  variant_get(parse_json('[null]'), '[0]') IS NULL,
-  is_variant_null(variant_get(parse_json('[null]'), '[0]')),
-  variant_get(parse_json('[null]'), '[1]') IS NULL;
+  variant_get(parse_json('[null]'), '$[0]') IS NULL,
+  is_variant_null(variant_get(parse_json('[null]'), '$[0]')),
+  variant_get(parse_json('[null]'), '$[1]') IS NULL;
 ----
 false true true
 
 # traversal_beyond_null
 query BBB
 SELECT
-  variant_get(parse_json('{"a":null}'), 'a.missing') IS NULL,
-  variant_get(parse_json('null'), 'a') IS NULL,
-  variant_get(parse_json(CAST(NULL AS VARCHAR)), 'a') IS NULL;
+  variant_get(parse_json('{"a":null}'), '$.a.missing') IS NULL,
+  variant_get(parse_json('null'), '$.a') IS NULL,
+  variant_get(parse_json(CAST(NULL AS VARCHAR)), '$.a') IS NULL;
 ----
 true true true
 
@@ -49,7 +49,7 @@ true true true
 query TT
 SELECT
   to_json(parse_json('null')),
-  to_json(variant_get(parse_json('{"a":null}'), 'a'));
+  to_json(variant_get(parse_json('{"a":null}'), '$.a'));
 ----
 null null
 
@@ -75,21 +75,21 @@ NULL
 
 # serialize_missing_scalar
 query T
-SELECT to_json(variant_get(parse_json('{"a":null}'), 'missing'));
+SELECT to_json(variant_get(parse_json('{"a":null}'), '$.missing'));
 ----
 NULL
 
 # serialize_null_input_scalar
 query T
-SELECT to_json(variant_get(parse_json(CAST(NULL AS VARCHAR)), 'a'));
+SELECT to_json(variant_get(parse_json(CAST(NULL AS VARCHAR)), '$.a'));
 ----
 NULL
 
 # column_value_literal_path
 query B?
 SELECT
-  variant_get(parse_json(v), 'a') IS NULL,
-  variant_get(parse_json(v), 'a')
+  variant_get(parse_json(v), '$.a') IS NULL,
+  variant_get(parse_json(v), '$.a')
 FROM (VALUES
   (0, '{"a":null}'),
   (1, '{}'),
@@ -109,8 +109,8 @@ SELECT
   variant_get(parse_json('{"a":null}'), p) IS NULL,
   variant_get(parse_json('{"a":null}'), p)
 FROM (VALUES
-  (0, 'a'),
-  (1, 'missing')
+  (0, '$.a'),
+  (1, '$.missing')
 ) t(id, p)
 ORDER BY id;
 ----
@@ -123,9 +123,9 @@ SELECT
   variant_get(parse_json(v), p) IS NULL,
   variant_get(parse_json(v), p)
 FROM (VALUES
-  (0, '{"a":null}', 'a'),
-  (1, '{"a":1}',    'missing'),
-  (2, '{"a":1}',    'a')
+  (0, '{"a":null}', '$.a'),
+  (1, '{"a":1}',    '$.missing'),
+  (2, '{"a":1}',    '$.a')
 ) t(id, v, p)
 ORDER BY id;
 ----
@@ -139,8 +139,8 @@ SELECT
   variant_get(parse_json(CAST(NULL AS VARCHAR)), p) IS NULL,
   variant_get(parse_json(CAST(NULL AS VARCHAR)), p)
 FROM (VALUES
-  (0, 'a'),
-  (1, 'missing')
+  (0, '$.a'),
+  (1, '$.missing')
 ) t(id, p)
 ORDER BY id;
 ----
@@ -157,10 +157,10 @@ SELECT
   variant_get(parse_json(v), p, 'BIGINT'),
   try_variant_get(parse_json(v), p, 'BIGINT')
 FROM (VALUES
-  (0, CAST(NULL AS VARCHAR), 'a'),
-  (1, '{"a":null}',          'a'),
-  (2, '{}',                  'a'),
-  (3, '{"a":7}',             'a')
+  (0, CAST(NULL AS VARCHAR), '$.a'),
+  (1, '{"a":null}',          '$.a'),
+  (2, '{}',                  '$.a'),
+  (3, '{"a":7}',             '$.a')
 ) t(id, v, p)
 ORDER BY id;
 ----

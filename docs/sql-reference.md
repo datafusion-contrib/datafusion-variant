@@ -67,7 +67,7 @@ container null. This predicate does not validate the full Variant contents.
 +--------------+----------+
 | true         | false    |
 +--------------+----------+
-> SELECT is_variant_null(variant_get(parse_json('{"a":null}'), 'a')) AS present, is_variant_null(variant_get(parse_json('{"a":null}'), 'b')) AS missing;
+> SELECT is_variant_null(variant_get(parse_json('{"a":null}'), '$.a')) AS present, is_variant_null(variant_get(parse_json('{"a":null}'), '$.b')) AS missing;
 +---------+---------+
 | present | missing |
 +---------+---------+
@@ -276,21 +276,21 @@ getter or colon access uses the same conversion policy as `try_variant_get`.
 **Example**
 
 ```sql
-> SELECT try_variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
+> SELECT try_variant_get(parse_json('{"a":1}'), '$.a', 'BIGINT') AS value;
 +-------+
 | value |
 +-------+
 | 1     |
 +-------+
-> SELECT try_variant_get(parse_json('[1,"hello"]'), '[1]', 'BIGINT') IS NULL AS failed_cast;
+> SELECT try_variant_get(parse_json('[1,"hello"]'), '$[1]', 'BIGINT') IS NULL AS failed_cast;
 +-------------+
 | failed_cast |
 +-------------+
 | true        |
 +-------------+
 > WITH input AS (SELECT parse_json('{"price":"invalid"}') AS v)
-  SELECT try_variant_get(v, 'price', 'DECIMAL(12,2)') IS NULL AS type_hint,
-         TRY_CAST(variant_get(v, 'price') AS DECIMAL(12,2)) IS NULL AS sql_cast,
+  SELECT try_variant_get(v, '$.price', 'DECIMAL(12,2)') IS NULL AS type_hint,
+         TRY_CAST(variant_get(v, '$.price') AS DECIMAL(12,2)) IS NULL AS sql_cast,
          TRY_CAST(v:price AS DECIMAL(12,2)) IS NULL AS colon_cast
   FROM input;
 +-----------+----------+------------+
@@ -323,7 +323,7 @@ Deletes object fields or array elements at one or more JSONPaths, applied left t
 ## `variant_get`
 
 Extracts the value at a path and optionally converts it to a SQL type.
-Without a type hint, returns Variant. SQL NULL input and missing paths return SQL NULL.
+Without a type hint, returns Variant. SQL NULL input, a SQL NULL path, and missing paths return SQL NULL.
 Variant null remains a Variant null for Variant output and becomes SQL NULL for typed output.
 Invalid paths, invalid type hints, and failed conversions raise errors.
 
@@ -342,33 +342,33 @@ type hint or cast target to retain a Variant result.
 | --- | --- |
 | **Syntax** | `variant_get(value, path[, type])` |
 | **Alternative syntax** | `CAST(variant_get(value, path) AS type)`<br>`value:field`<br>`value:field::type` |
-| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression such as `$.a.b[0]`. SQL NULL selects the root. See [Variant paths](paths.md).<br>`type`: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`. |
+| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md).<br>`type`: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`. |
 | **Related** | [`try_variant_get`](#try_variant_get), [`is_variant_null`](#is_variant_null) |
 
 **Example**
 
 ```sql
-> SELECT variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
+> SELECT variant_get(parse_json('{"a":1}'), '$.a', 'BIGINT') AS value;
 +-------+
 | value |
 +-------+
 | 1     |
 +-------+
-> SELECT variant_get(parse_json('{"a":1}'), 'b', 'BIGINT') IS NULL AS missing;
+> SELECT variant_get(parse_json('{"a":1}'), '$.b', 'BIGINT') IS NULL AS missing;
 +---------+
 | missing |
 +---------+
 | true    |
 +---------+
-> SELECT to_json(variant_get(parse_json('[1,"hello"]'), '[1]')) AS json;
+> SELECT to_json(variant_get(parse_json('[1,"hello"]'), '$[1]')) AS json;
 +---------+
 | json    |
 +---------+
 | "hello" |
 +---------+
 > WITH input AS (SELECT parse_json('{"price":12.5}') AS v)
-  SELECT variant_get(v, 'price', 'DECIMAL(12,2)') AS type_hint,
-         CAST(variant_get(v, 'price') AS DECIMAL(12,2)) AS sql_cast,
+  SELECT variant_get(v, '$.price', 'DECIMAL(12,2)') AS type_hint,
+         CAST(variant_get(v, '$.price') AS DECIMAL(12,2)) AS sql_cast,
          v:price::DECIMAL(12,2) AS colon_cast
   FROM input;
 +-----------+----------+------------+

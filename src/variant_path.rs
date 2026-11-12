@@ -5,18 +5,33 @@
 use datafusion::common::{Result, exec_datafusion_err};
 use parquet_variant::{VariantPath, VariantPathElement};
 
-/// Parse rooted or rootless paths; `allow_root` permits `$` and empty paths.
+/// Parse a Spark 4.2 Variant path; `allow_root` permits `$` alone.
 pub(crate) fn parse_variant_path(path: &str, allow_root: bool) -> Result<VariantPath<'_>> {
-    // TODO(#166): unify path dialects.
-    let parsed = if path.starts_with('$') {
-        parse_rooted_path(path)?
-    } else {
-        VariantPath::try_from(path)?
-    };
+    if !path.starts_with('$') {
+        return Err(exec_datafusion_err!(
+            "invalid Variant path {path:?}: paths start with `$`, such as `$.a[0]`"
+        ));
+    }
+    let parsed = parse_rooted_path(path)?;
     if !allow_root && parsed.path().is_empty() {
         return Err(exec_datafusion_err!("invalid Variant path {path:?}"));
     }
     Ok(parsed)
+}
+
+/// The path for `v:<text>`, built as Spark's `AstBuilder.visitSemiStructuredExtract` does.
+pub(crate) fn colon_path(text: &str) -> String {
+    if text.starts_with('[') {
+        format!("${text}")
+    } else {
+        format!("$.{text}")
+    }
+}
+
+/// The `<text>` of `v:<text>` that [`colon_path`] turns into `path`.
+pub(crate) fn colon_text(path: &str) -> Option<&str> {
+    path.strip_prefix("$.")
+        .or_else(|| path.strip_prefix('$').filter(|text| text.starts_with('[')))
 }
 
 // Spark 4.2: quoted keys retain backslashes.
@@ -62,16 +77,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rooted_and_legacy_paths() {
+    fn valid_paths() {
         for (text, expected) in [
             ("$", vec![]),
-            ("", vec![]),
             (
                 "$.a[0]",
-                vec![VariantPathElement::field("a"), VariantPathElement::index(0)],
-            ),
-            (
-                "a[0]",
                 vec![VariantPathElement::field("a"), VariantPathElement::index(0)],
             ),
             ("$['$']", vec![VariantPathElement::field("$")]),
@@ -91,15 +101,15 @@ mod tests {
 
     #[test]
     fn root_policy() {
-        for text in ["$", ""] {
-            assert!(parse_variant_path(text, false).is_err(), "{text:?}");
-        }
+        assert!(parse_variant_path("$", false).is_err());
         assert!(parse_variant_path("$.a", false).is_ok());
     }
 
     #[test]
-    fn malformed_rooted_paths_do_not_fall_back() {
+    fn invalid_paths() {
         for text in [
+            "",
+            "a",
             "$bad",
             "$.",
             "$[",
@@ -113,5 +123,14 @@ mod tests {
         ] {
             assert!(parse_variant_path(text, true).is_err(), "{text}");
         }
+    }
+
+    #[test]
+    fn colon_paths_round_trip() {
+        for (text, path) in [("a.b[0]", "$.a.b[0]"), ("['a.b']", "$['a.b']")] {
+            assert_eq!(colon_path(text), path);
+            assert_eq!(colon_text(path), Some(text));
+        }
+        assert_eq!(colon_text("$"), None);
     }
 }

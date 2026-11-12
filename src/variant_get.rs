@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, StringViewArray},
+    array::{Array, ArrayRef, StringViewArray, new_null_array},
     compute::{CastOptions, concat},
 };
 use arrow_schema::{DataType, Field, FieldRef, Fields};
@@ -28,7 +28,7 @@ use crate::shared::{
     try_parse_string_scalar,
 };
 use crate::sql_type::SqlTypeConfig;
-use crate::variant_path::parse_variant_path;
+use crate::variant_path::{colon_text, parse_variant_path};
 use crate::variant_type::validate_getter_target;
 
 fn type_hint_from_scalar(
@@ -91,12 +91,14 @@ fn invoke_variant_get(
     // Request the planned Variant output explicitly too, so Arrow can produce
     // its canonical storage schema instead of retaining shredded child types.
     let type_field = Some(Arc::clone(&args.return_field));
+    // A SQL NULL path returns SQL NULL, as in Spark.
+    let null_rows = |len| new_null_array(args.return_field.data_type(), len);
 
     let out = match (variant_arg, variant_path) {
         (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {
-            let variant_path = try_parse_string_scalar(variant_path)?
-                .map(|s| s.as_str())
-                .unwrap_or_default();
+            let Some(variant_path) = try_parse_string_scalar(variant_path)? else {
+                return Ok(ColumnarValue::Array(null_rows(variant_array.len())));
+            };
 
             let res = variant_get(
                 variant_array,
@@ -116,9 +118,11 @@ fn invoke_variant_get(
 
             let variant_array = Arc::clone(variant_array) as ArrayRef;
 
-            let variant_path = try_parse_string_scalar(variant_path)?
-                .map(|s| s.as_str())
-                .unwrap_or_default();
+            let Some(variant_path) = try_parse_string_scalar(variant_path)? else {
+                return Ok(ColumnarValue::Scalar(ScalarValue::try_new_null(
+                    args.return_field.data_type(),
+                )?));
+            };
 
             let res = variant_get(
                 &variant_array,
@@ -147,16 +151,16 @@ fn invoke_variant_get(
             let mut out = Vec::with_capacity(variant_array.len());
 
             for (i, path) in variant_paths.iter().enumerate() {
+                let Some(path) = path else {
+                    out.push(null_rows(1));
+                    continue;
+                };
                 // Preserve SQL validity and shredded storage when selecting a row.
                 let arr = variant_array.slice(i, 1);
 
                 let res = variant_get(
                     &arr,
-                    build_get_options(
-                        parse_variant_path(path.unwrap_or_default(), true)?,
-                        &type_field,
-                        &cast_options,
-                    ),
+                    build_get_options(parse_variant_path(path, true)?, &type_field, &cast_options),
                 )?;
 
                 out.push(res);
@@ -181,7 +185,10 @@ fn invoke_variant_get(
             let mut out = Vec::with_capacity(variant_paths.len());
 
             for path in variant_paths {
-                let path = path.unwrap_or_default();
+                let Some(path) = path else {
+                    out.push(null_rows(1));
+                    continue;
+                };
                 let res = variant_get(
                     &variant_array,
                     build_get_options(parse_variant_path(path, true)?, &type_field, &cast_options),
@@ -243,7 +250,7 @@ impl_variant_get_typed!(
 #[user_doc(
     doc_section(label = "Variant Functions"),
     description = "Extracts the value at a path and optionally converts it to a SQL type.
-Without a type hint, returns Variant. SQL NULL input and missing paths return SQL NULL.
+Without a type hint, returns Variant. SQL NULL input, a SQL NULL path, and missing paths return SQL NULL.
 Variant null remains a Variant null for Variant output and becomes SQL NULL for typed output.
 Invalid paths, invalid type hints, and failed conversions raise errors.
 
@@ -262,27 +269,27 @@ type hint or cast target to retain a Variant result.",
     alternative_syntax = "value:field",
     alternative_syntax = "value:field::type",
     sql_example = r#"```sql
-> SELECT variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
+> SELECT variant_get(parse_json('{"a":1}'), '$.a', 'BIGINT') AS value;
 +-------+
 | value |
 +-------+
 | 1     |
 +-------+
-> SELECT variant_get(parse_json('{"a":1}'), 'b', 'BIGINT') IS NULL AS missing;
+> SELECT variant_get(parse_json('{"a":1}'), '$.b', 'BIGINT') IS NULL AS missing;
 +---------+
 | missing |
 +---------+
 | true    |
 +---------+
-> SELECT to_json(variant_get(parse_json('[1,"hello"]'), '[1]')) AS json;
+> SELECT to_json(variant_get(parse_json('[1,"hello"]'), '$[1]')) AS json;
 +---------+
 | json    |
 +---------+
 | "hello" |
 +---------+
 > WITH input AS (SELECT parse_json('{"price":12.5}') AS v)
-  SELECT variant_get(v, 'price', 'DECIMAL(12,2)') AS type_hint,
-         CAST(variant_get(v, 'price') AS DECIMAL(12,2)) AS sql_cast,
+  SELECT variant_get(v, '$.price', 'DECIMAL(12,2)') AS type_hint,
+         CAST(variant_get(v, '$.price') AS DECIMAL(12,2)) AS sql_cast,
          v:price::DECIMAL(12,2) AS colon_cast
   FROM input;
 +-----------+----------+------------+
@@ -294,7 +301,7 @@ type hint or cast target to retain a Variant result.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = "String expression such as `$.a.b[0]`. SQL NULL selects the root. See [Variant paths](paths.md)."
+        description = "String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md)."
     ),
     argument(
         name = "type",
@@ -355,9 +362,9 @@ impl ScalarUDFImpl for VariantGetUdf {
     fn schema_name(&self, args: &[Expr]) -> Result<String> {
         if let [base, Expr::Literal(path, _)] = args
             && let Some(Some(path)) = path.try_as_str()
-            && !path.is_empty()
+            && let Some(text) = colon_text(path)
         {
-            return Ok(format!("{}:{path}", base.schema_name()));
+            return Ok(format!("{}:{text}", base.schema_name()));
         }
         // DataFusion's default name, whose helper is crate-private.
         let args: Vec<_> = args.iter().map(|e| e.schema_name().to_string()).collect();
@@ -421,21 +428,21 @@ getter or colon access uses the same conversion policy as `try_variant_get`.",
     alternative_syntax = "TRY_CAST(variant_get(value, path) AS type)",
     alternative_syntax = "TRY_CAST(value:field AS type)",
     sql_example = r#"```sql
-> SELECT try_variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
+> SELECT try_variant_get(parse_json('{"a":1}'), '$.a', 'BIGINT') AS value;
 +-------+
 | value |
 +-------+
 | 1     |
 +-------+
-> SELECT try_variant_get(parse_json('[1,"hello"]'), '[1]', 'BIGINT') IS NULL AS failed_cast;
+> SELECT try_variant_get(parse_json('[1,"hello"]'), '$[1]', 'BIGINT') IS NULL AS failed_cast;
 +-------------+
 | failed_cast |
 +-------------+
 | true        |
 +-------------+
 > WITH input AS (SELECT parse_json('{"price":"invalid"}') AS v)
-  SELECT try_variant_get(v, 'price', 'DECIMAL(12,2)') IS NULL AS type_hint,
-         TRY_CAST(variant_get(v, 'price') AS DECIMAL(12,2)) IS NULL AS sql_cast,
+  SELECT try_variant_get(v, '$.price', 'DECIMAL(12,2)') IS NULL AS type_hint,
+         TRY_CAST(variant_get(v, '$.price') AS DECIMAL(12,2)) IS NULL AS sql_cast,
          TRY_CAST(v:price AS DECIMAL(12,2)) IS NULL AS colon_cast
   FROM input;
 +-----------+----------+------------+
@@ -617,7 +624,7 @@ mod tests {
 
         let args = build_scalar_function_args(
             ColumnarValue::Scalar(variant_input),
-            "name",
+            "$.name",
             arg_fields,
             return_field,
             None,
@@ -673,7 +680,7 @@ mod tests {
 
         let args = build_scalar_function_args(
             ColumnarValue::Scalar(variant_input),
-            "age",
+            "$.age",
             arg_fields,
             return_field,
             Some(type_hint),
@@ -704,7 +711,7 @@ mod tests {
 
         let args = build_scalar_function_args(
             ColumnarValue::Array(variant_array),
-            "age",
+            "$.age",
             arg_fields,
             return_field,
             Some(type_hint),

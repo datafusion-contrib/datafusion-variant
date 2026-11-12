@@ -299,7 +299,7 @@ mod tests {
                 register_variant_conversion_functions(&mut ctx)?;
             }
             let batches = ctx.sql(
-                "SELECT CAST(CAST(variant_get(parse_json('{\"a\":7}'), 'a') AS VARIANT) AS INT),
+                "SELECT CAST(CAST(variant_get(parse_json('{\"a\":7}'), '$.a') AS VARIANT) AS INT),
                         CAST(CAST(7 AS VARIANT) AS INT)"
             ).await?.collect().await?;
             for column in batches[0].columns() {
