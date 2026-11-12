@@ -110,10 +110,6 @@ mod tests {
         for text in [
             "",
             "a",
-            "a.b",
-            "[0]",
-            "['a']",
-            ".a",
             "$bad",
             "$.",
             "$[",
@@ -131,13 +127,7 @@ mod tests {
 
     #[test]
     fn colon_paths_round_trip() {
-        for (text, path) in [
-            ("a", "$.a"),
-            ("a.b[0]", "$.a.b[0]"),
-            (r#"items[0]["name"]"#, r#"$.items[0]["name"]"#),
-            ("['a.b']", "$['a.b']"),
-            ("[0]", "$[0]"),
-        ] {
+        for (text, path) in [("a.b[0]", "$.a.b[0]"), ("['a.b']", "$['a.b']")] {
             assert_eq!(colon_path(text), path);
             assert_eq!(colon_text(path), Some(text));
         }

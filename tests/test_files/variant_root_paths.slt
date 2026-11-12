@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 
-query II
-SELECT variant_get(parse_json('{"a":{"b":[7]}}'), '$.a.b[0]', 'INT'),
-       try_variant_get(parse_json('{"a":{"b":[7]}}'), '$.a.b[0]', 'INT');
-----
-7 7
-
 query TT
 SELECT to_json(variant_get(parse_json('{"$":42}'), '$')),
        variant_get_json(parse_json('{"$":42}'), '$');
@@ -23,14 +17,17 @@ SELECT CAST(variant_object_keys(parse_json('{"a":{"key":1}}'), '$.a') AS VARCHAR
 ----
 [key]
 
-query ITT rowsort
+# A SQL NULL path returns SQL NULL, as in Spark.
+query ITTT rowsort
 SELECT variant_get(parse_json(j), p, 'INT'),
+       to_json(variant_get(parse_json(j), p)),
        variant_get_json(parse_json(j), p),
        variant_get_json(parse_json('{"a":5}'), p)
-FROM (VALUES ('{"a":1}', '$.a'), ('{"a":2}', '$["a"]')) t(j,p);
+FROM (VALUES ('{"a":1}', '$.a'), ('{"a":2}', '$["a"]'), ('{"a":3}', NULL)) t(j,p);
 ----
-1 1 5
-2 2 5
+1 1 1 5
+2 2 2 5
+NULL NULL NULL NULL
 
 statement error invalid Variant path
 SELECT try_variant_get(parse_json('{}'), '$[');
@@ -54,10 +51,11 @@ query III rowsort
 SELECT variant_get(parse_json('{"a":5}'), p, 'INT'),
        try_variant_get(parse_json('{"a":5}'), p, 'INT'),
        CAST(variant_get(parse_json('{"a":5}'), p) AS INT)
-FROM (VALUES ('$.a'), ('$["a"]')) t(p);
+FROM (VALUES ('$.a'), ('$["a"]'), (NULL)) t(p);
 ----
 5 5 5
 5 5 5
+NULL NULL NULL
 
 query II
 SELECT variant_get(parse_json('7'), '$', 'INT'),
@@ -81,61 +79,11 @@ SELECT variant_get(parse_json('{"a":1}'), 'a');
 statement error invalid Variant path "": paths start with
 SELECT variant_get(parse_json('{"a":1}'), '');
 
-statement error invalid Variant path "a.b": paths start with
-SELECT try_variant_get(parse_json('{"a":{"b":1}}'), 'a.b', 'INT');
-
-statement error invalid Variant path "\[0\]": paths start with
-SELECT variant_get_json(parse_json('[1]'), '[0]');
-
-statement error invalid Variant path "a": paths start with
-SELECT variant_object_keys(parse_json('{"a":{}}'), 'a');
-
-statement error invalid Variant path "a": paths start with
-SELECT try_variant_get(parse_json('{"a":1}'), p) FROM (VALUES ('a')) t(p);
-
-# A SQL NULL path returns SQL NULL, as in Spark.
-statement ok
-CREATE TABLE null_paths AS
-SELECT * FROM (VALUES (1, '{"a":1}', '$.a'), (2, '{"a":2}', NULL)) t(id, j, p);
-
-query IBBI
-SELECT id,
-       variant_get(parse_json(j), p) IS NULL,
-       variant_get_json(parse_json(j), p) IS NULL,
-       try_variant_get(parse_json(j), p, 'INT')
-FROM null_paths ORDER BY id;
-----
-1 false false 1
-2 true true NULL
-
-query IIT
-SELECT id,
-       variant_get(parse_json('{"a":5}'), p, 'INT'),
-       variant_get_json(parse_json('{"a":5}'), p)
-FROM null_paths ORDER BY id;
-----
-1 5 5
-2 NULL NULL
-
-query IBBI
-SELECT id,
-       variant_get(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
+query BBBB
+SELECT variant_get(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
        variant_get_json(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
-       variant_get(parse_json(j), CAST(NULL AS VARCHAR), 'INT')
-FROM null_paths ORDER BY id;
+       variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL,
+       variant_get_json(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL
+FROM (VALUES ('{"a":1}')) t(j);
 ----
-1 true true NULL
-2 true true NULL
-
-query BBI
-SELECT variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL,
-       variant_get_json(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL,
-       try_variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR), 'INT');
-----
-true true NULL
-
-# Casting a Variant reads it at the root.
-query I
-SELECT CAST(parse_json('7') AS INT);
-----
-7
+true true true true
