@@ -13,6 +13,9 @@ use datafusion::{
     logical_expr::{
         ColumnarValue, Expr, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl,
         Signature, TypeSignature, Volatility,
+        expr::ScalarFunction,
+        lit,
+        simplify::{ExprSimplifyResult, SimplifyContext},
     },
     scalar::ScalarValue,
 };
@@ -28,7 +31,7 @@ use crate::shared::{
     try_parse_string_scalar,
 };
 use crate::sql_type::SqlTypeConfig;
-use crate::variant_path::parse_variant_path;
+use crate::variant_path::{concat_variant_paths, parse_variant_path};
 use crate::variant_type::validate_getter_target;
 
 fn type_hint_from_scalar(
@@ -220,6 +223,58 @@ fn return_field_for_variant_get(
     ))
 }
 
+/// A literal path argument; a SQL NULL path selects the root, as at execution.
+fn literal_path(expr: &Expr) -> Option<&str> {
+    let Expr::Literal(value, _) = expr else {
+        return None;
+    };
+    Some(value.try_as_str()?.unwrap_or_default())
+}
+
+/// Collapse a getter whose input is an untyped getter into one getter over the
+/// combined path, when both paths are literals:
+///
+/// ```text
+/// variant_get(variant_get(v, 'a'), 'b')  =>  variant_get(v, '$.a.b')
+/// ```
+///
+/// This is what chained `:` access such as `v:a:b[0]` plans to. A single
+/// getter can read shredded columns directly, whereas the nested form has to
+/// rebuild the intermediate Variant for every row first.
+///
+/// `getter` is the outer function; its type hint, if any, is retained.
+fn collapse_nested_getters(getter: ScalarUDF, mut args: Vec<Expr>) -> ExprSimplifyResult {
+    let combined = (|| {
+        let Expr::ScalarFunction(ScalarFunction { func, args: inner }) = args.first()? else {
+            return None;
+        };
+        // An untyped getter never converts, so `variant_get` and `try_variant_get` agree.
+        let is_untyped = func
+            .inner()
+            .downcast_ref::<VariantGetUdf>()
+            .is_some_and(VariantGetUdf::is_untyped)
+            || func
+                .inner()
+                .downcast_ref::<TryVariantGetUdf>()
+                .is_some_and(TryVariantGetUdf::is_untyped);
+        let [input, inner_path] = inner.as_slice() else {
+            return None;
+        };
+        if !is_untyped {
+            return None;
+        }
+        let path = concat_variant_paths(literal_path(inner_path)?, literal_path(args.get(1)?)?)?;
+        Some((input.clone(), path))
+    })();
+
+    let Some((input, path)) = combined else {
+        return ExprSimplifyResult::Original(args);
+    };
+    args[0] = input;
+    args[1] = lit(path);
+    ExprSimplifyResult::Simplified(getter.call(args))
+}
+
 impl_variant_get_typed!(
     /// Extracts a value as JSON, including quotes around string values.
     VariantGetJsonUdf,
@@ -303,7 +358,7 @@ type hint or cast target to retain a Variant result.",
     related_udf(name = "try_variant_get"),
     related_udf(name = "is_variant_null")
 )]
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
     config: SqlTypeConfig,
@@ -388,6 +443,11 @@ impl ScalarUDFImpl for VariantGetUdf {
         return_field_for_variant_get(self.name(), args, &self.config)
     }
 
+    fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
+        let getter = ScalarUDF::new_from_impl(self.clone());
+        Ok(collapse_nested_getters(getter, args))
+    }
+
     fn invoke_with_args(
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
@@ -456,7 +516,7 @@ getter or colon access uses the same conversion policy as `try_variant_get`.",
     related_udf(name = "variant_get"),
     related_udf(name = "is_variant_null")
 )]
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TryVariantGetUdf {
     signature: Signature,
     config: SqlTypeConfig,
@@ -526,6 +586,11 @@ impl ScalarUDFImpl for TryVariantGetUdf {
             return Ok(Arc::clone(target));
         }
         return_field_for_variant_get(self.name(), args, &self.config)
+    }
+
+    fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
+        let getter = ScalarUDF::new_from_impl(self.clone());
+        Ok(collapse_nested_getters(getter, args))
     }
 
     fn invoke_with_args(

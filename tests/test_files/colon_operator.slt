@@ -93,3 +93,86 @@ DESCRIBE SELECT parse_json(a.json_str):name, parse_json(b.json_str):name FROM js
 ----
 parse_json(a.json_str):name Variant YES
 parse_json(b.json_str):name Variant YES
+
+# Chained `:` access is collapsed into a single getter over the combined path,
+# so that shredded fields are read directly (#176).
+statement ok
+CREATE TABLE nested AS SELECT parse_json(column1) AS v FROM VALUES
+  ('{"a": {"b": {"c": [1, {"d": 5}]}}, "x.y": {"z": 1}}'),
+  ('{"a": {"b": null}}'),
+  ('{"a": 7}'),
+  (NULL);
+
+query TT
+EXPLAIN SELECT v:a:b, v:a:b:c[1]:d, v:a.b:c[1]['d'], v:['x.y']:z, v:a:b:c[1]:d::INT AS d_int FROM nested;
+----
+logical_plan
+01)Projection: variant_get(nested.v, Utf8("$.a.b")) AS nested.v:a:b, __common_expr_1 AS nested.v:a:b:c[1]:d, __common_expr_1 AS nested.v:a.b:c[1]['d'], variant_get(nested.v, Utf8("$['x.y'].z")) AS nested.v:['x.y']:z, variant_get(nested.v, Utf8("$.a.b.c[1].d")) AS d_int
+02)--Projection: variant_get(nested.v, Utf8("$.a.b.c[1].d")) AS __common_expr_1, nested.v
+03)----TableScan: nested projection=[v]
+physical_plan
+01)ProjectionExec: expr=[variant_get(v@1, $.a.b) as nested.v:a:b, __common_expr_1@0 as nested.v:a:b:c[1]:d, __common_expr_1@0 as nested.v:a.b:c[1]['d'], variant_get(v@1, $['x.y'].z) as nested.v:['x.y']:z, variant_get(v@1, $.a.b.c[1].d) as d_int]
+02)--ProjectionExec: expr=[variant_get(v@0, $.a.b.c[1].d) as __common_expr_1, v@0 as v]
+03)----DataSourceExec: partitions=1, partition_sizes=[1]
+
+query ????I
+SELECT v:a:b, v:a:b:c[1]:d, v:a.b:c[1]['d'], v:['x.y']:z, v:a:b:c[1]:d::INT AS d_int FROM nested;
+----
+{"c":[1,{"d":5}]} 5 5 1 5
+null NULL NULL NULL NULL
+NULL NULL NULL NULL NULL
+NULL NULL NULL NULL NULL
+
+# Explicit nested getters collapse too, and the outer type hint is retained.
+query TT
+EXPLAIN SELECT variant_get(variant_get(v, '$.a'), '$.b'),
+       try_variant_get(variant_get(v, 'a'), 'b.c[0]', 'INT'),
+       variant_get(variant_get(v, ''), 'a')
+FROM nested;
+----
+logical_plan
+01)Projection: variant_get(nested.v, Utf8("$.a.b")) AS nested.v:$.a:$.b, try_variant_get(nested.v, Utf8("$.a.b.c[0]"), Utf8("INT")) AS try_variant_get(nested.v:a,Utf8("b.c[0]"),Utf8("INT")), variant_get(nested.v, Utf8("$.a")) AS variant_get(nested.v,Utf8("")):a
+02)--TableScan: nested projection=[v]
+physical_plan
+01)ProjectionExec: expr=[variant_get(v@0, $.a.b) as nested.v:$.a:$.b, try_variant_get(v@0, $.a.b.c[0], INT) as try_variant_get(nested.v:a,Utf8("b.c[0]"),Utf8("INT")), variant_get(v@0, $.a) as variant_get(nested.v,Utf8("")):a]
+02)--DataSourceExec: partitions=1, partition_sizes=[1]
+
+query ?I?
+SELECT variant_get(variant_get(v, '$.a'), '$.b'),
+       try_variant_get(variant_get(v, 'a'), 'b.c[0]', 'INT'),
+       variant_get(variant_get(v, ''), 'a')
+FROM nested;
+----
+{"c":[1,{"d":5}]} 1 {"b":{"c":[1,{"d":5}]}}
+null NULL {"b":null}
+NULL NULL 7
+NULL NULL NULL
+
+# A typed inner getter is a conversion, not a path step, and is kept.
+query TT
+EXPLAIN SELECT variant_get(variant_get(v, 'a', 'VARIANT'), 'b') FROM nested;
+----
+logical_plan
+01)Projection: variant_get(variant_get(nested.v, Utf8("a"), Utf8("VARIANT")), Utf8("b"))
+02)--TableScan: nested projection=[v]
+physical_plan
+01)ProjectionExec: expr=[variant_get(variant_get(v@0, a, VARIANT), b) as variant_get(nested.v,Utf8("a"),Utf8("VARIANT")):b]
+02)--DataSourceExec: partitions=1, partition_sizes=[1]
+
+# Non-literal paths are kept.
+query TT
+EXPLAIN SELECT variant_get(variant_get(v, 'a'), p) FROM nested, (SELECT 'b' AS p);
+----
+logical_plan
+01)Projection: variant_get(variant_get(nested.v, Utf8("a")), p)
+02)--Cross Join:
+03)----TableScan: nested projection=[v]
+04)----Projection: Utf8("b") AS p
+05)------EmptyRelation: rows=1
+physical_plan
+01)ProjectionExec: expr=[variant_get(variant_get(v@0, a), b) as variant_get(nested.v:a,p)]
+02)--DataSourceExec: partitions=1, partition_sizes=[1]
+
+# Invalid paths are still reported.
+query error invalid Variant path
+SELECT variant_get(variant_get(v, 'a'), '$bad') FROM nested;
