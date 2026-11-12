@@ -25,7 +25,6 @@ futures = { workspace = true }
 
 [dev-dependencies]
 datafusion-cli = { workspace = true }
-clap = { workspace = true }
 parquet = { workspace = true }
 tempfile = { workspace = true }
 criterion = { version = "0.8", default-features = false }
