@@ -454,7 +454,7 @@ getter or colon access uses the same conversion policy as `try_variant_get`.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = "String expression such as `$.a.b[0]`. See [Variant paths](paths.md)."
+        description = "String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md)."
     ),
     argument(
         name = "type",
