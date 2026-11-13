@@ -2,7 +2,7 @@
 
 `variant_get`, `try_variant_get`, `variant_delete`, and the `:` operator use a
 path to select a value inside a Variant. Paths follow the Spark 4.2 syntax, a
-small subset of JSONPath.
+small subset of [JSONPath](https://www.rfc-editor.org/rfc/rfc9535.html).
 
 The examples on this page use this table:
 
@@ -146,8 +146,9 @@ FROM (SELECT parse_json('{"a]b":1,"$":2,"a\\b":3,"it''s":4}') AS v);
 ```
 -->
 
-Every character between the quotes is part of the name, including `]`, `$`, and
-`\`. To select a name that contains `'`, quote it with `"`, and the reverse.
+Every character between the quotes is part of the name, including `]` and `$`.
+Unlike JSONPath, `\` is not an escape character, so `$["a\b"]` selects the field
+`a\b`. To select a name that contains `'`, quote it with `"`, and the reverse.
 
 ## The `:` operator
 
@@ -169,6 +170,44 @@ FROM requests;
 | admin      | 200    | curl  |
 +------------+--------+-------+
 ```
+
+Write `:` once, at the start of the path, and continue it with `.` and `[...]`:
+
+| Expression              | Reads                                      |
+|-------------------------|--------------------------------------------|
+| `request:user.roles[0]` | `$.user.roles[0]`                          |
+| `request:user:roles[0]` | `$.user`, then `$.roles[0]` of that result |
+| `request.user`          | The struct field `user` (an error)         |
+
+<!--
+```sql
+SELECT request:user.roles[0]::VARCHAR AS one_path,
+       request:user:roles[0]::VARCHAR AS chained
+FROM requests;
+```
+
+```text
++----------+---------+
+| one_path | chained |
++----------+---------+
+| admin    | admin   |
++----------+---------+
+```
+-->
+
+<!-- readme-test: error: Field user not found in struct -->
+<!--
+```sql
+SELECT request.user FROM requests;
+```
+-->
+
+The chained form returns the same value, but it extracts the whole `user` object
+before reading `roles[0]`, which is slower, especially for shredded columns
+([#176](https://github.com/datafusion-contrib/datafusion-variant/issues/176)).
+Without `:`, `.` is DataFusion's struct field access. Variant columns are stored
+as Arrow structs with no `user` field, so `request.user` fails with
+`Field user not found in struct`.
 
 <!-- readme-test: error: No field named agent -->
 <!--
