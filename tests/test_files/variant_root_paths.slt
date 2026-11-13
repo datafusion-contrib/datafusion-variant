@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-query TT
-SELECT to_json(variant_get(parse_json('{"$":42}'), '$')),
-       variant_get_json(parse_json('{"$":42}'), '$');
+query T
+SELECT to_json(variant_get(parse_json('{"$":42}'), '$'));
 ----
-{"$":42} {"$":42}
+{"$":42}
 
 query II
 SELECT variant_get(parse_json('{"$":42,"a.b":8}'), '$["$"]', 'INT'),
@@ -18,33 +17,27 @@ SELECT CAST(variant_object_keys(parse_json('{"a":{"key":1}}'), '$.a') AS VARCHAR
 [key]
 
 # A SQL NULL path returns SQL NULL, as in Spark.
-query ITTT rowsort
+query ITT rowsort
 SELECT variant_get(parse_json(j), p, 'INT'),
        to_json(variant_get(parse_json(j), p)),
-       variant_get_json(parse_json(j), p),
-       variant_get_json(parse_json('{"a":5}'), p)
+       to_json(variant_get(parse_json('{"a":5}'), p))
 FROM (VALUES ('{"a":1}', '$.a'), ('{"a":2}', '$["a"]'), ('{"a":3}', NULL)) t(j,p);
 ----
-1 1 1 5
-2 2 2 5
-NULL NULL NULL NULL
+1 1 5
+2 2 5
+NULL NULL NULL
 
 statement error invalid Variant path
 SELECT try_variant_get(parse_json('{}'), '$[');
 
 statement error invalid Variant path
-SELECT variant_get_json(parse_json('{}'), '$..a');
-
-statement error invalid Variant path
 SELECT variant_object_keys(parse_json('{}'), '$bad');
 
 # Literal field names are not interpreted as root markers, including in SQL access.
-query ITT
-SELECT parse_json('{"$":42}'):['$']::INT,
-       variant_get_json(parse_json('{"$":42}'), ['$']),
-       variant_get_json(parse_json('{"$":42}'), '$["$"]');
+query I
+SELECT parse_json('{"$":42}'):['$']::INT;
 ----
-42 42 42
+42
 
 # A scalar Variant broadcast over dynamic paths exercises both getter policies.
 query III rowsort
@@ -79,11 +72,9 @@ SELECT variant_get(parse_json('{"a":1}'), 'a');
 statement error invalid Variant path "": paths start with
 SELECT variant_get(parse_json('{"a":1}'), '');
 
-query BBBB
+query BB
 SELECT variant_get(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
-       variant_get_json(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
-       variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL,
-       variant_get_json(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL
+       variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL
 FROM (VALUES ('{"a":1}')) t(j);
 ----
-true true true true
+true true

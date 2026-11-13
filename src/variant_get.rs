@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, StringViewArray, new_null_array},
+    array::{Array, ArrayRef, new_null_array},
     compute::{CastOptions, concat},
 };
 use arrow_schema::{DataType, Field, FieldRef, Fields};
@@ -21,14 +21,11 @@ use datafusion::{
 };
 use datafusion_doc::Documentation;
 use datafusion_macros::user_doc;
-use parquet_variant::{Variant, VariantPath};
+use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantType, variant_get};
-use parquet_variant_json::VariantToJson;
 
-use crate::impl_variant_get::impl_variant_get_typed;
 use crate::shared::{
-    invoke_variant_get_typed, try_field_as_variant_array, try_parse_string_columnar,
-    try_parse_string_scalar,
+    try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
 };
 use crate::sql_type::SqlTypeConfig;
 use crate::variant_path::{colon_text, concat_variant_paths, parse_variant_path};
@@ -318,21 +315,6 @@ where
     let getter = ScalarUDF::new_from_impl(getter.clone());
     Ok(ExprSimplifyResult::Simplified(getter.call(args.data)))
 }
-
-impl_variant_get_typed!(
-    /// Extracts a value as JSON, including quotes around string values.
-    VariantGetJsonUdf,
-    "variant_get_json",
-    DataType::Utf8View,
-    |args| invoke_variant_get_typed(
-        args,
-        ScalarValue::Utf8View,
-        |values: Vec<Option<String>>| -> ArrayRef {
-            Arc::new(values.into_iter().collect::<StringViewArray>())
-        },
-        |value: Variant<'_, '_>| -> Result<Option<String>> { Ok(Some(value.to_json_string()?)) }
-    ),
-);
 
 /// Extracts a Variant value, returning an error for failed result-type conversions.
 ///
@@ -836,6 +818,7 @@ mod tests {
 mod empty_paths_regression {
     use super::*;
     use crate::shared::build_variant_array_from_json;
+    use arrow::array::StringViewArray;
 
     fn check(scalar_input: bool, try_get: bool) {
         let sample = build_variant_array_from_json(&serde_json::json!({"a": 1}));
