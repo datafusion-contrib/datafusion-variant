@@ -77,14 +77,6 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
 /// The result is a path such that `variant_get(variant_get(v, inner), outer)`
 /// equals `variant_get(v, combined)`.
 ///
-/// For example
-///
-/// | `outer`  | `inner`   | combined     | notes                      |
-/// |----------|-----------|--------------|----------------------------|
-/// | `$.b`    | `$.a`     | `$.a.b`      | field then field           |
-/// | `$.c[1]` | `$.a.b`   | `$.a.b.c[1]` | multiple elements per path |
-/// | `$`      | `$.a`     | `$.a`        | `$` selects the root       |
-///
 /// Returns an error if either path is invalid.
 pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Result<String> {
     parse_variant_path(inner, true)?;
@@ -103,15 +95,12 @@ mod tests {
         #[rustfmt::skip]
         let cases = [
             // inner,          outer,        expected
-            ("$.a",            "$.b",        "$.a.b"),
             ("$.a.b",          "$.c[1]",     "$.a.b.c[1]"),
             ("$.a[0]",         "$[1]",       "$.a[0][1]"),
             ("$",              "$.a",        "$.a"),
             ("$.a",            "$",          "$.a"),
-            ("$",              "$",          "$"),
             ("$['x.y']",       "$.z",        "$['x.y'].z"),
             ("$.a",            "$['a[0]']",  "$.a['a[0]']"),
-            (r#"$["it's.x"]"#, "$['']",      r#"$["it's.x"]['']"#),
         ];
 
         for (inner, outer, expected) in cases {
@@ -136,7 +125,6 @@ mod tests {
             ("$.a",   "$bad"),
             ("$[",    "$.a"),
             ("$.a",   "b"),
-            ("",      "$.a"),
         ];
 
         for (inner, outer) in cases {

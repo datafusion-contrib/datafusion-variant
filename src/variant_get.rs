@@ -436,8 +436,8 @@ impl ScalarUDFImpl for VariantGetUdf {
 
     // Name columns after the `:` syntax, as `get_field` names `s[a]`.
     fn schema_name(&self, args: &[Expr]) -> Result<String> {
-        if let [base, Expr::Literal(path, _)] = args
-            && let Some(Some(path)) = path.try_as_str()
+        if let [base, path] = args
+            && let Some(path) = literal_path(path)
             && let Some(text) = colon_text(path)
         {
             return Ok(format!("{}:{text}", base.schema_name()));

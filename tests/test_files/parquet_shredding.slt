@@ -135,38 +135,27 @@ Event.typed_value.extra.typed_value.list.item.typed_value INT64
 Event.typed_value.status.typed_value BYTE_ARRAY
 metric.typed_value BYTE_ARRAY
 
-# Chained `:` access is planned as a single getter, so it reads the shredded
-# columns like the dotted path does (efficiently).
-statement ok
-SET datafusion.explain.logical_plan_only = true;
-
-# expect to see a single variant_get call
-query TT
-EXPLAIN SELECT "Event":detail:latency FROM saved;
+# Chained `:` access reads shredded columns through a single getter (#176).
+# A missing object field or list element reads as Variant null where the
+# unshredded copy returns SQL NULL (row 1):
+# https://github.com/apache/arrow-rs/issues/11191
+# https://github.com/apache/arrow-rs/issues/11050
+query I
+COPY (SELECT column1 AS id, parse_json(column2) AS v, parse_json(column2) AS original
+      FROM (VALUES (0, '{"a":{"b":1},"l":[1,2]}'), (1, '{"a":{},"l":[3]}')))
+TO '$__TEST_DIR__/chained.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v":"STRUCT<a STRUCT<b BIGINT>, l BIGINT[]>"}');
 ----
-logical_plan
-01)Projection: variant_get(saved.Event, Utf8("$.detail.latency")) AS saved.Event:detail:latency
-02)--TableScan: saved projection=[Event]
+2
 
 statement ok
-RESET datafusion.explain.logical_plan_only;
+CREATE EXTERNAL TABLE chained STORED AS PARQUET LOCATION '$__TEST_DIR__/chained.parquet';
 
-query I???B??
-SELECT id,
-       "Event":detail:latency,
-       "Event":detail.latency,
-       original:detail:latency,
-       "Event":detail:latency::BIGINT = original:detail:latency::BIGINT,
-       "Event":tags:[1],
-       original:tags:[1]
-FROM saved ORDER BY id;
+query I????
+SELECT id, v:a:b, original:a:b, v:l:[1], original:l:[1] FROM chained ORDER BY id;
 ----
-0 12 12 12 true null null
-1 NULL NULL NULL NULL NULL NULL
-2 NULL NULL NULL NULL NULL NULL
-3 NULL NULL NULL NULL NULL NULL
-4 NULL NULL NULL NULL NULL NULL
-5 NULL NULL NULL NULL "b" "b"
+0 1 1 2 2
+1 null NULL null NULL
 
 # Constant object and SQL NULL inputs exercise optimizer folding while
 # retaining the Variant extension metadata and SQL NULL validity.
