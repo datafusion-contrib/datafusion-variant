@@ -74,3 +74,27 @@ futures = "0.3"
 mimalloc = "0.1.52"
 tempfile = "3"
 tokio = "1"
+
+# Temporarily pin arrow-rs to https://github.com/apache/arrow-rs/pull/11511
+# (header-only Variant views) to test its performance.
+[patch.crates-io]
+arrow = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-arith = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-array = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-avro = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-buffer = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-cast = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-cmp = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-csv = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-data = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-ipc = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-json = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-ord = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-row = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-schema = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-select = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+arrow-string = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+parquet = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+parquet-variant = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+parquet-variant-compute = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
+parquet-variant-json = { git = "https://github.com/pydantic/arrow-rs.git", rev = "bccfc40208cf5ea7b687a7f705211f4196a7b492" }
