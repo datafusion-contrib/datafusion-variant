@@ -1,12 +1,13 @@
 # datafusion-variant
 
-[![CI](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml)
-[![Docs](https://img.shields.io/badge/docs-datafusion--contrib.github.io-blue)][docs]
-[![API docs](https://docs.rs/datafusion-variant/badge.svg)][api-docs]
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)][license]
-
 <!-- The docs home page (docs/index.md) includes the text between these markers. -->
 <!-- docs-intro-start -->
+[![CI](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml)
+[![Crates.io](https://img.shields.io/crates/v/datafusion-variant.svg)](https://crates.io/crates/datafusion-variant)
+[![Docs](https://img.shields.io/badge/docs-datafusion--contrib.github.io-blue)](https://datafusion-contrib.github.io/datafusion-variant/)
+[![API docs](https://docs.rs/datafusion-variant/badge.svg)](https://docs.rs/datafusion-variant)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/datafusion-contrib/datafusion-variant/blob/main/LICENSE.txt)
+
 This crate provides a
 [Variant](https://parquet.apache.org/docs/file-format/types/variantencoding/)
 SQL type and functions for querying semi-structured data using
