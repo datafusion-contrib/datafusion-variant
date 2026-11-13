@@ -8,7 +8,15 @@ The examples on this page use this table:
 
 ```sql
 CREATE TABLE requests AS
-SELECT parse_json('{"service":"api","user":{"id":7,"roles":["admin","dev"]},"http.status":200,"user-agent":"curl"}') AS request;
+SELECT parse_json('{
+  "service": "api",
+  "user": {
+    "id": 7,
+    "roles": ["admin", "dev"]
+  },
+  "http.status": 200,
+  "user-agent": "curl"
+}') AS request;
 ```
 
 ## Syntax
@@ -25,46 +33,55 @@ steps:
 ```sql
 SELECT variant_get(request, '$.user.id', 'INT') AS id,
        variant_get(request, '$.user.roles[1]', 'VARCHAR') AS second_role,
-       variant_get(request, '$["http.status"]', 'INT') AS status
+       variant_get(request, '$["http.status"]', 'INT') AS status,
+       variant_get(request, '$.http.status', 'INT') AS nested_status
 FROM requests;
 ```
 
 ```text
-+----+-------------+--------+
-| id | second_role | status |
-+----+-------------+--------+
-| 7  | dev         | 200    |
-+----+-------------+--------+
++----+-------------+--------+---------------+
+| id | second_role | status | nested_status |
++----+-------------+--------+---------------+
+| 7  | dev         | 200    | NULL          |
++----+-------------+--------+---------------+
 ```
 
 <!--
 ```sql
 SELECT to_json(variant_get(request, '$')) = to_json(request) AS whole,
-       variant_get(request, '$.user.name') IS NULL AS missing_field,
-       variant_get(request, '$.user.roles[2]') IS NULL AS past_end,
-       variant_get(request, '$.user.roles.id') IS NULL AS field_of_array,
        variant_get(request, '$.User') IS NULL AS other_case,
-       variant_get(parse_json('{"*":1}'), '$.*', 'INT') AS star
-FROM requests;
+       variant_get(v, '$.*', 'INT') AS star,
+       variant_get(v, '$["a]b"]', 'INT') AS bracket,
+       variant_get(v, '$["$"]', 'INT') AS dollar,
+       variant_get(v, '$["a\b"]', 'INT') AS backslash,
+       variant_get(v, '$["it''s"]', 'INT') AS quote
+FROM requests, (SELECT parse_json('{"*":0,"a]b":1,"$":2,"a\\b":3,"it''s":4}') AS v);
 ```
 
 ```text
-+-------+---------------+----------+----------------+------------+------+
-| whole | missing_field | past_end | field_of_array | other_case | star |
-+-------+---------------+----------+----------------+------------+------+
-| true  | true          | true     | true           | true       | 1    |
-+-------+---------------+----------+----------------+------------+------+
++-------+------------+------+---------+--------+-----------+-------+
+| whole | other_case | star | bracket | dollar | backslash | quote |
++-------+------------+------+---------+--------+-----------+-------+
+| true  | true       | 0    | 1       | 2      | 3         | 4     |
++-------+------------+------+---------+--------+-----------+-------+
 ```
 -->
 
-Field names are case-sensitive, and `$.*` selects a field named `*`, not every
-field. A path that does not match the value, such as a missing field, an index
-past the end of an array, or a field step on an array, returns SQL NULL.
+`$.http.status` looks for a field `status` inside an object `http`, so quote a
+name that contains `.` or `[`. Unlike JSONPath, `\` inside quotes is not an
+escape character, so `$["a\b"]` selects the field `a\b`. Field names are
+case-sensitive.
+
+Paths have no wildcards, slices, filters, negative indexes, or recursive descent
+(`..`), and `$.*` selects a field named `*`.
+
+## NULLs and errors
 
 <!--
 ```sql
 SELECT p, variant_get(request, p, 'VARCHAR') AS value
-FROM requests, (VALUES ('$.service'), ('$.user.roles[0]'), (NULL)) AS paths(p)
+FROM requests,
+     (VALUES ('$.service'), ('$.user.name'), ('$.user.roles[2]'), ('$.user.roles.id'), (NULL)) AS paths(p)
 ORDER BY p;
 ```
 
@@ -73,14 +90,13 @@ ORDER BY p;
 | p               | value |
 +-----------------+-------+
 | $.service       | api   |
-| $.user.roles[0] | admin |
+| $.user.name     | NULL  |
+| $.user.roles.id | NULL  |
+| $.user.roles[2] | NULL  |
 | NULL            | NULL  |
 +-----------------+-------+
 ```
 -->
-
-The path is a string expression, so it can also come from a column. A SQL NULL
-path returns SQL NULL.
 
 <!-- readme-test: error: invalid Variant path -->
 <!--
@@ -93,11 +109,6 @@ SELECT variant_get(request, '$..id') FROM requests;
 ```
 -->
 
-A path that does not start with `$`, such as `user.id` or an empty string, is
-invalid. Paths have no wildcards, slices, filters, negative indexes, or
-recursive descent (`..`). An invalid path raises an error, even in
-`try_variant_get`.
-
 <!-- readme-test: error: variant_delete: invalid path -->
 <!--
 ```sql
@@ -105,50 +116,14 @@ SELECT variant_delete(request, '$') FROM requests;
 ```
 -->
 
-`variant_delete` also rejects `$` alone, because it deletes a field or an array
-element.
-
-## Field names with special characters
-
-Use a quoted step for a field name that contains `.` or `[`. `$.http.status`
-selects the field `status` inside an object `http`, while `$["http.status"]`
-selects the field named `http.status`:
-
-```sql
-SELECT variant_get(request, '$.http.status') IS NULL AS nested_missing,
-       variant_get(request, '$["http.status"]', 'INT') AS status
-FROM requests;
-```
-
-```text
-+----------------+--------+
-| nested_missing | status |
-+----------------+--------+
-| true           | 200    |
-+----------------+--------+
-```
-
-<!--
-```sql
-SELECT variant_get(v, '$["a]b"]', 'INT') AS bracket,
-       variant_get(v, '$["$"]', 'INT') AS dollar,
-       variant_get(v, '$["a\b"]', 'INT') AS backslash,
-       variant_get(v, '$["it''s"]', 'INT') AS quote
-FROM (SELECT parse_json('{"a]b":1,"$":2,"a\\b":3,"it''s":4}') AS v);
-```
-
-```text
-+---------+--------+-----------+-------+
-| bracket | dollar | backslash | quote |
-+---------+--------+-----------+-------+
-| 1       | 2      | 3         | 4     |
-+---------+--------+-----------+-------+
-```
--->
-
-Every character between the quotes is part of the name, including `]` and `$`.
-Unlike JSONPath, `\` is not an escape character, so `$["a\b"]` selects the field
-`a\b`. To select a name that contains `'`, quote it with `"`, and the reverse.
+- A path that does not match the value, such as a missing field, an index past
+  the end of an array, or a field step on an array, returns SQL NULL.
+- The path can be any string expression, such as a column. A SQL NULL path
+  returns SQL NULL.
+- A path that does not start with `$`, such as `user.id` or an empty string, is
+  invalid. An invalid path raises an error, even in `try_variant_get`.
+- `variant_delete` also rejects `$` alone, because it deletes a field or an
+  array element.
 
 ## The `:` operator
 
@@ -171,43 +146,29 @@ FROM requests;
 +------------+--------+-------+
 ```
 
-Write `:` once, at the start of the path, and continue it with `.` and `[...]`:
-
-| Expression              | Reads                                      |
-|-------------------------|--------------------------------------------|
-| `request:user.roles[0]` | `$.user.roles[0]`                          |
-| `request:user:roles[0]` | `$.user`, then `$.roles[0]` of that result |
-| `request.user`          | The struct field `user` (an error)         |
-
 <!--
 ```sql
 SELECT request:user.roles[0]::VARCHAR AS one_path,
-       request:user:roles[0]::VARCHAR AS chained
+       request:user:roles[0]::VARCHAR AS chained,
+       request:`user-agent` IS NULL AS backtick
 FROM requests;
 ```
 
 ```text
-+----------+---------+
-| one_path | chained |
-+----------+---------+
-| admin    | admin   |
-+----------+---------+
++----------+---------+----------+
+| one_path | chained | backtick |
++----------+---------+----------+
+| admin    | admin   | true     |
++----------+---------+----------+
 ```
 -->
 
 <!-- readme-test: error: Field user not found in struct -->
 <!--
 ```sql
-SELECT request.user FROM requests;
+SELECT request.user.roles[0] FROM requests;
 ```
 -->
-
-The chained form returns the same value, but it extracts the whole `user` object
-before reading `roles[0]`, which is slower, especially for shredded columns
-([#176](https://github.com/datafusion-contrib/datafusion-variant/issues/176)).
-Without `:`, `.` is DataFusion's struct field access. Variant columns are stored
-as Arrow structs with no `user` field, so `request.user` fails with
-`Field user not found in struct`.
 
 <!-- readme-test: error: No field named agent -->
 <!--
@@ -216,25 +177,14 @@ SELECT request:user-agent FROM requests;
 ```
 -->
 
-Quote a field name that is not a plain SQL identifier, such as `user-agent`.
-Without quotes, `request:user-agent` subtracts a column named `agent` from
-`request:user`.
+Write `:` once, and quote names that are not plain SQL identifiers:
 
-<!--
-```sql
-SELECT request:`user-agent` IS NULL AS backtick
-FROM requests;
-```
+| Write                    | Not                        | Because                                                                                                                       |
+|--------------------------|----------------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| `request:user.roles[0]`  | `request:user:roles[0]`    | Each `:` is a separate lookup, so this reads the whole `user` object first. Same value, but slower, especially when shredded ([#176]). |
+| `request:user.roles[0]`  | `request.user.roles[0]`    | Without `:`, `.` is struct field access on the Variant's Arrow storage, which fails with `Field user not found in struct`.    |
+| `request:['user-agent']` | `request:user-agent`       | `-` subtracts a column named `agent` from `request:user`.                                                                     |
+| `request:['user-agent']` | `` request:`user-agent` `` | Backtick-quoted names return SQL NULL for now, while Spark selects the field ([#141]).                                        |
 
-```text
-+----------+
-| backtick |
-+----------+
-| true     |
-+----------+
-```
--->
-
-Backtick-quoted names, such as `` request:`user-agent` ``, return SQL NULL,
-while Spark selects the field. Use `request:['user-agent']` instead. Support is
-tracked in [#141](https://github.com/datafusion-contrib/datafusion-variant/issues/141).
+[#141]: https://github.com/datafusion-contrib/datafusion-variant/issues/141
+[#176]: https://github.com/datafusion-contrib/datafusion-variant/issues/176
