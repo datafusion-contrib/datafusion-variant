@@ -108,7 +108,7 @@ SELECT parse_json(j) AS v FROM (VALUES ('{"a":1}'), ('null'), (NULL)) AS t(j);
 INSERT INTO displayed SELECT parse_json('{"a":2}');
 SET datafusion.format.null = '[NULL]';
 SELECT v, v IS NULL AS sql_null FROM displayed;
-SELECT variant_get(v, 'a', 'BIGINT') AS a FROM displayed;
+SELECT variant_get(v, '$.a', 'BIGINT') AS a FROM displayed;
 "#;
     let temp_dir = tempfile::tempdir().unwrap();
     let script = temp_dir.path().join("display.sql");
@@ -353,7 +353,7 @@ fn test_help_and_unsupported_options() {
 fn test_sql_variant_type() {
     let context = snapshot_output(cargo_bin_cmd!("dfv").args([
         "-c",
-        r#"SELECT to_json(CAST(variant_get(parse_json('{"x":7}'), 'x') AS VARIANT)) AS x,
+        r#"SELECT to_json(CAST(variant_get(parse_json('{"x":7}'), '$.x') AS VARIANT)) AS x,
                   arrow_typeof(CAST(NULL AS VARIANT)) = arrow_typeof(parse_json('1')) AS same_type"#,
     ]));
 
@@ -400,7 +400,7 @@ fn test_write_and_read_variant_parquet() {
         "CREATE EXTERNAL TABLE saved_events STORED AS PARQUET LOCATION 'events.parquet'",
         "-c",
         r#"SELECT event:service::VARCHAR AS service,
-                  variant_get(event, 'status', 'BIGINT') AS status
+                  variant_get(event, '$.status', 'BIGINT') AS status
            FROM saved_events
            ORDER BY status"#,
         "-c",

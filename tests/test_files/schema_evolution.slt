@@ -34,7 +34,7 @@ OPTIONS ('variant.shredding' '{"event":"STRUCT<service VARCHAR, status BIGINT>"}
 # and reads correctly.
 query ITII
 SELECT id,
-       variant_get(event, 'service', 'VARCHAR') AS service,
+       variant_get(event, '\$.service', 'VARCHAR') AS service,
        event:status::BIGINT AS status,
        event:latency_ms::BIGINT AS latency_ms
 FROM '$__TEST_DIR__/mixed/'
@@ -48,7 +48,7 @@ ORDER BY id, service NULLS FIRST;
 3 db 504 NULL
 
 query I
-SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM '$__TEST_DIR__/mixed/';
+SELECT count(variant_get(event, '\$.service', 'VARCHAR')) FROM '$__TEST_DIR__/mixed/';
 ----
 3
 
@@ -59,7 +59,7 @@ CREATE EXTERNAL TABLE mixed STORED AS PARQUET LOCATION '$__TEST_DIR__/mixed/';
 
 query ITII
 SELECT id,
-       variant_get(event, 'service', 'VARCHAR') AS service,
+       variant_get(event, '\$.service', 'VARCHAR') AS service,
        event:status::BIGINT AS status,
        event:latency_ms::BIGINT AS latency_ms
 FROM mixed
@@ -73,7 +73,7 @@ ORDER BY id, service NULLS FIRST;
 3 db 504 NULL
 
 query I
-SELECT count(variant_get(event, 'service', 'VARCHAR')) FROM mixed;
+SELECT count(variant_get(event, '\$.service', 'VARCHAR')) FROM mixed;
 ----
 6
 
@@ -93,7 +93,7 @@ OPTIONS ('variant.shredding' '{"event":"STRUCT<latency_ms BIGINT>"}');
 3
 
 query III
-SELECT count(variant_get(event, 'service', 'VARCHAR')),
+SELECT count(variant_get(event, '\$.service', 'VARCHAR')),
        count(event:status::BIGINT),
        count(event:latency_ms::BIGINT)
 FROM '$__TEST_DIR__/keys/';
@@ -104,7 +104,7 @@ statement ok
 CREATE EXTERNAL TABLE keys STORED AS PARQUET LOCATION '$__TEST_DIR__/keys/';
 
 query III
-SELECT count(variant_get(event, 'service', 'VARCHAR')),
+SELECT count(variant_get(event, '\$.service', 'VARCHAR')),
        count(event:status::BIGINT),
        count(event:latency_ms::BIGINT)
 FROM keys;
@@ -113,7 +113,7 @@ FROM keys;
 
 # The same two files, field by field: every row has every field.
 query TII
-SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+SELECT variant_get(event, '\$.service', 'VARCHAR') AS service,
        event:status::BIGINT AS status,
        event:latency_ms::BIGINT AS latency_ms
 FROM keys
@@ -143,7 +143,7 @@ statement ok
 CREATE EXTERNAL TABLE same STORED AS PARQUET LOCATION '$__TEST_DIR__/same/';
 
 query TII
-SELECT variant_get(event, 'service', 'VARCHAR') AS service,
+SELECT variant_get(event, '\$.service', 'VARCHAR') AS service,
        event:status::BIGINT AS status,
        event:latency_ms::BIGINT AS latency_ms
 FROM same

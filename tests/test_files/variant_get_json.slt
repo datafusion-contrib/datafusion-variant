@@ -13,7 +13,7 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
 
 # string values are returned with json quotes (unlike variant_get with a VARCHAR target)
 query T
-select variant_get_json(parse_json(json_str), 'name') from json_data;
+select variant_get_json(parse_json(json_str), '$.name') from json_data;
 ----
 "Alice"
 "Bob"
@@ -26,7 +26,7 @@ NULL
 
 # integer values are json-serialized
 query T
-select variant_get_json(parse_json(json_str), 'age') from json_data;
+select variant_get_json(parse_json(json_str), '$.age') from json_data;
 ----
 30
 25
@@ -39,7 +39,7 @@ NULL
 
 # float values are json-serialized
 query T
-select variant_get_json(parse_json(json_str), 'pi') from json_data;
+select variant_get_json(parse_json(json_str), '$.pi') from json_data;
 ----
 NULL
 NULL
@@ -52,7 +52,7 @@ NULL
 
 # boolean values are json-serialized
 query T
-select variant_get_json(parse_json(json_str), 'active') from json_data;
+select variant_get_json(parse_json(json_str), '$.active') from json_data;
 ----
 NULL
 NULL
@@ -65,7 +65,7 @@ true
 
 # array values are json-serialized
 query T
-select variant_get_json(parse_json(json_str), 'items') from json_data;
+select variant_get_json(parse_json(json_str), '$.items') from json_data;
 ----
 NULL
 NULL
@@ -78,7 +78,7 @@ NULL
 
 # missing paths return null
 query T
-select variant_get_json(parse_json(json_str), 'nonexistent') from json_data;
+select variant_get_json(parse_json(json_str), '$.nonexistent') from json_data;
 ----
 NULL
 NULL
@@ -91,24 +91,24 @@ NULL
 
 # scalar variant with nested object
 query T
-select variant_get_json(parse_json('{"obj": {"a": 1}}'), 'obj');
+select variant_get_json(parse_json('{"obj": {"a": 1}}'), '$.obj');
 ----
 {"a":1}
 
 # scalar variant with null value
 query T
-select variant_get_json(parse_json('{"key": null}'), 'key');
+select variant_get_json(parse_json('{"key": null}'), '$.key');
 ----
 null
 
 # nested path
 query T
-select variant_get_json(parse_json('{"obj": {"a": "hello"}}'), 'obj.a');
+select variant_get_json(parse_json('{"obj": {"a": "hello"}}'), '$.obj.a');
 ----
 "hello"
 
 # nested numeric path
 query T
-select variant_get_json(parse_json('{"obj": {"a": 42}}'), 'obj.a');
+select variant_get_json(parse_json('{"obj": {"a": 42}}'), '$.obj.a');
 ----
 42

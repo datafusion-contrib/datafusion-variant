@@ -5,18 +5,33 @@
 use datafusion::common::{Result, exec_datafusion_err};
 use parquet_variant::{VariantPath, VariantPathElement};
 
-/// Parse rooted or rootless paths; `allow_root` permits `$` and empty paths.
+/// Parse a Spark 4.2 Variant path; `allow_root` permits `$` alone.
 pub(crate) fn parse_variant_path(path: &str, allow_root: bool) -> Result<VariantPath<'_>> {
-    // TODO(#166): unify path dialects.
-    let parsed = if path.starts_with('$') {
-        parse_rooted_path(path)?
-    } else {
-        VariantPath::try_from(path)?
-    };
+    if !path.starts_with('$') {
+        return Err(exec_datafusion_err!(
+            "invalid Variant path {path:?}: paths start with `$`, such as `$.a[0]`"
+        ));
+    }
+    let parsed = parse_rooted_path(path)?;
     if !allow_root && parsed.path().is_empty() {
         return Err(exec_datafusion_err!("invalid Variant path {path:?}"));
     }
     Ok(parsed)
+}
+
+/// The path for `v:<text>`, built as Spark's `AstBuilder.visitSemiStructuredExtract` does.
+pub(crate) fn colon_path(text: &str) -> String {
+    if text.starts_with('[') {
+        format!("${text}")
+    } else {
+        format!("$.{text}")
+    }
+}
+
+/// The `<text>` of `v:<text>` that [`colon_path`] turns into `path`.
+pub(crate) fn colon_text(path: &str) -> Option<&str> {
+    path.strip_prefix("$.")
+        .or_else(|| path.strip_prefix('$').filter(|text| text.starts_with('[')))
 }
 
 // Spark 4.2: quoted keys retain backslashes.
@@ -57,57 +72,26 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
     Ok(VariantPath::new(elements))
 }
 
-/// Combine two path strings into one equivalent rooted path
+/// Combine two path strings into one equivalent path
 ///
 /// The result is a path such that `variant_get(variant_get(v, inner), outer)`
-/// equals `variant_get(v, combined)` if such a path exists.
+/// equals `variant_get(v, combined)`.
 ///
 /// For example
 ///
-/// | `inner`   | `outer` | combined     | notes                                 |
-/// |-----------|---------|--------------|---------------------------------------|
-/// | `a`       | `b`     | `$.a.b`      | field then field                      |
-/// | `a.b`     | `c[1]`  | `$.a.b.c[1]` | multiple elements per path            |
+/// | `inner`   | `outer`  | combined     | notes                      |
+/// |-----------|----------|--------------|----------------------------|
+/// | `$.a`     | `$.b`    | `$.a.b`      | field then field           |
+/// | `$.a.b`   | `$.c[1]` | `$.a.b.c[1]` | multiple elements per path |
+/// | `$.a`     | `$`      | `$.a`        | `$` selects the root       |
 ///
 /// Returns an error if either path is invalid.
-///
-/// Returns `None` if the combination can not be written as a rooted path.
-pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Result<Option<String>> {
-    let inner = parse_variant_path(inner, true)?;
-    let outer = parse_variant_path(outer, true)?;
-    let mut combined = String::from("$");
-    for element in inner.iter().chain(outer.iter()) {
-        if write_rooted_element(&mut combined, element).is_none() {
-            return Ok(None);
-        }
-    }
-    Ok(Some(combined))
-}
-
-/// Append `element` in the syntax accepted by [`parse_rooted_path`].
-fn write_rooted_element(out: &mut String, element: &VariantPathElement<'_>) -> Option<()> {
-    match element {
-        VariantPathElement::Field { name } => {
-            // Quoted keys have no escapes, so a key with both quotes has no rooted form.
-            if !name.is_empty() && !name.contains(['.', '[']) {
-                out.push('.');
-                out.push_str(name);
-            } else if !name.contains('\'') {
-                out.push_str(&format!("['{name}']"));
-            } else if !name.contains('"') {
-                out.push_str(&format!("[\"{name}\"]"));
-            } else {
-                return None;
-            }
-        }
-        VariantPathElement::Index { index } => {
-            // The rooted parser only accepts indexes that fit in an i32.
-            let index = i32::try_from(*index).ok()?;
-            out.push_str(&format!("[{index}]"));
-        }
-        _ => return None,
-    }
-    Some(())
+pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Result<String> {
+    parse_variant_path(inner, true)?;
+    parse_variant_path(outer, true)?;
+    // Each element of a valid path starts with `.` or `[`, so the elements of
+    // `outer` can directly follow those of `inner`.
+    Ok(format!("{inner}{}", &outer[1..]))
 }
 
 #[cfg(test)]
@@ -117,24 +101,19 @@ mod tests {
     #[test]
     fn concat_paths() {
         for (inner, outer, expected) in [
-            ("a", "b", Some("$.a.b")),
-            ("$.a", "$.b", Some("$.a.b")),
-            ("a.b", "c[1]", Some("$.a.b.c[1]")),
-            ("a[0]", "[1]", Some("$.a[0][1]")),
-            ("", "a", Some("$.a")),
-            ("a", "$", Some("$.a")),
-            ("", "", Some("$")),
-            ("['x.y']", "z", Some("$['x.y'].z")),
-            ("$['a[0]']", "b", Some("$['a[0]'].b")),
-            (r#"$["it's.x"]"#, "$['']", Some(r#"$["it's.x"]['']"#)),
-            (r#"$['say "hi"']"#, "a b", Some(r#"$.say "hi".a b"#)),
-            // valid, but the index does not fit the rooted syntax
-            ("a", "[2147483648]", None),
+            ("$.a", "$.b", "$.a.b"),
+            ("$.a.b", "$.c[1]", "$.a.b.c[1]"),
+            ("$.a[0]", "$[1]", "$.a[0][1]"),
+            ("$", "$.a", "$.a"),
+            ("$.a", "$", "$.a"),
+            ("$", "$", "$"),
+            ("$['x.y']", "$.z", "$['x.y'].z"),
+            ("$.a", "$['a[0]']", "$.a['a[0]']"),
+            (r#"$["it's.x"]"#, "$['']", r#"$["it's.x"]['']"#),
         ] {
             let combined = concat_variant_paths(inner, outer).unwrap();
-            assert_eq!(combined.as_deref(), expected, "{inner:?} + {outer:?}");
-            let Some(combined) = combined else { continue };
-            // The combined path parses back to the elements of both inputs.
+            assert_eq!(combined, expected, "{inner:?} + {outer:?}");
+            // The combined path parses to the elements of both inputs.
             let inner = parse_variant_path(inner, true).unwrap();
             let outer = parse_variant_path(outer, true).unwrap();
             let elements: Vec<_> = inner.iter().chain(outer.iter()).cloned().collect();
@@ -147,7 +126,7 @@ mod tests {
 
     #[test]
     fn concat_invalid_paths() {
-        for (inner, outer) in [("a", "$bad"), ("$[", "a"), ("$..a", "$[")] {
+        for (inner, outer) in [("$.a", "$bad"), ("$[", "$.a"), ("$.a", "b"), ("", "$.a")] {
             let err = concat_variant_paths(inner, outer).unwrap_err();
             assert!(
                 err.to_string().contains("invalid Variant path"),
@@ -157,22 +136,11 @@ mod tests {
     }
 
     #[test]
-    fn concat_paths_without_rooted_form() {
-        let both_quotes = VariantPathElement::field(r#"a.'b"c"#);
-        assert!(write_rooted_element(&mut String::new(), &both_quotes).is_none());
-    }
-
-    #[test]
-    fn rooted_and_legacy_paths() {
+    fn valid_paths() {
         for (text, expected) in [
             ("$", vec![]),
-            ("", vec![]),
             (
                 "$.a[0]",
-                vec![VariantPathElement::field("a"), VariantPathElement::index(0)],
-            ),
-            (
-                "a[0]",
                 vec![VariantPathElement::field("a"), VariantPathElement::index(0)],
             ),
             ("$['$']", vec![VariantPathElement::field("$")]),
@@ -192,15 +160,15 @@ mod tests {
 
     #[test]
     fn root_policy() {
-        for text in ["$", ""] {
-            assert!(parse_variant_path(text, false).is_err(), "{text:?}");
-        }
+        assert!(parse_variant_path("$", false).is_err());
         assert!(parse_variant_path("$.a", false).is_ok());
     }
 
     #[test]
-    fn malformed_rooted_paths_do_not_fall_back() {
+    fn invalid_paths() {
         for text in [
+            "",
+            "a",
             "$bad",
             "$.",
             "$[",
@@ -214,5 +182,14 @@ mod tests {
         ] {
             assert!(parse_variant_path(text, true).is_err(), "{text}");
         }
+    }
+
+    #[test]
+    fn colon_paths_round_trip() {
+        for (text, path) in [("a.b[0]", "$.a.b[0]"), ("['a.b']", "$['a.b']")] {
+            assert_eq!(colon_path(text), path);
+            assert_eq!(colon_text(path), Some(text));
+        }
+        assert_eq!(colon_text("$"), None);
     }
 }

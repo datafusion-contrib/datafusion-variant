@@ -140,29 +140,29 @@ pub fn variant_get_array_values<T>(
         .collect()
 }
 
-/// Build a [`VariantPath`] from a scalar value.
+/// Build a [`VariantPath`] from a scalar value, or `None` for a SQL NULL path.
 ///
-/// - **String** scalars use the shared rooted/rootless path parser.
+/// - **String** scalars use the shared path parser.
 /// - **List** scalars treat each element as a single field name
 ///   (e.g. `['a.b', 'c']` → path `[a.b, c]`), which is critical for keys that
 ///   contain dots such as OTEL attribute keys like `http.response.status_code`.
-pub(crate) fn path_from_scalar(scalar: &ScalarValue) -> Result<VariantPath<'static>> {
+pub(crate) fn path_from_scalar(scalar: &ScalarValue) -> Result<Option<VariantPath<'static>>> {
     match scalar {
         ScalarValue::Utf8(Some(s))
         | ScalarValue::Utf8View(Some(s))
         | ScalarValue::LargeUtf8(Some(s)) => {
             let parsed = parse_variant_path(s.as_str(), true)?;
-            Ok(to_owned_path(&parsed))
+            Ok(Some(to_owned_path(&parsed)))
         }
         ScalarValue::Utf8(None) | ScalarValue::Utf8View(None) | ScalarValue::LargeUtf8(None) => {
-            Ok(VariantPath::default())
+            Ok(None)
         }
         ScalarValue::List(list_arr) => {
             if list_arr.is_null(0) {
-                return Ok(VariantPath::default());
+                return Ok(None);
             }
 
-            path_from_list_values(list_arr.value(0))
+            path_from_list_values(list_arr.value(0)).map(Some)
         }
         other => exec_err!(
             "path must be a string or list of strings, got {}",
@@ -216,7 +216,10 @@ pub fn invoke_variant_get_typed<T>(
 
     let out = match (variant_arg, path_arg) {
         (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(path_scalar)) => {
-            let path = path_from_scalar(path_scalar)?;
+            let Some(path) = path_from_scalar(path_scalar)? else {
+                let nulls = (0..variant_array.len()).map(|_| None).collect();
+                return Ok(ColumnarValue::Array(array_from_values(nulls)));
+            };
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
             let values = variant_get_array_values(&variant_array, &path, extract)?;
             ColumnarValue::Array(array_from_values(values))
@@ -226,7 +229,9 @@ pub fn invoke_variant_get_typed<T>(
                 return exec_err!("expected struct array");
             };
 
-            let path = path_from_scalar(path_scalar)?;
+            let Some(path) = path_from_scalar(path_scalar)? else {
+                return Ok(ColumnarValue::Scalar(scalar_from_option(None)));
+            };
             let variant_array = VariantArray::try_new(variant_array.as_ref())?;
             let value = variant_get_single_value(&variant_array, 0, &path, extract)?;
 
@@ -244,7 +249,9 @@ pub fn invoke_variant_get_typed<T>(
                 .iter()
                 .zip(paths)
                 .map(|(variant, path_str)| {
-                    let path_str = path_str.unwrap_or_default();
+                    let Some(path_str) = path_str else {
+                        return Ok(None);
+                    };
                     let path = parse_variant_path(path_str, true)?;
 
                     let Some(variant) = variant else {
@@ -271,7 +278,9 @@ pub fn invoke_variant_get_typed<T>(
             let values = paths
                 .iter()
                 .map(|path_str| {
-                    let path_str = path_str.unwrap_or_default();
+                    let Some(path_str) = path_str else {
+                        return Ok(None);
+                    };
                     let path = parse_variant_path(path_str, true)?;
                     variant_get_single_value(&variant_array, 0, &path, extract)
                 })

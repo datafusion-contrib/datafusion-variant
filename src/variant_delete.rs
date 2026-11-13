@@ -268,9 +268,6 @@ fn append_deleted(
 }
 
 fn parse_path(path: &str) -> Result<VariantPath<'_>> {
-    let invalid = || exec_datafusion_err!("variant_delete: invalid path {path:?}");
-    if !path.starts_with('$') {
-        return Err(invalid());
-    }
-    crate::variant_path::parse_variant_path(path, false).map_err(|_| invalid())
+    crate::variant_path::parse_variant_path(path, false)
+        .map_err(|_| exec_datafusion_err!("variant_delete: invalid path {path:?}"))
 }
