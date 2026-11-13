@@ -5,6 +5,8 @@
 :end-before: <!-- docs-intro-end -->
 ```
 
+The source code is available on [GitHub](https://github.com/datafusion-contrib/datafusion-variant).
+
 ```{include} README.md
 ```
 
