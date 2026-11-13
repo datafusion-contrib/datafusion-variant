@@ -26,8 +26,8 @@ FROM (VALUES
 ## Query
 
 You can extract fields from a Variant column using the Spark SQL-style `:`
-field-access operator or the `variant_get` UDF. For example, to select the
-`service` and `latency_ms` fields of events whose `status` is at least 400, run:
+field-access operator. For example, to select the `service` and `latency_ms`
+fields of events whose `status` is at least 400, run:
 
 <!-- TODO: remove the `::BIGINT` explicit typecasts when https://github.com/datafusion-contrib/datafusion-variant/issues/159 is ready -->
 ```sql
@@ -44,25 +44,6 @@ WHERE event:status::BIGINT >= 400;
 | api                  | 85                      |
 | api                  | NULL                    |
 +----------------------+-------------------------+
-```
-
-The `:` syntax is automatically rewritten to `variant_get`, so this is an
-equivalent query:
-
-```sql
-SELECT variant_get(event, '$.service', 'VARCHAR') AS service,
-       variant_get(event, '$.latency_ms', 'BIGINT') AS latency_ms
-FROM events
-WHERE variant_get(event, '$.status', 'BIGINT') >= 400;
-```
-
-```text
-+---------+------------+
-| service | latency_ms |
-+---------+------------+
-| api     | 85         |
-| api     | NULL       |
-+---------+------------+
 ```
 
 ## Convert Variant to JSON
