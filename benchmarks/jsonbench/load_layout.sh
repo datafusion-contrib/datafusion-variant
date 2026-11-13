@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #
 # Writes the Bluesky files as Parquet Variant, one Parquet file per Bluesky
-# file. Run it through a layout's load.sh, from the repository root:
+# file. This is meant to be run via a benchmark setup script like this
 #
 #   ./benchmarks/jsonbench/mixed/load.sh
 #
 # Files that are already written are skipped, so an interrupted load picks up
-# where it left off. To convert a layout again, delete its directory.
+# where it left off.
 #
 # Usage: load_layout.sh <unshredded|shredded|mixed> [file number]
 #
 # With a file number, converts only that file. Environment variables:
 #
 #   DFV            dfv binary to run (default: target/release/dfv)
-#   FILES          convert Bluesky files 1 to FILES (default: 100, 1M rows each)
+#   NUM_FILES      convert Bluesky files 1 to NUM_FILES, (default: 10, max 100)
 #   JOBS           files to download and convert at once (default: number of cores)
 #   DFV_BSKY_DIR   where the Bluesky files are downloaded (default: data/bluesky)
 
@@ -33,7 +33,7 @@ case "$LAYOUT" in
 esac
 
 export DFV=${DFV:-target/release/dfv}
-export FILES=${FILES:-100}
+NUM_FILES=${NUM_FILES:-10}
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
 
 OUT_DIR=data/jsonbench/$LAYOUT
@@ -41,13 +41,13 @@ OUT_DIR=data/jsonbench/$LAYOUT
 # holds a partly written file.
 TMP_DIR=data/jsonbench/.tmp/$LAYOUT
 
-# Succeeds if Bluesky file $1 is shredded in this layout. `mixed` leaves the
-# first fifth of the files unshredded: files 1 to 20 of 100.
+# Succeeds if Bluesky file $1 is shredded in this layout. `mixed` shreds every
+# fifth file: files 5, 10, 15, and so on.
 is_shredded() {
   case "$LAYOUT" in
     unshredded) return 1 ;;
     shredded) return 0 ;;
-    mixed) [ "$1" -gt $((FILES / 5)) ] ;;
+    mixed) [ $(($1 % 5)) -eq 0 ] ;;
   esac
 }
 
@@ -83,6 +83,13 @@ load_file() {
   echo "Wrote $out"
 }
 
+case "$NUM_FILES" in
+  '' | *[!0-9]*) NUM_FILES=0 ;;
+esac
+if [ "$NUM_FILES" -lt 1 ] || [ "$NUM_FILES" -gt 100 ]; then
+  echo "NUM_FILES must be between 1 and 100" >&2
+  exit 2
+fi
 if ! command -v "$DFV" >/dev/null; then
   echo "dfv not found at '$DFV'. Build it with 'cargo build --release --bin dfv' or set DFV." >&2
   exit 1
@@ -94,9 +101,9 @@ if [ $# -ge 2 ]; then
   exit
 fi
 
-echo "Loading Bluesky files 1 to $FILES into $OUT_DIR, $JOBS at a time"
+echo "Loading Bluesky files 1 to $NUM_FILES into $OUT_DIR, $JOBS at a time"
 status=0
-seq 1 "$FILES" | xargs -P "$JOBS" -n 1 "$0" "$LAYOUT" || status=$?
+seq 1 "$NUM_FILES" | xargs -P "$JOBS" -n 1 "$0" "$LAYOUT" || status=$?
 rm -rf "$TMP_DIR"
 rmdir data/jsonbench/.tmp 2>/dev/null || true
 if [ "$status" -ne 0 ]; then

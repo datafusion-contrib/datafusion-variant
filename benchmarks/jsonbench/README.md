@@ -9,13 +9,13 @@ and run with `dfv`:
 | --- | --- |
 | `unshredded` | None |
 | `shredded` | `kind`, `did`, `time_us`, `commit.collection`, `commit.operation` |
-| `mixed` | None in files 1 to 20, as in `shredded` in files 21 to 100 |
+| `mixed` | As in `shredded` in every fifth file (5, 10, 15, ...), none in the rest |
 
 Run the commands below from the repository root.
 
 ## Preparing the data
 
-Each layout's `load.sh` converts Bluesky files 1 to 100 (100M rows) to one
+Each layout's `load.sh` converts Bluesky files 1 to 10 (10M rows) to one
 Parquet file each in `data/jsonbench/<layout>`, such as
 `data/jsonbench/mixed/file_0001.parquet`. It downloads missing Bluesky files to
 `data/bluesky` (about 135 MB each):
@@ -37,14 +37,14 @@ Environment variables change the defaults:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DFV` | `target/release/dfv` | The `dfv` binary to run |
-| `FILES` | `100` | Convert Bluesky files 1 to `FILES`. `mixed` leaves the first fifth unshredded |
+| `NUM_FILES` | `10` | Convert Bluesky files 1 to `NUM_FILES`, at most 100 (100M rows) |
 | `JOBS` | Number of cores | Files to download and convert at once |
 | `DFV_BSKY_DIR` | `data/bluesky` | Where the Bluesky files are downloaded |
 
-For example, to load 10M rows with a `dfv` on the `PATH`:
+For example, to load all 100M rows with a `dfv` on the `PATH`:
 
 ```sh
-DFV=dfv FILES=10 ./benchmarks/jsonbench/mixed/load.sh
+DFV=dfv NUM_FILES=100 ./benchmarks/jsonbench/mixed/load.sh
 ```
 
 The scripts write Snappy Parquet with 65,536-row row groups and 1M rows per
