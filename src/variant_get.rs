@@ -223,7 +223,9 @@ fn return_field_for_variant_get(
     ))
 }
 
-/// A literal path argument; a SQL NULL path selects the root, as at execution.
+/// Extracts the path expression as a literal string if possible
+///
+/// If expr is NULL. returns "" the equivalent JSON path (selects the root)
 fn literal_path(expr: &Expr) -> Option<&str> {
     let Expr::Literal(value, _) = expr else {
         return None;
@@ -233,6 +235,12 @@ fn literal_path(expr: &Expr) -> Option<&str> {
 
 /// Collapse nested `variant_get` or `try_variant_get`  calls into a single
 /// call with a combined path.
+///
+/// Takes the arguments of the outer call and returns its new arguments, or the
+/// original arguments if the calls can not be collapsed. Returns an error if
+/// either literal path is invalid.
+///
+/// # Background
 ///
 /// A single call is more efficient as it can read shredded columns directly,
 /// whereas the nested form rebuilds an intermediate Variant for every row.
@@ -251,10 +259,6 @@ fn literal_path(expr: &Expr) -> Option<&str> {
 ///
 /// This is common in practice as `:` syntax such as `v:a:b[0]` is initially
 /// planned as `variant_get` calls.
-///
-/// Takes the arguments of the outer call and returns its new arguments, or
-/// the original arguments if the calls can not be collapsed. Returns an error
-/// if either literal path is invalid.
 fn collapse_nested_getters(mut args: Vec<Expr>) -> Result<Transformed<Vec<Expr>>> {
     let combined = (|| -> Result<Option<(Expr, String)>> {
         let Some(Expr::ScalarFunction(ScalarFunction { func, args: inner })) = args.first() else {
@@ -262,7 +266,7 @@ fn collapse_nested_getters(mut args: Vec<Expr>) -> Result<Transformed<Vec<Expr>>
         };
 
         // Can only combine the path access when the inner
-        // function returns a variant.
+        // function returns a variant (aka is_untyped).
         let is_untyped = func
             .inner()
             .downcast_ref::<VariantGetUdf>()
