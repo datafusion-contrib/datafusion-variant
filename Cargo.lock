@@ -165,8 +165,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 [[package]]
 name = "arrow"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d965156f2220e94dcf676e04322b7b0b41c97e85cb3e1c365b8e56d0f70be999"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-arith",
  "arrow-array",
@@ -186,8 +185,7 @@ dependencies = [
 [[package]]
 name = "arrow-arith"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca16fdd1daeb1eccefb42df52ec65448ef33eec72488598675d46dfa9ce58923"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -200,8 +198,7 @@ dependencies = [
 [[package]]
 name = "arrow-array"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f3d22a41d3df78b71df0b685af219ae3a94188ab98d6fb29c958eb55c3247f4"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "ahash",
  "arrow-buffer",
@@ -219,8 +216,7 @@ dependencies = [
 [[package]]
 name = "arrow-avro"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfd40a71a38e4366b28742cc46912b9289d89e0c858895c8276ac0fc83dacdc6"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -243,8 +239,7 @@ dependencies = [
 [[package]]
 name = "arrow-buffer"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bd46a530bc1a8e763102fc36c1dc0f51f3ffa150c78e7f5658ccb54b1458ade"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "bytes",
  "half",
@@ -255,8 +250,7 @@ dependencies = [
 [[package]]
 name = "arrow-cast"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baa83a0752814a1922d5ee75032524ca9bbfb7f60ee35a67ed4ab8b275260aaf"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -277,8 +271,7 @@ dependencies = [
 [[package]]
 name = "arrow-cmp"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1913e57a64fbf2c4502fa6d54b547d6a1ae59e3146cbc15321d47468c937abd1"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -288,8 +281,7 @@ dependencies = [
 [[package]]
 name = "arrow-csv"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4572af05fadde76a063139805c089d0915b7eb64ed5bef14456c6e458a80b28"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -303,8 +295,7 @@ dependencies = [
 [[package]]
 name = "arrow-data"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "415b7fbc4cf56b080bb5677a4ae74211b5c79e571ed37a1d547633ec07f3b43b"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-buffer",
  "arrow-schema",
@@ -316,8 +307,7 @@ dependencies = [
 [[package]]
 name = "arrow-ipc"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45f3e766bccf5a0cb57a5de52a4cba450dea5171547c2cb5939b486d08887cba"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -332,8 +322,7 @@ dependencies = [
 [[package]]
 name = "arrow-json"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d843cca4b5361d7667564083b151a30d816d2b7e7ce2baa53948e2188f087f06"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -357,8 +346,7 @@ dependencies = [
 [[package]]
 name = "arrow-ord"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c58f2ae6dd1480fc413f7320a547e39dcc499c23d4f36ca19572b685811e6e4"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -371,8 +359,7 @@ dependencies = [
 [[package]]
 name = "arrow-row"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68f9db8345b0638416d3b56d117d262d13070fdef788c6d75b53a180215c477e"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -384,8 +371,7 @@ dependencies = [
 [[package]]
 name = "arrow-schema"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de2c8e714b466404cdc1189e89f892426efea614d938e16c15518c340cd43ba3"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "serde_core",
  "serde_json",
@@ -394,8 +380,7 @@ dependencies = [
 [[package]]
 name = "arrow-select"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5af3f6656c5f2c6944f93d9a357a7f204c93d5f349385a44cf46c4a26fbcf30"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "ahash",
  "arrow-array",
@@ -409,8 +394,7 @@ dependencies = [
 [[package]]
 name = "arrow-string"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab1be9306b9a413b5b004e2a5a19caac728870d76e8891b351f040d554c93862"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -3608,8 +3592,7 @@ dependencies = [
 [[package]]
 name = "parquet"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "806eaa0f1c0436dcb43bee8e6a82bf2efff90521a60172f8281cb9ef577b43a4"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "ahash",
  "arrow-array",
@@ -3645,8 +3628,7 @@ dependencies = [
 [[package]]
 name = "parquet-variant"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cd190b833203e27e585c1f07e6ab1abbf353336688202ce036ecd8b7bc18259"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-schema",
  "chrono",
@@ -3659,8 +3641,7 @@ dependencies = [
 [[package]]
 name = "parquet-variant-compute"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca43d38e0b3f91d177150fc72c86af888dcbd3c3d93888c2a2fbc95721200d89"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -3676,8 +3657,7 @@ dependencies = [
 [[package]]
 name = "parquet-variant-json"
 version = "60.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dadd517b64ce5b9a7160130f6ded8eed81a20ef8cec8e3e2458165f5195701ec"
+source = "git+https://github.com/pydantic/arrow-rs.git?rev=bccfc40208cf5ea7b687a7f705211f4196a7b492#bccfc40208cf5ea7b687a7f705211f4196a7b492"
 dependencies = [
  "arrow-schema",
  "base64",
