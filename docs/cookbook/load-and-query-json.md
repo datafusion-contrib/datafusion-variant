@@ -46,6 +46,25 @@ WHERE event:status::BIGINT >= 400;
 +----------------------+-------------------------+
 ```
 
+The `:` syntax is automatically rewritten to `variant_get`, so this is an
+equivalent query:
+
+```sql
+SELECT variant_get(event, '$.service', 'VARCHAR') AS service,
+       variant_get(event, '$.latency_ms', 'BIGINT') AS latency_ms
+FROM events
+WHERE variant_get(event, '$.status', 'BIGINT') >= 400;
+```
+
+```text
++---------+------------+
+| service | latency_ms |
++---------+------------+
+| api     | 85         |
+| api     | NULL       |
++---------+------------+
+```
+
 ## Convert Variant to JSON
 
 `to_json` converts Variant values to JSON strings. To return the entire `event`
