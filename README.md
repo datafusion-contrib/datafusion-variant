@@ -1,6 +1,7 @@
 # datafusion-variant
 
 [![CI](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/datafusion-contrib/datafusion-variant/actions/workflows/test.yml)
+[![Crates.io](https://img.shields.io/crates/v/datafusion-variant.svg)][crates-io]
 [![Docs](https://img.shields.io/badge/docs-datafusion--contrib.github.io-blue)][docs]
 [![API docs](https://docs.rs/datafusion-variant/badge.svg)][api-docs]
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)][license]
@@ -84,6 +85,7 @@ Licensed under the [Apache License, Version 2.0][license].
 [getting-started]: https://datafusion-contrib.github.io/datafusion-variant/getting-started.html
 [cookbook]: https://datafusion-contrib.github.io/datafusion-variant/cookbook/load-and-query-json.html
 [sql-reference]: https://datafusion-contrib.github.io/datafusion-variant/sql-reference.html
+[crates-io]: https://crates.io/crates/datafusion-variant
 [api-docs]: https://docs.rs/datafusion-variant
 [contributing]: https://datafusion-contrib.github.io/datafusion-variant/contributing.html
 [license]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/LICENSE.txt

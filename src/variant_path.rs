@@ -72,9 +72,69 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
     Ok(VariantPath::new(elements))
 }
 
+/// Combine two path strings into one equivalent path
+///
+/// The result is a path such that `variant_get(variant_get(v, inner), outer)`
+/// equals `variant_get(v, combined)`.
+///
+/// Returns an error if either path is invalid.
+pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Result<String> {
+    parse_variant_path(inner, true)?;
+    parse_variant_path(outer, true)?;
+    // Each element of a valid path starts with `.` or `[`, so the elements of
+    // `outer` can directly follow those of `inner`.
+    Ok(format!("{inner}{}", &outer[1..]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concat_paths() {
+        #[rustfmt::skip]
+        let cases = [
+            // inner,          outer,        expected
+            ("$.a.b",          "$.c[1]",     "$.a.b.c[1]"),
+            ("$.a[0]",         "$[1]",       "$.a[0][1]"),
+            ("$",              "$.a",        "$.a"),
+            ("$.a",            "$",          "$.a"),
+            ("$['x.y']",       "$.z",        "$['x.y'].z"),
+            ("$.a",            "$['a[0]']",  "$.a['a[0]']"),
+        ];
+
+        for (inner, outer, expected) in cases {
+            let combined = concat_variant_paths(inner, outer).unwrap();
+            assert_eq!(combined, expected, "{inner:?} + {outer:?}");
+            // The combined path parses to the elements of both inputs.
+            let inner = parse_variant_path(inner, true).unwrap();
+            let outer = parse_variant_path(outer, true).unwrap();
+            let elements: Vec<_> = inner.iter().chain(outer.iter()).cloned().collect();
+            assert_eq!(
+                parse_variant_path(&combined, true).unwrap().path(),
+                &elements
+            );
+        }
+    }
+
+    #[test]
+    fn concat_invalid_paths() {
+        #[rustfmt::skip]
+        let cases = [
+            // inner, outer
+            ("$.a",   "$bad"),
+            ("$[",    "$.a"),
+            ("$.a",   "b"),
+        ];
+
+        for (inner, outer) in cases {
+            let err = concat_variant_paths(inner, outer).unwrap_err();
+            assert!(
+                err.to_string().contains("invalid Variant path"),
+                "{inner:?} + {outer:?}: {err}"
+            );
+        }
+    }
 
     #[test]
     fn valid_paths() {

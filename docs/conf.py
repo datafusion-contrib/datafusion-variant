@@ -12,6 +12,7 @@ html_theme_options = {
     "secondary_sidebar_items": [],
     "footer_start": [],
     "footer_end": [],
+    "github_url": "https://github.com/datafusion-contrib/datafusion-variant",
     "pygments_light_style": "vs",
     "pygments_dark_style": "github-dark",
 }

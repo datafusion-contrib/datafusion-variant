@@ -135,6 +135,28 @@ Event.typed_value.extra.typed_value.list.item.typed_value INT64
 Event.typed_value.status.typed_value BYTE_ARRAY
 metric.typed_value BYTE_ARRAY
 
+# Chained `:` access reads shredded columns through a single getter (#176).
+# A missing object field or list element reads as Variant null where the
+# unshredded copy returns SQL NULL (row 1):
+# https://github.com/apache/arrow-rs/issues/11191
+# https://github.com/apache/arrow-rs/issues/11050
+query I
+COPY (SELECT column1 AS id, parse_json(column2) AS v, parse_json(column2) AS original
+      FROM (VALUES (0, '{"a":{"b":1},"l":[1,2]}'), (1, '{"a":{},"l":[3]}')))
+TO '$__TEST_DIR__/chained.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v":"STRUCT<a STRUCT<b BIGINT>, l BIGINT[]>"}');
+----
+2
+
+statement ok
+CREATE EXTERNAL TABLE chained STORED AS PARQUET LOCATION '$__TEST_DIR__/chained.parquet';
+
+query I????
+SELECT id, v:a:b, original:a:b, v:l:[1], original:l:[1] FROM chained ORDER BY id;
+----
+0 1 1 2 2
+1 null NULL null NULL
+
 # Constant object and SQL NULL inputs exercise optimizer folding while
 # retaining the Variant extension metadata and SQL NULL validity.
 query I

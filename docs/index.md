@@ -5,6 +5,10 @@
 :end-before: <!-- docs-intro-end -->
 ```
 
+The source code is available on [GitHub](https://github.com/datafusion-contrib/datafusion-variant),
+the crate is published on [crates.io](https://crates.io/crates/datafusion-variant),
+and the Rust API reference is on [docs.rs](https://docs.rs/datafusion-variant).
+
 ```{include} README.md
 ```
 

@@ -2,20 +2,16 @@
 
 use std::sync::Arc;
 
+use arrow::array::{Array, cast::AsArray};
 #[cfg(test)]
-use arrow::array::StructArray;
-use arrow::array::{Array, ArrayRef, cast::AsArray};
+use arrow::array::{ArrayRef, StructArray};
 #[cfg(test)]
 use arrow_schema::Fields;
 use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
 use datafusion::error::Result;
-use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs};
 use datafusion::{common::exec_err, scalar::ScalarValue};
-use parquet_variant::{Variant, VariantPath, VariantPathElement};
 use parquet_variant_compute::{VariantArray, VariantType};
-
-use crate::variant_path::parse_variant_path;
 
 #[cfg(test)]
 use parquet_variant_compute::VariantArrayBuilder;
@@ -100,197 +96,6 @@ pub fn try_parse_string_columnar(array: &Arc<dyn Array>) -> Result<Vec<Option<&s
     }
 
     Err(exec_datafusion_err!("expected string array"))
-}
-
-pub fn variant_get_single_value<T>(
-    variant_array: &VariantArray,
-    index: usize,
-    path: &VariantPath<'_>,
-    extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
-) -> Result<Option<T>> {
-    let Some(variant) = variant_array.iter().nth(index).flatten() else {
-        return Ok(None);
-    };
-
-    let Some(value) = variant.get_path(path) else {
-        return Ok(None);
-    };
-
-    extract(value)
-}
-
-pub fn variant_get_array_values<T>(
-    variant_array: &VariantArray,
-    path: &VariantPath<'_>,
-    extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
-) -> Result<Vec<Option<T>>> {
-    variant_array
-        .iter()
-        .map(|maybe_variant| {
-            let Some(variant) = maybe_variant else {
-                return Ok(None);
-            };
-
-            let Some(value) = variant.get_path(path) else {
-                return Ok(None);
-            };
-
-            extract(value)
-        })
-        .collect()
-}
-
-/// Build a [`VariantPath`] from a scalar value, or `None` for a SQL NULL path.
-///
-/// - **String** scalars use the shared path parser.
-/// - **List** scalars treat each element as a single field name
-///   (e.g. `['a.b', 'c']` → path `[a.b, c]`), which is critical for keys that
-///   contain dots such as OTEL attribute keys like `http.response.status_code`.
-pub(crate) fn path_from_scalar(scalar: &ScalarValue) -> Result<Option<VariantPath<'static>>> {
-    match scalar {
-        ScalarValue::Utf8(Some(s))
-        | ScalarValue::Utf8View(Some(s))
-        | ScalarValue::LargeUtf8(Some(s)) => {
-            let parsed = parse_variant_path(s.as_str(), true)?;
-            Ok(Some(to_owned_path(&parsed)))
-        }
-        ScalarValue::Utf8(None) | ScalarValue::Utf8View(None) | ScalarValue::LargeUtf8(None) => {
-            Ok(None)
-        }
-        ScalarValue::List(list_arr) => {
-            if list_arr.is_null(0) {
-                return Ok(None);
-            }
-
-            path_from_list_values(list_arr.value(0)).map(Some)
-        }
-        other => exec_err!(
-            "path must be a string or list of strings, got {}",
-            other.data_type()
-        ),
-    }
-}
-
-fn path_from_list_values(values: ArrayRef) -> Result<VariantPath<'static>> {
-    let strings = try_parse_string_columnar(&values)?;
-    let elements = strings
-        .iter()
-        .map(|s| VariantPathElement::field(s.unwrap_or_default().to_string()))
-        .collect();
-
-    Ok(VariantPath::new(elements))
-}
-
-fn to_owned_path(path: &VariantPath<'_>) -> VariantPath<'static> {
-    let elements = path
-        .path()
-        .iter()
-        .map(|elem| match elem {
-            VariantPathElement::Field { name } => VariantPathElement::field(name.to_string()),
-            VariantPathElement::Index { index } => VariantPathElement::index(*index),
-            VariantPathElement::ListElement => VariantPathElement::ListElement,
-        })
-        .collect();
-
-    VariantPath::new(elements)
-}
-
-/// Extract values directly and map them to the requested output representation.
-pub fn invoke_variant_get_typed<T>(
-    args: ScalarFunctionArgs,
-    scalar_from_option: fn(Option<T>) -> ScalarValue,
-    array_from_values: fn(Vec<Option<T>>) -> ArrayRef,
-    extract: for<'m, 'v> fn(Variant<'m, 'v>) -> Result<Option<T>>,
-) -> Result<ColumnarValue> {
-    let (variant_arg, path_arg) = match args.args.as_slice() {
-        [variant_arg, path_arg] => (variant_arg, path_arg),
-        _ => return exec_err!("expected 2 arguments"),
-    };
-
-    let variant_field = args
-        .arg_fields
-        .first()
-        .ok_or_else(|| exec_datafusion_err!("expected argument field"))?;
-
-    try_field_as_variant_array(variant_field.as_ref())?;
-
-    let out = match (variant_arg, path_arg) {
-        (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(path_scalar)) => {
-            let Some(path) = path_from_scalar(path_scalar)? else {
-                let nulls = (0..variant_array.len()).map(|_| None).collect();
-                return Ok(ColumnarValue::Array(array_from_values(nulls)));
-            };
-            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-            let values = variant_get_array_values(&variant_array, &path, extract)?;
-            ColumnarValue::Array(array_from_values(values))
-        }
-        (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Scalar(path_scalar)) => {
-            let ScalarValue::Struct(variant_array) = scalar_variant else {
-                return exec_err!("expected struct array");
-            };
-
-            let Some(path) = path_from_scalar(path_scalar)? else {
-                return Ok(ColumnarValue::Scalar(scalar_from_option(None)));
-            };
-            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-            let value = variant_get_single_value(&variant_array, 0, &path, extract)?;
-
-            ColumnarValue::Scalar(scalar_from_option(value))
-        }
-        (ColumnarValue::Array(variant_array), ColumnarValue::Array(paths)) => {
-            if variant_array.len() != paths.len() {
-                return exec_err!("expected variant array and paths to be of same length");
-            }
-
-            let paths = try_parse_string_columnar(paths)?;
-            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-
-            let values = variant_array
-                .iter()
-                .zip(paths)
-                .map(|(variant, path_str)| {
-                    let Some(path_str) = path_str else {
-                        return Ok(None);
-                    };
-                    let path = parse_variant_path(path_str, true)?;
-
-                    let Some(variant) = variant else {
-                        return Ok(None);
-                    };
-                    let Some(value) = variant.get_path(&path) else {
-                        return Ok(None);
-                    };
-
-                    extract(value)
-                })
-                .collect::<Result<_>>()?;
-
-            ColumnarValue::Array(array_from_values(values))
-        }
-        (ColumnarValue::Scalar(scalar_variant), ColumnarValue::Array(paths)) => {
-            let ScalarValue::Struct(variant_array) = scalar_variant else {
-                return exec_err!("expected struct array");
-            };
-
-            let variant_array = VariantArray::try_new(variant_array.as_ref())?;
-            let paths = try_parse_string_columnar(paths)?;
-
-            let values = paths
-                .iter()
-                .map(|path_str| {
-                    let Some(path_str) = path_str else {
-                        return Ok(None);
-                    };
-                    let path = parse_variant_path(path_str, true)?;
-                    variant_get_single_value(&variant_array, 0, &path, extract)
-                })
-                .collect::<Result<_>>()?;
-
-            ColumnarValue::Array(array_from_values(values))
-        }
-    };
-
-    Ok(out)
 }
 
 /// This is similar to anyhow's ensure! macro
