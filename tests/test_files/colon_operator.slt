@@ -103,6 +103,7 @@ CREATE TABLE nested AS SELECT parse_json(column1) AS v FROM VALUES
   ('{"a": 7}'),
   (NULL);
 
+# Expect to see a single variant_get call 
 query TT
 EXPLAIN SELECT v:a:b, v:a:b:c[1]:d, v:a.b:c[1]['d'], v:['x.y']:z, v:a:b:c[1]:d::INT AS d_int FROM nested;
 ----

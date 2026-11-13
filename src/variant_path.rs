@@ -59,8 +59,8 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
 
 /// Combine two path strings into one equivalent rooted path
 ///
-/// The result is such that `variant_get(variant_get(v, inner), outer)` equals
-/// `variant_get(v, combined)`.
+/// The result is a path such that `variant_get(variant_get(v, inner), outer)`
+/// equals `variant_get(v, combined)` if such a path exists.
 ///
 /// For example
 ///
@@ -71,8 +71,7 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
 ///
 /// Returns an error if either path is invalid.
 ///
-/// Returns `None` if the combination can not be written as a rooted path, in
-/// which case the nested calls must be kept.
+/// Returns `None` if the combination can not be written as a rooted path.
 pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Result<Option<String>> {
     let inner = parse_variant_path(inner, true)?;
     let outer = parse_variant_path(outer, true)?;
