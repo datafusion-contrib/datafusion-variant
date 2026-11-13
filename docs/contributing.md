@@ -40,6 +40,12 @@ pip install -r docs/requirements.txt
 sphinx-build -W --keep-going -b html docs target/docs
 ```
 
+Or, if you have [uv] installed, build without setting up a Python environment:
+
+```sh
+uvx --with-requirements docs/requirements.txt --from sphinx sphinx-build -W --keep-going -b html docs target/docs
+```
+
 Then open `target/docs/index.html`. CI runs the same build, and warnings such as
 broken links between pages fail it.
 
@@ -51,3 +57,4 @@ See [Benchmarks](benchmarks.md) for the function benchmarks and JSONBench.
 [issue-tracker]: https://github.com/datafusion-contrib/datafusion-variant/issues
 [roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
 [Sphinx]: https://www.sphinx-doc.org/
+[uv]: https://docs.astral.sh/uv/
