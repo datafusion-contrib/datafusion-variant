@@ -15,10 +15,10 @@ Run the commands below from the repository root.
 
 ## Preparing the data
 
-`load.sh <layout>` converts Bluesky files 1 to 10 (10M rows) to one Parquet
-file each in `data/jsonbench/<layout>`, such as
-`data/jsonbench/mixed/file_0001.parquet`. It downloads missing Bluesky files to
-`data/bluesky` (about 135 MB each):
+By default, `load.sh <layout>` converts Bluesky files 1 to 10 (10M rows) to
+Parquet files in `data/jsonbench/<layout>`, such as
+`data/jsonbench/mixed/file_0001.parquet`. It downloads any missing Bluesky files
+to `data/bluesky` (about 135 MB each):
 
 ```sh
 cargo build --release --bin dfv
@@ -27,31 +27,17 @@ cargo build --release --bin dfv
 ./benchmarks/jsonbench/load.sh mixed
 ```
 
-The script downloads and converts as many files at once as the machine has
-cores. It skips Parquet files that are already written, so run it again
-to pick up an interrupted load or to retry files that failed. To convert a
-layout again from scratch, delete its directory.
-
-Environment variables change the defaults:
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `DFV` | `target/release/dfv` | The `dfv` binary to run |
-| `NUM_FILES` | `10` | Convert Bluesky files 1 to `NUM_FILES`, at most 100 (100M rows) |
-| `JOBS` | Number of cores | Files to download and convert at once |
-| `DFV_BSKY_DIR` | `data/bluesky` | Where the Bluesky files are downloaded |
-
-For example, to load all 100M rows with a `dfv` on the `PATH`:
+The script can be configured in various way, for example to convert all 100M rows use
 
 ```sh
-DFV=dfv NUM_FILES=100 ./benchmarks/jsonbench/load.sh mixed
+NUM_FILES=100 ./benchmarks/jsonbench/load.sh mixed
 ```
 
-The script writes Snappy Parquet with 65,536-row row groups and 1M rows per
-file. Fields a layout does not shred stay in the residual Variant. Shredded
-strings are `VARCHAR` and `time_us` is `BIGINT`. Some source documents are
-truncated, so the script parses with `try_parse_json`, which stores them as
-NULL.
+See the script source for more options.
+
+The resulting Parquet files are Snappy encoded with 65,536-rows in each row
+group and 1M rows per file.  Shredded strings are stored as `VARCHAR` and
+`time_us` is `BIGINT`. Note that some source documents are truncated.
 
 JSONBench also reports how much storage each layout takes:
 
