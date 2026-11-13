@@ -15,20 +15,20 @@ Run the commands below from the repository root.
 
 ## Preparing the data
 
-Each layout's `load.sh` converts Bluesky files 1 to 10 (10M rows) to one
-Parquet file each in `data/jsonbench/<layout>`, such as
+`load.sh <layout>` converts Bluesky files 1 to 10 (10M rows) to one Parquet
+file each in `data/jsonbench/<layout>`, such as
 `data/jsonbench/mixed/file_0001.parquet`. It downloads missing Bluesky files to
 `data/bluesky` (about 135 MB each):
 
 ```sh
 cargo build --release --bin dfv
-./benchmarks/jsonbench/unshredded/load.sh
-./benchmarks/jsonbench/shredded/load.sh
-./benchmarks/jsonbench/mixed/load.sh
+./benchmarks/jsonbench/load.sh unshredded
+./benchmarks/jsonbench/load.sh shredded
+./benchmarks/jsonbench/load.sh mixed
 ```
 
-The scripts download and convert as many files at once as the machine has
-cores. They skip Parquet files that are already written, so run a script again
+The script downloads and converts as many files at once as the machine has
+cores. It skips Parquet files that are already written, so run it again
 to pick up an interrupted load or to retry files that failed. To convert a
 layout again from scratch, delete its directory.
 
@@ -44,13 +44,13 @@ Environment variables change the defaults:
 For example, to load all 100M rows with a `dfv` on the `PATH`:
 
 ```sh
-DFV=dfv NUM_FILES=100 ./benchmarks/jsonbench/mixed/load.sh
+DFV=dfv NUM_FILES=100 ./benchmarks/jsonbench/load.sh mixed
 ```
 
-The scripts write Snappy Parquet with 65,536-row row groups and 1M rows per
+The script writes Snappy Parquet with 65,536-row row groups and 1M rows per
 file. Fields a layout does not shred stay in the residual Variant. Shredded
 strings are `VARCHAR` and `time_us` is `BIGINT`. Some source documents are
-truncated, so the scripts parse with `try_parse_json`, which stores them as
+truncated, so the script parses with `try_parse_json`, which stores them as
 NULL.
 
 JSONBench also reports how much storage each layout takes:

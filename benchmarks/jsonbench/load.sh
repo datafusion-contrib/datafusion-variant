@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# Writes the Bluesky files as Parquet Variant, one Parquet file per Bluesky
-# file. This is meant to be run via a benchmark setup script like this
+# Writes the Bluesky files to data/jsonbench/<layout> as Parquet Variant, one
+# Parquet file per Bluesky file. Run from the repository root:
 #
-#   ./benchmarks/jsonbench/mixed/load.sh
+#   ./benchmarks/jsonbench/load.sh mixed
 #
 # Files that are already written are skipped, so an interrupted load picks up
 # where it left off.
 #
-# Usage: load_layout.sh <unshredded|shredded|mixed> [file number]
+# Usage: load.sh <unshredded|shredded|mixed> [file number]
 #
 # With a file number, converts only that file. Environment variables:
 #
