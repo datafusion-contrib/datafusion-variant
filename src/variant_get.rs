@@ -223,9 +223,9 @@ fn return_field_for_variant_get(
     ))
 }
 
-/// Extracts the path expression as a literal string if possible
+/// Extracts the path expression as a literal string, if possible.
 ///
-/// If expr is NULL. returns "" the equivalent JSON path (selects the root)
+/// A NULL string literal returns `""`, as both select the root at execution.
 fn literal_path(expr: &Expr) -> Option<&str> {
     let Expr::Literal(value, _) = expr else {
         return None;
@@ -233,7 +233,7 @@ fn literal_path(expr: &Expr) -> Option<&str> {
     Some(value.try_as_str()?.unwrap_or_default())
 }
 
-/// Collapse nested `variant_get` or `try_variant_get`  calls into a single
+/// Collapse nested `variant_get` or `try_variant_get` calls into a single
 /// call with a combined path.
 ///
 /// Takes the arguments of the outer call and returns its new arguments, or the
