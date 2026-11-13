@@ -177,14 +177,13 @@ SELECT request:user-agent FROM requests;
 ```
 -->
 
-Write `:` once, and quote names that are not plain SQL identifiers:
+Chaining `:` reads the same path, so `request:user:roles[0]` returns the same
+value as `request:user.roles[0]`. These forms do not work as expected:
 
-| Write                    | Not                        | Because                                                                                                                       |
-|--------------------------|----------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `request:user.roles[0]`  | `request:user:roles[0]`    | Each `:` is a separate lookup, so this reads the whole `user` object first. Same value, but slower, especially when shredded ([#176]). |
-| `request:user.roles[0]`  | `request.user.roles[0]`    | Without `:`, `.` is struct field access on the Variant's Arrow storage, which fails with `Field user not found in struct`.    |
-| `request:['user-agent']` | `request:user-agent`       | `-` subtracts a column named `agent` from `request:user`.                                                                     |
-| `request:['user-agent']` | `` request:`user-agent` `` | Backtick-quoted names return SQL NULL for now, while Spark selects the field ([#141]).                                        |
+| Write                    | Not                        | Because                                                                                                                    |
+|--------------------------|----------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `request:user.roles[0]`  | `request.user.roles[0]`    | Without `:`, `.` is struct field access on the Variant's Arrow storage, which fails with `Field user not found in struct`. |
+| `request:['user-agent']` | `request:user-agent`       | `-` subtracts a column named `agent` from `request:user`.                                                                  |
+| `request:['user-agent']` | `` request:`user-agent` `` | Backtick-quoted names return SQL NULL for now, while Spark selects the field ([#141]).                                     |
 
 [#141]: https://github.com/datafusion-contrib/datafusion-variant/issues/141
-[#176]: https://github.com/datafusion-contrib/datafusion-variant/issues/176
