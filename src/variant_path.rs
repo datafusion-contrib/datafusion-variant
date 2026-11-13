@@ -79,11 +79,11 @@ fn parse_rooted_path(path: &str) -> Result<VariantPath<'_>> {
 ///
 /// For example
 ///
-/// | `inner`   | `outer`  | combined     | notes                      |
-/// |-----------|----------|--------------|----------------------------|
-/// | `$.a`     | `$.b`    | `$.a.b`      | field then field           |
-/// | `$.a.b`   | `$.c[1]` | `$.a.b.c[1]` | multiple elements per path |
-/// | `$.a`     | `$`      | `$.a`        | `$` selects the root       |
+/// | `outer`  | `inner`   | combined     | notes                      |
+/// |----------|-----------|--------------|----------------------------|
+/// | `$.b`    | `$.a`     | `$.a.b`      | field then field           |
+/// | `$.c[1]` | `$.a.b`   | `$.a.b.c[1]` | multiple elements per path |
+/// | `$`      | `$.a`     | `$.a`        | `$` selects the root       |
 ///
 /// Returns an error if either path is invalid.
 pub(crate) fn concat_variant_paths(inner: &str, outer: &str) -> Result<String> {
@@ -100,17 +100,21 @@ mod tests {
 
     #[test]
     fn concat_paths() {
-        for (inner, outer, expected) in [
-            ("$.a", "$.b", "$.a.b"),
-            ("$.a.b", "$.c[1]", "$.a.b.c[1]"),
-            ("$.a[0]", "$[1]", "$.a[0][1]"),
-            ("$", "$.a", "$.a"),
-            ("$.a", "$", "$.a"),
-            ("$", "$", "$"),
-            ("$['x.y']", "$.z", "$['x.y'].z"),
-            ("$.a", "$['a[0]']", "$.a['a[0]']"),
-            (r#"$["it's.x"]"#, "$['']", r#"$["it's.x"]['']"#),
-        ] {
+        #[rustfmt::skip]
+        let cases = [
+            // inner,          outer,        expected
+            ("$.a",            "$.b",        "$.a.b"),
+            ("$.a.b",          "$.c[1]",     "$.a.b.c[1]"),
+            ("$.a[0]",         "$[1]",       "$.a[0][1]"),
+            ("$",              "$.a",        "$.a"),
+            ("$.a",            "$",          "$.a"),
+            ("$",              "$",          "$"),
+            ("$['x.y']",       "$.z",        "$['x.y'].z"),
+            ("$.a",            "$['a[0]']",  "$.a['a[0]']"),
+            (r#"$["it's.x"]"#, "$['']",      r#"$["it's.x"]['']"#),
+        ];
+
+        for (inner, outer, expected) in cases {
             let combined = concat_variant_paths(inner, outer).unwrap();
             assert_eq!(combined, expected, "{inner:?} + {outer:?}");
             // The combined path parses to the elements of both inputs.
@@ -126,7 +130,16 @@ mod tests {
 
     #[test]
     fn concat_invalid_paths() {
-        for (inner, outer) in [("$.a", "$bad"), ("$[", "$.a"), ("$.a", "b"), ("", "$.a")] {
+        #[rustfmt::skip]
+        let cases = [
+            // inner, outer
+            ("$.a",   "$bad"),
+            ("$[",    "$.a"),
+            ("$.a",   "b"),
+            ("",      "$.a"),
+        ];
+
+        for (inner, outer) in cases {
             let err = concat_variant_paths(inner, outer).unwrap_err();
             assert!(
                 err.to_string().contains("invalid Variant path"),
