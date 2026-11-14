@@ -61,9 +61,9 @@ as well, so passing several query files times each of them.
 
 ## Queries
 
-The queries extract `VARCHAR` and `BIGINT` values with
-`variant_get(data, path, type)`, report UTC hours, and order ties
-deterministically. Q5 divides each positive epoch-microsecond endpoint by 1,000
+The queries extract `VARCHAR` and `BIGINT` values with the `:` operator and a
+cast, such as `data:commit.collection::VARCHAR`, report UTC hours, and order
+ties deterministically. Q5 divides each positive epoch-microsecond endpoint by 1,000
 before subtracting, to count millisecond boundaries as ClickHouse's `dateDiff`
 does.
 
