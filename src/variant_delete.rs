@@ -40,7 +40,7 @@ use crate::variant_type::variant_field;
     argument(name = "v", description = "Variant expression to update."),
     argument(
         name = "path",
-        description = "String expression identifying a field or array element."
+        description = "String expression identifying a field or array element. See [Variant paths](paths.md)."
     )
 )]
 #[derive(Debug, Hash, PartialEq, Eq)]

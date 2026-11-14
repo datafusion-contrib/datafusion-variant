@@ -375,7 +375,7 @@ type hint or cast target to retain a Variant result.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = r#"String expression starting with `$`, such as `$.a.b[0]`. `$` selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Quoted keys preserve backslashes (Spark 4.2)."#
+        description = "String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md)."
     ),
     argument(
         name = "type",
@@ -534,7 +534,7 @@ getter or colon access uses the same conversion policy as `try_variant_get`.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = "String expression using the path syntax described for `variant_get`."
+        description = "String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md)."
     ),
     argument(
         name = "type",

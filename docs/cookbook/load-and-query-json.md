@@ -65,6 +65,8 @@ WHERE variant_get(event, '$.status', 'BIGINT') >= 400;
 +---------+------------+
 ```
 
+See [Variant paths](../paths.md) for the path syntax.
+
 ## Convert Variant to JSON
 
 `to_json` converts Variant values to JSON strings. To return the entire `event`
