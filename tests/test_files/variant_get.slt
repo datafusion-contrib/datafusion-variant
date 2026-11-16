@@ -157,13 +157,85 @@ logical_plan
 01)Projection: variant_get(variant_get(nested.v, Utf8("$.a"), Utf8("VARIANT")), Utf8("$.b"))
 02)--TableScan: nested projection=[v]
 
-# Non-literal paths are kept.
+# Non-literal paths are not collapsed. The inner getter, with its literal
+# path, is still moved towards the scan (see the placement tests below).
 query TT
 EXPLAIN SELECT variant_get(variant_get(v, '$.a'), p) FROM nested, (SELECT '$.b' AS p);
 ----
 logical_plan
-01)Projection: variant_get(variant_get(nested.v, Utf8("$.a")), p)
+01)Projection: variant_get(__datafusion_extracted_1, p) AS variant_get(nested.v:a,p)
 02)--Cross Join:
-03)----TableScan: nested projection=[v]
-04)----Projection: Utf8("$.b") AS p
-05)------EmptyRelation: rows=1
+03)----Projection: variant_get(nested.v, Utf8("$.a")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+05)----Projection: Utf8("$.b") AS p
+06)------EmptyRelation: rows=1
+
+# A getter on a column with a literal path is placed towards the scan, as
+# `get_field` is, so DataFusion lifts it out of aggregates, group keys and
+# sorts into a projection directly above the scan. A Parquet source can then
+# merge it into its own projection. Only getters that cannot fail on a row
+# move: `try_variant_get`, and `variant_get` without a conversion.
+query TT
+EXPLAIN SELECT avg(try_variant_get(v, '$.a', 'BIGINT')) FROM nested;
+----
+logical_plan
+01)Projection: avg(__datafusion_extracted_1) AS avg(try_variant_get(nested.v,Utf8("$.a"),Utf8("BIGINT")))
+02)--Aggregate: groupBy=[[]], aggr=[[avg(CAST(__datafusion_extracted_1 AS Float64))]]
+03)----Projection: try_variant_get(nested.v, Utf8("$.a"), Utf8("BIGINT")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+
+query TT
+EXPLAIN SELECT v:a:b, count(*) FROM nested GROUP BY 1;
+----
+logical_plan
+01)Projection: nested.v:a:b, count(Int64(1)) AS count(*)
+02)--Aggregate: groupBy=[[__datafusion_extracted_1 AS nested.v:a:b]], aggr=[[count(Int64(1))]]
+03)----Projection: variant_get(nested.v, Utf8("$.a.b")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+
+query TT
+EXPLAIN SELECT to_json(v) FROM nested ORDER BY try_variant_get(v, '$.a', 'BIGINT') DESC LIMIT 2;
+----
+logical_plan
+01)Projection: to_json(nested.v)
+02)--Sort: __datafusion_extracted_1 DESC NULLS FIRST, fetch=2
+03)----Projection: to_json(nested.v), try_variant_get(nested.v, Utf8("$.a"), Utf8("BIGINT")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+
+# Results do not change with the getter moved.
+query R
+SELECT avg(try_variant_get(v, '$.a', 'BIGINT')) FROM nested;
+----
+7
+
+query TI
+SELECT to_json(v:a:b), count(*) FROM nested GROUP BY 1 ORDER BY 1;
+----
+null 1
+{"c":[1,{"d":5}]} 1
+NULL 2
+
+# A converting `variant_get` stays where it is: moved below the filter it
+# would raise on the rows the filter drops.
+query TT
+EXPLAIN SELECT avg(variant_get(v, '$.a', 'BIGINT')) FROM nested WHERE v:a:b IS NULL;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[avg(CAST(variant_get(nested.v, Utf8("$.a"), Utf8("BIGINT")) AS Float64))]]
+02)--Projection: nested.v
+03)----Filter: __datafusion_extracted_1 IS NULL
+04)------Projection: variant_get(nested.v, Utf8("$.a.b")) AS __datafusion_extracted_1, nested.v
+05)--------TableScan: nested projection=[v]
+
+query R
+SELECT avg(variant_get(v, '$.a', 'BIGINT')) FROM nested WHERE v:a:b IS NULL;
+----
+7
+
+# A getter over a computed input stays where it is.
+query TT
+EXPLAIN SELECT avg(try_variant_get(parse_json(to_json(v)), '$.a', 'BIGINT')) FROM nested;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[avg(CAST(try_variant_get(parse_json(to_json(nested.v)), Utf8("$.a"), Utf8("BIGINT")) AS Float64))]]
+02)--TableScan: nested projection=[v]

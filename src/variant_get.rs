@@ -11,8 +11,8 @@ use datafusion::{
     common::{config::ConfigOptions, exec_datafusion_err, exec_err, tree_node::Transformed},
     error::{DataFusionError, Result},
     logical_expr::{
-        ColumnarValue, Expr, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl,
-        Signature, TypeSignature, Volatility,
+        ColumnarValue, Expr, ExpressionPlacement, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF,
+        ScalarUDFImpl, Signature, TypeSignature, Volatility,
         expr::ScalarFunction,
         lit,
         simplify::{ExprSimplifyResult, SimplifyContext},
@@ -316,6 +316,36 @@ where
     Ok(ExprSimplifyResult::Simplified(getter.call(args.data)))
 }
 
+/// Shared [`ScalarUDFImpl::placement`] for the getters.
+///
+/// A getter whose input is a column (or an expression already placed at the
+/// leaves) and whose path and type hint are literals is moved towards the
+/// scan, as `get_field` is. DataFusion's `ExtractLeafExpressions` rule then
+/// lifts it out of `Aggregate`, `Sort` and `Join` into a projection directly
+/// above the `TableScan`, where a source can merge it into its own projection.
+/// Anything else stays where the query placed it.
+///
+/// The rule also moves the getter below filters, so it runs on rows the query
+/// would have dropped. Only getters that cannot fail on a row may therefore
+/// move: `try_variant_get`, and `variant_get` without a conversion. A
+/// `variant_get` with a type hint or a cast target raises on a value that does
+/// not convert and keeps its place, so that a `WHERE` can still guard it.
+fn getter_placement(args: &[ExpressionPlacement]) -> ExpressionPlacement {
+    let Some((input, rest)) = args.split_first() else {
+        return ExpressionPlacement::KeepInPlace;
+    };
+    let input_is_pushable = matches!(
+        input,
+        ExpressionPlacement::Column | ExpressionPlacement::MoveTowardsLeafNodes
+    );
+    let rest_are_literals = rest.iter().all(|p| *p == ExpressionPlacement::Literal);
+    if input_is_pushable && rest_are_literals {
+        ExpressionPlacement::MoveTowardsLeafNodes
+    } else {
+        ExpressionPlacement::KeepInPlace
+    }
+}
+
 /// Extracts a Variant value, returning an error for failed result-type conversions.
 ///
 /// `variant_get(value, path[, type])` accepts a SQL type string literal, such as
@@ -475,6 +505,14 @@ impl ScalarUDFImpl for VariantGetUdf {
         simplify_getter(self, args)
     }
 
+    fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
+        // A conversion (type hint or cast target) raises on a bad value.
+        if !self.is_untyped() || args.len() != 2 {
+            return ExpressionPlacement::KeepInPlace;
+        }
+        getter_placement(args)
+    }
+
     fn invoke_with_args(
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
@@ -617,6 +655,10 @@ impl ScalarUDFImpl for TryVariantGetUdf {
 
     fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
         simplify_getter(self, args)
+    }
+
+    fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
+        getter_placement(args)
     }
 
     fn invoke_with_args(
