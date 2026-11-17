@@ -1,8 +1,8 @@
 # Variant paths
 
 `variant_get`, `try_variant_get`, `variant_delete`, and the `:` operator use a
-path to select a value inside a Variant. Paths follow the Spark 4.2 syntax, a
-small subset of [JSONPath](https://www.rfc-editor.org/rfc/rfc9535.html).
+path to select a value inside a Variant. Paths follow the Spark 4.2 syntax,
+which is based on [JSONPath](https://www.rfc-editor.org/rfc/rfc9535.html).
 
 The examples on this page use this table:
 
@@ -69,8 +69,10 @@ FROM (SELECT parse_json('{"a]b": 1, "a\\b": 2, "it''s": 3, "*": 4}') AS v);
 
 ## NULLs and errors
 
-A path that does not match the value returns SQL NULL, and so does a SQL NULL
-path. The path can be any string expression, such as a column:
+In `variant_get`, `try_variant_get`, and `:`, a path that does not match the
+value returns SQL NULL, and so does a SQL NULL path. `variant_delete` instead
+leaves the value unchanged and skips a NULL path. The path can be any string
+expression, such as a column:
 
 ```sql
 SELECT path, variant_get(request, path, 'VARCHAR') AS value
@@ -139,7 +141,8 @@ FROM requests;
 +------------+--------+
 ```
 
-Chaining `:` reads the same path. Backtick-quoted names return SQL NULL for now,
+`request:user:roles[0]` reads the same path as `request:user.roles[0]`.
+Backtick-quoted names return SQL NULL for now,
 while Spark selects the field
 ([#141](https://github.com/datafusion-contrib/datafusion-variant/issues/141)),
 so quote them with brackets instead:
