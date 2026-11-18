@@ -4,6 +4,8 @@
 path to select a value inside a Variant. Paths follow the Spark 4.2 syntax,
 which is based on [JSONPath](https://www.rfc-editor.org/rfc/rfc9535.html).
 
+<!-- TODO: link the `VariantPath` docs on docs.rs when https://github.com/apache/arrow-rs/pull/12247 is released -->
+
 The examples on this page use this table:
 
 ```sql
