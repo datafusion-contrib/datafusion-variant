@@ -15,7 +15,8 @@ SELECT parse_json('{
     "roles": ["admin", "dev"]
   },
   "http.status": 200,
-  "user-agent": "curl"
+  "user-agent": "curl",
+  "trace\\id": "abc"
 }') AS request;
 ```
 
@@ -47,38 +48,43 @@ FROM requests;
 ```
 
 `$.http.status` looks for a field `status` inside an object `http`, so quote a
-name that contains `.` or `[`. Unlike JSONPath, `\` inside quotes is not an
-escape character, and paths have no wildcards, slices, filters, negative
-indexes, or recursive descent (`..`), so `$.*` selects a field named `*`:
+name that contains `.` or `[`.
+
+Unlike JSONPath, paths have no wildcards, slices, filters, negative indexes, or
+recursive descent (`..`), so `$.*` selects a field named `*`.
+
+## Escaping
+
+Paths have no escape sequences. Unlike JSONPath, `\` inside quotes is an ordinary
+character, so `$["trace\id"]` selects the field named `trace\id`. To select a
+name that contains a quote, put it inside the other kind of quote.
 
 ```sql
-SELECT variant_get(v, '$["a]b"]', 'INT') AS bracket,
-       variant_get(v, '$["a\b"]', 'INT') AS backslash,
-       variant_get(v, '$["it''s"]', 'INT') AS quote,
-       variant_get(v, '$.*', 'INT') AS star
-FROM (SELECT parse_json('{"a]b": 1, "a\\b": 2, "it''s": 3, "*": 4}') AS v);
+SELECT variant_get(request, '$["http.status"]', 'INT') AS status,
+       variant_get(request, '$["trace\id"]', 'VARCHAR') AS trace_id
+FROM requests;
 ```
 
 ```text
-+---------+-----------+-------+------+
-| bracket | backslash | quote | star |
-+---------+-----------+-------+------+
-| 1       | 2         | 3     | 4    |
-+---------+-----------+-------+------+
++--------+----------+
+| status | trace_id |
++--------+----------+
+| 200    | abc      |
++--------+----------+
 ```
 
-## NULLs and errors
+## Missing paths and errors
 
-In `variant_get`, `try_variant_get`, and `:`, a path that does not match the
-value returns SQL NULL, and so does a SQL NULL path. `variant_delete` instead
-leaves the value unchanged and skips a NULL path. The path can be any string
-expression, such as a column:
+A path that does not exist returns NULL. See
+[Tell SQL NULL from Variant null](cookbook/common-pitfalls.md#tell-sql-null-from-variant-null)
+for how this differs from a JSON `null`. The path can be any string expression,
+such as a column:
 
 ```sql
 SELECT path, variant_get(request, path, 'VARCHAR') AS value
 FROM requests,
-     (VALUES ('$.service'), ('$.User'), ('$.user.name'),
-             ('$.user.roles[2]'), ('$.user.roles.id'), (NULL)) AS paths(path)
+     (VALUES ('$.service'), ('$.User'), ('$.user.roles[2]'),
+             ('$.user.roles.id'), ('$.*')) AS paths(path)
 ORDER BY path;
 ```
 
@@ -86,12 +92,11 @@ ORDER BY path;
 +-----------------+-------+
 | path            | value |
 +-----------------+-------+
+| $.*             | NULL  |
 | $.User          | NULL  |
 | $.service       | api   |
-| $.user.name     | NULL  |
 | $.user.roles.id | NULL  |
 | $.user.roles[2] | NULL  |
-| NULL            | NULL  |
 +-----------------+-------+
 ```
 
@@ -123,7 +128,7 @@ element.
 
 ## The `:` operator
 
-`value:path` is shorthand for `variant_get`. Thus,`request:user.roles[0]` reads the path
+`value:path` is shorthand for `variant_get`. Thus, `request:user.roles[0]` reads the path
 `$.user.roles[0]`, and `request:['http.status']` reads the path `$['http.status']`:
 
 ```sql
@@ -161,23 +166,5 @@ FROM requests;
 +---------+----------+---------+
 ```
 
-<!-- readme-test: error: Field user not found in struct -->
-<!--
-```sql
-SELECT request.user.roles[0] FROM requests;
-```
--->
-
-<!-- readme-test: error: No field named agent -->
-<!--
-```sql
-SELECT request:user-agent FROM requests;
-```
--->
-
-These forms fail:
-
-| Write                    | Not                     | Because                                                                                                                    |
-|--------------------------|-------------------------|----------------------------------------------------------------------------------------------------------------------------|
-| `request:user.roles[0]`  | `request.user.roles[0]` | Without `:`, `.` is struct field access on the Variant's Arrow storage, which fails with `Field user not found in struct`. |
-| `request:['user-agent']` | `request:user-agent`    | `-` subtracts a column named `agent` from `request:user`, which fails with `No field named agent`.                         |
+See [Common pitfalls](cookbook/common-pitfalls.md#read-variant-fields-with-the-colon-operator)
+for `:` forms that fail.

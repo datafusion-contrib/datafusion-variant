@@ -111,3 +111,26 @@ ORDER BY status;
 | 504    | false         | false                 |
 +--------+---------------+-----------------------+
 ```
+
+## Read Variant fields with the colon operator
+
+<!-- readme-test: error: Field tags not found in struct -->
+<!--
+```sql
+SELECT event.tags[0] FROM events;
+```
+-->
+
+<!-- readme-test: error: No field named agent -->
+<!--
+```sql
+SELECT event:user-agent FROM events;
+```
+-->
+
+These forms fail:
+
+| Write                  | Not                | Because                                                                                                                    |
+|------------------------|--------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `event:tags[0]`        | `event.tags[0]`    | Without `:`, `.` is struct field access on the Variant's Arrow storage, which fails with `Field tags not found in struct`. |
+| `event:['user-agent']` | `event:user-agent` | `-` subtracts a column named `agent` from `event:user`, which fails with `No field named agent`.                           |
