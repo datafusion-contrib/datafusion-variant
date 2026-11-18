@@ -123,9 +123,8 @@ element.
 
 ## The `:` operator
 
-`value:path` is shorthand for `variant_get` with `$.` in front of the path, or
-`$` when the path starts with `[`. So `request:user.roles[0]` reads
-`$.user.roles[0]`, and `request:['http.status']` reads `$['http.status']`:
+`value:path` is shorthand for `variant_get`. Thus,`request:user.roles[0]` reads the path
+`$.user.roles[0]`, and `request:['http.status']` reads the path `$['http.status']`:
 
 ```sql
 SELECT request:user.roles[0]::VARCHAR AS first_role,
