@@ -270,7 +270,7 @@ getter or colon access uses the same conversion policy as `try_variant_get`.
 | --- | --- |
 | **Syntax** | `try_variant_get(value, path[, type])` |
 | **Alternative syntax** | `TRY_CAST(variant_get(value, path) AS type)`<br>`TRY_CAST(value:field AS type)` |
-| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression using the path syntax described for `variant_get`.<br>`type`: Optional non-null SQL type string literal. Defaults to `VARIANT`; accepts the same types as `variant_get`. |
+| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md).<br>`type`: Optional non-null SQL type string literal. Defaults to `VARIANT`; accepts the same types as `variant_get`. |
 | **Related** | [`variant_get`](#variant_get), [`is_variant_null`](#is_variant_null) |
 
 **Example**
@@ -307,7 +307,7 @@ Deletes object fields or array elements at one or more JSONPaths, applied left t
 | | |
 | --- | --- |
 | **Syntax** | `variant_delete(v, path1[, path2, ...])` |
-| **Arguments** | `v`: Variant expression to update.<br>`path`: String expression identifying a field or array element. |
+| **Arguments** | `v`: Variant expression to update.<br>`path`: String expression identifying a field or array element. See [Variant paths](paths.md). |
 
 **Example**
 
@@ -342,7 +342,7 @@ type hint or cast target to retain a Variant result.
 | --- | --- |
 | **Syntax** | `variant_get(value, path[, type])` |
 | **Alternative syntax** | `CAST(variant_get(value, path) AS type)`<br>`value:field`<br>`value:field::type` |
-| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression starting with `$`, such as `$.a.b[0]`. `$` selects the root. Use `$["a.b"]` and `$["$name"]` for literal field names. Quoted keys preserve backslashes (Spark 4.2).<br>`type`: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`. |
+| **Arguments** | `value`: Variant expression to extract from.<br>`path`: String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md).<br>`type`: Optional non-null SQL type string literal, such as `BIGINT`, `DECIMAL(12,2)`, or `ARRAY<INT>`. Defaults to `VARIANT`. |
 | **Related** | [`try_variant_get`](#try_variant_get), [`is_variant_null`](#is_variant_null) |
 
 **Example**
