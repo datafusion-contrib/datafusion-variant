@@ -302,7 +302,9 @@ fn collapse_nested_getters(mut args: Vec<Expr>) -> Result<Transformed<Vec<Expr>>
     Ok(Transformed::yes(args))
 }
 
-/// Shared [`ScalarUDFImpl::simplify`] for the getters. `simplify` only has
+/// Shared [`ScalarUDFImpl::simplify`] for `variant_get` and `try_variant_get`.
+///
+/// `simplify` only has
 /// `&self`, so `getter` is cloned to build the new call, but only on a rewrite.
 fn simplify_getter<T>(getter: &T, args: Vec<Expr>) -> Result<ExprSimplifyResult>
 where
@@ -312,24 +314,46 @@ where
     if !args.transformed {
         return Ok(ExprSimplifyResult::Original(args.data));
     }
+    // Only have `&self`, so must clone `getter`, but only on a rewrite.
+
     let getter = ScalarUDF::new_from_impl(getter.clone());
     Ok(ExprSimplifyResult::Simplified(getter.call(args.data)))
 }
 
-/// Shared [`ScalarUDFImpl::placement`] for the getters.
+/// Controls how `variant_get` and `try_variant_get` are pushed into the scan.
 ///
-/// A getter whose input is a column (or an expression already placed at the
-/// leaves) and whose path and type hint are literals is moved towards the
-/// scan, as `get_field` is. DataFusion's `ExtractLeafExpressions` rule then
-/// lifts it out of `Aggregate`, `Sort` and `Join` into a projection directly
-/// above the `TableScan`, where a source can merge it into its own projection.
-/// Anything else stays where the query placed it.
+/// In the example below, without additional placement information,
+/// `try_variant_get` is evaluated in the `AggregateExec`, requiring the entire
+/// Variant column to be read and reconstructed by the scan:
 ///
-/// The rule also moves the getter below filters, so it runs on rows the query
-/// would have dropped. Only getters that cannot fail on a row may therefore
-/// move: `try_variant_get`, and `variant_get` without a conversion. A
-/// `variant_get` with a type hint or a cast target raises on a value that does
-/// not convert and keeps its place, so that a `WHERE` can still guard it.
+/// ```text
+/// AggregateExec: aggr=[sum(try_variant_get(t.v, $.x, BIGINT))]
+///   FilterExec: id@0 != 3, projection=[v@1]
+///     DataSourceExec: projection=[id, v]  <-- reads the entire variant column
+/// ```
+///
+/// With [`ExpressionPlacement::MoveTowardsLeafNodes`], `try_variant_get` is
+/// pushed down, out of the `AggregateExec` into the scan itself (where the
+/// source can then read only that field):
+///
+/// ```text
+/// AggregateExec: aggr=[sum(__t)]
+///   FilterExec: id@1 != 3, projection=[__t@0]
+///     DataSourceExec: projection=[try_variant_get(v@1, $.x, BIGINT) as __t, id]   <-- getter is in the scan
+/// ```
+///
+/// By pushing the getter into the scan, the Parquet reader can potentially
+/// optimize reading shredded inputs by reading only the columns needed for the
+/// getter, tracked by XXXX
+///
+/// # Notes
+///
+/// 1. Since the getter is evaluated *before* the `FilterExec`
+/// potentially on rows the filter removes, only getters that never error may be
+/// pushed down. Pushing additional functions is tracked by
+/// <https://github.com/datafusion-contrib/datafusion-variant/issues/199>
+///
+/// 2. DataFusion's parquet reader doesn't yet support
 fn getter_placement(args: &[ExpressionPlacement]) -> ExpressionPlacement {
     let Some((input, rest)) = args.split_first() else {
         return ExpressionPlacement::KeepInPlace;
@@ -506,7 +530,16 @@ impl ScalarUDFImpl for VariantGetUdf {
     }
 
     fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
-        // A conversion (type hint or cast target) raises on a bad value.
+        // A conversion (type hint or cast target) errors on a value that does
+        // not convert, so `variant_get` with a conversion can't be pushed down:
+        // below a filter it would error on rows the filter removes. For example
+        // this query must not fail when only the row with `id = 3` has an `x`
+        // that is not a BIGINT:
+        //
+        //   SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM t WHERE id != 3
+        //
+        // Pushing down the typed form is tracked in
+        // https://github.com/datafusion-contrib/datafusion-variant/issues/199
         if !self.is_untyped() || args.len() != 2 {
             return ExpressionPlacement::KeepInPlace;
         }
@@ -658,6 +691,8 @@ impl ScalarUDFImpl for TryVariantGetUdf {
     }
 
     fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
+        // `try_variant_get` returns NULL rather than erroring on a value that
+        // does not convert, so it can always be pushed down below filters.
         getter_placement(args)
     }
 
