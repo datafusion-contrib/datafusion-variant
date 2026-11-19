@@ -62,7 +62,7 @@ You can read `events.parquet` back with the Variant column preserved. The same
 query works with `shredded_events.parquet`.
 
 ```sql
-SELECT variant_get(event, '$.service', 'VARCHAR') AS service,
+SELECT event:service::VARCHAR AS service,
        event:tags[0]::VARCHAR AS first_tag -- Array indexing via `[]` operator
 FROM 'events.parquet'
 ORDER BY event:status::BIGINT;

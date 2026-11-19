@@ -100,7 +100,7 @@ SELECT residual_json(request) AS "request (residual)",
        residual_json(request, 'detail') AS "request.detail (residual)",
        request['typed_value']['detail']['typed_value']['latency_ms']['typed_value'] AS "request.detail.latency_ms",
        CASE WHEN request['typed_value']['tags']['typed_value'] IS NOT NULL
-            THEN to_json(variant_get(request, '$.tags')) END AS "request.tags"
+            THEN to_json(request:tags) END AS "request.tags"
 FROM 'shredded_requests.parquet';
 ```
 -->
