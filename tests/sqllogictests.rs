@@ -46,6 +46,7 @@ impl AsyncDB for TestDatabase {
         let df = display::format_for_display(df, options)?;
         let schema = Arc::clone(df.schema().inner());
         let rows = convert_batches(&schema, df.collect().await?, false)?;
+        let rows = normalize_paths(rows);
         if rows.is_empty() && types.is_empty() {
             Ok(DBOutput::StatementComplete(0))
         } else {
@@ -62,6 +63,20 @@ impl AsyncDB for TestDatabase {
     }
 
     async fn shutdown(&mut self) {}
+}
+
+/// Replaces the absolute path of this crate with `WORKSPACE_ROOT` so that
+/// plans which include file paths (e.g. `EXPLAIN` of a Parquet scan) are the
+/// same on all machines.
+fn normalize_paths(mut rows: Vec<Vec<String>>) -> Vec<Vec<String>> {
+    // Plans show paths without the leading `/`
+    let workspace_root = env!("CARGO_MANIFEST_DIR").trim_start_matches('/');
+    for value in rows.iter_mut().flatten() {
+        if value.contains(workspace_root) {
+            *value = value.replace(workspace_root, "WORKSPACE_ROOT");
+        }
+    }
+    rows
 }
 
 fn register_shredded_null_fixture(
