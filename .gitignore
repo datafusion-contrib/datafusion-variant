@@ -3,3 +3,5 @@
 profile.json.gz
 # REPL history written by datafusion-cli (e.g. by the dfv tests)
 .history
+# Files written by the sqllogictests
+/tests/test_files/scratch
