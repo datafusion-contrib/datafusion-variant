@@ -1,0 +1,238 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Tests that `variant_get` and `try_variant_get` are pushed down into the
+# Parquet scan, so the source can read only the requested
+# field rather than the entire Variant column.
+
+# Use a single partition to keep the plans deterministic across machines
+statement ok
+SET datafusion.execution.target_partitions = 1;
+
+# `x` is a BIGINT in every row except `id = 3`
+statement ok
+CREATE TABLE t AS
+SELECT column1 AS id, parse_json(column2) AS v FROM VALUES
+  (1, '{"x": 1, "y": "a"}'),
+  (2, '{"x": 2, "y": "b"}'),
+  (3, '{"x": [1, "two"], "y": "a"}'),
+  (4, '{"x": 4}');
+
+# Write a Parquet file with `x` shredded as a BIGINT
+query I
+COPY t TO 'tests/test_files/scratch/pushdown/t.parquet' STORED AS PARQUET
+OPTIONS ('variant.shredding' '{"v":"STRUCT<x BIGINT>"}');
+----
+4
+
+statement ok
+CREATE EXTERNAL TABLE p STORED AS PARQUET LOCATION 'tests/test_files/scratch/pushdown/t.parquet';
+
+###
+# try_variant_get: never errors, so it is always pushed down to the scan
+###
+
+# projection
+query I rowsort
+SELECT try_variant_get(v, '$.x', 'BIGINT') FROM p;
+----
+1
+2
+4
+NULL
+
+query TT
+EXPLAIN SELECT try_variant_get(v, '$.x', 'BIGINT') FROM p;
+----
+logical_plan
+01)Projection: try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT"))
+02)--TableScan: p projection=[v]
+physical_plan DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[try_variant_get(v@1, $.x, BIGINT) as try_variant_get(p.v,Utf8("$.x"),Utf8("BIGINT"))], file_type=parquet
+
+# aggregate
+query I
+SELECT sum(try_variant_get(v, '$.x', 'BIGINT')) FROM p;
+----
+7
+
+query TT
+EXPLAIN SELECT sum(try_variant_get(v, '$.x', 'BIGINT')) FROM p;
+----
+logical_plan
+01)Projection: sum(__datafusion_extracted_1) AS sum(try_variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))
+02)--Aggregate: groupBy=[[]], aggr=[[sum(__datafusion_extracted_1)]]
+03)----Projection: try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")) AS __datafusion_extracted_1
+04)------TableScan: p projection=[v]
+physical_plan
+01)ProjectionExec: expr=[sum(__datafusion_extracted_1)@0 as sum(try_variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
+02)--AggregateExec: mode=Single, gby=[], aggr=[sum(__datafusion_extracted_1)]
+03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1], file_type=parquet
+
+# aggregate + filter
+query I
+SELECT sum(try_variant_get(v, '$.x', 'BIGINT')) FROM p WHERE id != 3;
+----
+7
+
+query TT
+EXPLAIN SELECT sum(try_variant_get(v, '$.x', 'BIGINT')) FROM p WHERE id != 3;
+----
+logical_plan
+01)Projection: sum(__datafusion_extracted_1) AS sum(try_variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))
+02)--Aggregate: groupBy=[[]], aggr=[[sum(__datafusion_extracted_1)]]
+03)----Projection: __datafusion_extracted_1
+04)------Filter: p.id != Int64(3)
+05)--------Projection: try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")) AS __datafusion_extracted_1, p.id
+06)----------TableScan: p projection=[id, v], partial_filters=[p.id != Int64(3)]
+physical_plan
+01)ProjectionExec: expr=[sum(__datafusion_extracted_1)@0 as sum(try_variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
+02)--AggregateExec: mode=Single, gby=[], aggr=[sum(__datafusion_extracted_1)]
+03)----FilterExec: id@1 != 3, projection=[__datafusion_extracted_1@0]
+04)------DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1, id], file_type=parquet, predicate=id@0 != 3, pruning_predicate=id_null_count@2 != row_count@3 AND (id_min@0 != 3 OR 3 != id_max@1), required_guarantees=[id not in (3)]
+
+# filter
+query I rowsort
+SELECT id FROM p WHERE try_variant_get(v, '$.x', 'BIGINT') > 1;
+----
+2
+4
+
+query TT
+EXPLAIN SELECT id FROM p WHERE try_variant_get(v, '$.x', 'BIGINT') > 1;
+----
+logical_plan
+01)Projection: p.id
+02)--Filter: __datafusion_extracted_1 > Int64(1)
+03)----Projection: try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")) AS __datafusion_extracted_1, p.id
+04)------TableScan: p projection=[id, v], partial_filters=[try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")) > Int64(1)]
+physical_plan
+01)FilterExec: __datafusion_extracted_1@0 > 1, projection=[id@1]
+02)--DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1, id], file_type=parquet
+
+# sort
+query I
+SELECT id FROM p ORDER BY try_variant_get(v, '$.x', 'BIGINT') DESC LIMIT 2;
+----
+3
+4
+
+query TT
+EXPLAIN SELECT id FROM p ORDER BY try_variant_get(v, '$.x', 'BIGINT') DESC LIMIT 2;
+----
+logical_plan
+01)Projection: p.id
+02)--Sort: __datafusion_extracted_1 DESC NULLS FIRST, fetch=2
+03)----Projection: p.id, try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")) AS __datafusion_extracted_1
+04)------TableScan: p projection=[id, v]
+physical_plan
+01)ProjectionExec: expr=[id@0 as id]
+02)--SortExec: TopK(fetch=2), expr=[__datafusion_extracted_1@1 DESC], preserve_partitioning=[false]
+03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[id, try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1], file_type=parquet
+
+###
+# variant_get without a type (returns a Variant): never errors, so it is
+# always pushed down
+###
+
+# group by
+query ?I rowsort
+SELECT v:y, count(*) FROM p GROUP BY 1;
+----
+"a" 2
+"b" 1
+NULL 1
+
+query TT
+EXPLAIN SELECT v:y, count(*) FROM p GROUP BY 1;
+----
+logical_plan
+01)Projection: __datafusion_extracted_1 AS p.v:y, count(Int64(1)) AS count(*)
+02)--Aggregate: groupBy=[[__datafusion_extracted_1]], aggr=[[count(Int64(1))]]
+03)----Projection: variant_get(p.v, Utf8("$.y")) AS __datafusion_extracted_1
+04)------TableScan: p projection=[v]
+physical_plan
+01)ProjectionExec: expr=[__datafusion_extracted_1@0 as p.v:y, count(Int64(1))@1 as count(*)]
+02)--AggregateExec: mode=Single, gby=[__datafusion_extracted_1@0 as __datafusion_extracted_1], aggr=[count(Int64(1))]
+03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[variant_get(v@1, $.y) as __datafusion_extracted_1], file_type=parquet
+
+# group by + aggregate + filter (multiple getters)
+query ?I rowsort
+SELECT v:y, sum(try_variant_get(v, '$.x', 'BIGINT')) FROM p WHERE id != 3 GROUP BY 1;
+----
+"a" 1
+"b" 2
+NULL 4
+
+query TT
+EXPLAIN SELECT v:y, sum(try_variant_get(v, '$.x', 'BIGINT')) FROM p WHERE id != 3 GROUP BY 1;
+----
+logical_plan
+01)Projection: __datafusion_extracted_1 AS p.v:y, sum(__datafusion_extracted_2) AS sum(try_variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))
+02)--Aggregate: groupBy=[[__datafusion_extracted_1]], aggr=[[sum(__datafusion_extracted_2)]]
+03)----Projection: __datafusion_extracted_1, __datafusion_extracted_2
+04)------Filter: p.id != Int64(3)
+05)--------Projection: variant_get(p.v, Utf8("$.y")) AS __datafusion_extracted_1, try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")) AS __datafusion_extracted_2, p.id
+06)----------TableScan: p projection=[id, v], partial_filters=[p.id != Int64(3)]
+physical_plan
+01)ProjectionExec: expr=[__datafusion_extracted_1@0 as p.v:y, sum(__datafusion_extracted_2)@1 as sum(try_variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
+02)--AggregateExec: mode=Single, gby=[__datafusion_extracted_1@0 as __datafusion_extracted_1], aggr=[sum(__datafusion_extracted_2)]
+03)----FilterExec: id@2 != 3, projection=[__datafusion_extracted_1@0, __datafusion_extracted_2@1]
+04)------DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[variant_get(v@1, $.y) as __datafusion_extracted_1, try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_2, id], file_type=parquet, predicate=id@0 != 3, pruning_predicate=id_null_count@2 != row_count@3 AND (id_min@0 != 3 OR 3 != id_max@1), required_guarantees=[id not in (3)]
+
+###
+# variant_get with a type: errors on a value that does not convert, so it is
+# NOT pushed down (could error on rows before a filter removes it)
+# https://github.com/datafusion-contrib/datafusion-variant/issues/199
+###
+
+# aggregate + filter
+query I
+SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM p WHERE id != 3;
+----
+7
+
+query TT
+EXPLAIN SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM p WHERE id != 3;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[sum(variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")))]]
+02)--Projection: p.v
+03)----Filter: p.id != Int64(3)
+04)------TableScan: p projection=[id, v], partial_filters=[p.id != Int64(3)]
+physical_plan
+01)AggregateExec: mode=Single, gby=[], aggr=[sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
+02)--FilterExec: id@0 != 3, projection=[v@1]
+03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[id, v], file_type=parquet, predicate=id@0 != 3, pruning_predicate=id_null_count@2 != row_count@3 AND (id_min@0 != 3 OR 3 != id_max@1), required_guarantees=[id not in (3)]
+
+# aggregate (errors without the filter, as `x` is not a BIGINT for `id = 3`)
+query error Failed to extract primitive of type Int64
+SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM p;
+
+query TT
+EXPLAIN SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM p;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[sum(variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")))]]
+02)--TableScan: p projection=[v]
+physical_plan
+01)AggregateExec: mode=Single, gby=[], aggr=[sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
+02)--DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[v], file_type=parquet
+
+###
+# Getters that are not on a column are not pushed down
+###
+
+# aggregate, computed input
+query I
+SELECT sum(try_variant_get(parse_json(CAST(id AS VARCHAR)), '$', 'BIGINT')) FROM p;
+----
+10
+
+query TT
+EXPLAIN SELECT sum(try_variant_get(parse_json(CAST(id AS VARCHAR)), '$', 'BIGINT')) FROM p;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[sum(try_variant_get(parse_json(CAST(p.id AS Utf8View)), Utf8("$"), Utf8("BIGINT")))]]
+02)--TableScan: p projection=[id]
+physical_plan
+01)AggregateExec: mode=Single, gby=[], aggr=[sum(try_variant_get(parse_json(p.id),Utf8("$"),Utf8("BIGINT")))]
+02)--DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[id], file_type=parquet
