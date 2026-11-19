@@ -344,16 +344,14 @@ where
 ///
 /// By pushing the getter into the scan, the Parquet reader can potentially
 /// optimize reading shredded inputs by reading only the columns needed for the
-/// getter, tracked by XXXX
+/// getter, tracked by <https://github.com/apache/datafusion/issues/27588>
 ///
 /// # Notes
 ///
-/// 1. Since the getter is evaluated *before* the `FilterExec`
-/// potentially on rows the filter removes, only getters that never error may be
-/// pushed down. Pushing additional functions is tracked by
+/// Since the getter is evaluated *before* the `FilterExec`, potentially on
+/// rows the filter removes, only getters that never error may be pushed down.
+/// Pushing additional functions is tracked by
 /// <https://github.com/datafusion-contrib/datafusion-variant/issues/199>
-///
-/// 2. DataFusion's parquet reader doesn't yet support
 fn getter_placement(args: &[ExpressionPlacement]) -> ExpressionPlacement {
     let Some((input, rest)) = args.split_first() else {
         return ExpressionPlacement::KeepInPlace;
