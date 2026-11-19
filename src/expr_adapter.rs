@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider, TableProviderFactory};
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Result, exec_err, internal_err, plan_err};
-use datafusion::datasource::listing::{ListingTable, ListingTableConfig};
+use datafusion::datasource::listing::ListingTable;
 use datafusion::execution::session_state::SessionState;
 use datafusion::logical_expr::CreateExternalTable;
 use datafusion::physical_expr::PhysicalExpr;
@@ -483,8 +483,8 @@ const PARQUET: &str = "PARQUET";
 impl TableProviderFactory for VariantListingTableFactory {
     /// Create a new table provider for `cmd`.
     ///
-    /// If the provider returned by `self.inner` is a [`ListingTable`], rebuilds
-    /// it with [`VariantExprAdapterFactory`] attached.
+    /// If the provider returned by `self.inner` is a [`ListingTable`], attaches
+    /// [`VariantExprAdapterFactory`] to it.
     async fn create(
         &self,
         state: &dyn Session,
@@ -494,25 +494,14 @@ impl TableProviderFactory for VariantListingTableFactory {
         let Some(table) = provider.downcast_ref::<ListingTable>() else {
             return Ok(provider);
         };
-        if table.table_paths().is_empty() {
-            return Ok(provider);
-        }
-
-        // TODO: avoid recreating the ListingTable when we have an API
-        // to get a ListingTableConfig from the listing table
-        // <https://github.com/apache/datafusion/issues/27314>
-
-        // `ListingTable::try_new` removes partition columns from this schema
-        // before appending their definitions from the listing options.
-        let config = ListingTableConfig::new_with_multi_paths(table.table_paths().clone())
-            .with_listing_options(table.options().clone())
-            .with_schema(table.schema())
-            .with_expr_adapter_factory(Arc::new(VariantExprAdapterFactory::default()));
-        let table = ListingTable::try_new(config)?
-            .with_cache(state.runtime_env().cache_manager.get_file_statistic_cache())
-            .with_definition(cmd.definition.clone())
-            .with_constraints(cmd.constraints.clone())
-            .with_column_defaults(cmd.column_defaults.clone());
+        // Wrap any adapter the table already has
+        let adapter_factory = match table.expr_adapter_factory() {
+            Some(inner) => VariantExprAdapterFactory::new(Arc::clone(inner)),
+            None => VariantExprAdapterFactory::default(),
+        };
+        let table = table
+            .clone()
+            .with_expr_adapter_factory(Arc::new(adapter_factory));
         Ok(Arc::new(table))
     }
 }
