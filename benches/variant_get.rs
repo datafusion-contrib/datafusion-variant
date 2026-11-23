@@ -124,7 +124,7 @@ fn bench_values(
     ];
 
     for (name, udf, hint) in cases {
-        let args = make_args(udf, &input, "a", hint);
+        let args = make_args(udf, &input, "$.a", hint);
         check_output(
             udf.invoke_with_args(args.clone()).unwrap(),
             values,
@@ -182,7 +182,7 @@ fn bench_storage_layouts(c: &mut Criterion, values: &[Variant<'_, '_>]) {
         // Verify storage layouts as well as the extracted values before timing.
         assert_eq!(input.typed_value_column().is_some(), name != "unshredded");
         assert_eq!(input.value_column().null_count(), residual_nulls);
-        let args = make_args(&udf, &ArrayRef::from(input), "a", None);
+        let args = make_args(&udf, &ArrayRef::from(input), "$.a", None);
         check_output(udf.invoke_with_args(args.clone()).unwrap(), values, None);
         group.bench_function(BenchmarkId::new(name, ROWS), |b| {
             // Match the existing cases: include argument cloning and output drop.
@@ -229,10 +229,10 @@ fn bench_path_traversal(c: &mut Criterion, values: &[Variant<'_, '_>]) {
     group.throughput(Throughput::Elements(ROWS as u64));
     // The three nested paths each take three steps; top_level is a one-step control.
     for (name, path) in [
-        ("top_level", "top"),
-        ("nested_objects", "obj.b.c"),
-        ("nested_arrays", "arr[1][1]"),
-        ("mixed", "mix[1].b"),
+        ("top_level", "$.top"),
+        ("nested_objects", "$.obj.b.c"),
+        ("nested_arrays", "$.arr[1][1]"),
+        ("mixed", "$.mix[1].b"),
     ] {
         let args = make_args(&udf, &input, path, None);
         check_output(udf.invoke_with_args(args.clone()).unwrap(), values, None);
@@ -264,9 +264,9 @@ fn bench_path_columns(c: &mut Criterion) {
         alternating_values.push(Variant::from(if row % 2 == 0 { value } else { -value }));
     }
     let input = ArrayRef::from(builder.build());
-    let repeated = Arc::new(StringArray::from(vec!["a"; ROWS])) as ArrayRef;
+    let repeated = Arc::new(StringArray::from(vec!["$.a"; ROWS])) as ArrayRef;
     let alternating = Arc::new(StringArray::from_iter_values(
-        (0..ROWS).map(|row| if row % 2 == 0 { "a" } else { "b" }),
+        (0..ROWS).map(|row| if row % 2 == 0 { "$.a" } else { "$.b" }),
     )) as ArrayRef;
     let udf = VariantGetUdf::default();
     let mut group = c.benchmark_group("variant_get/path_columns");
@@ -276,7 +276,7 @@ fn bench_path_columns(c: &mut Criterion) {
     for (name, path, expected) in [
         (
             "literal",
-            ColumnarValue::Scalar(ScalarValue::Utf8(Some("a".into()))),
+            ColumnarValue::Scalar(ScalarValue::Utf8(Some("$.a".into()))),
             &values,
         ),
         ("repeated", ColumnarValue::Array(repeated), &values),

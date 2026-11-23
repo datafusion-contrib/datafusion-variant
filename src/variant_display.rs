@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Write, sync::Arc};
+use std::{borrow::Cow, fmt::Write, sync::Arc};
 
 use arrow::{
     array::{Array, AsArray, BinaryViewArray},
@@ -38,10 +38,13 @@ pub(crate) fn register(ctx: &SessionContext) -> Result<()> {
 struct VariantDisplay(DataType);
 
 impl DFExtensionType for VariantDisplay {
-    // TODO: expose the Variant type name once schema introspection supports it:
-    // https://github.com/apache/datafusion/issues/26866
     fn storage_type(&self) -> DataType {
         self.0.clone()
+    }
+
+    // Shown by DESCRIBE, SHOW COLUMNS, and information_schema.columns.
+    fn display_name(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed("Variant"))
     }
 
     fn serialize_metadata(&self) -> Option<String> {

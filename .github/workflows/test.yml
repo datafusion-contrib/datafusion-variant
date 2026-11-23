@@ -25,29 +25,42 @@ jobs:
       - name: Check license headers
         run: hawkeye check --fail-on-unknown
 
+  # Uses the stable Rust toolchain preinstalled on the ubuntu-latest runner
   tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@master
 
-      - uses: dtolnay/rust-toolchain@master
+      # Cache cargo's git database and checkouts so git
+      # dependencies (e.g. the 1GB+ datafusion-testing submodule) is not
+      # re-fetched on every run.
+      - name: Cache cargo git dependencies
+        uses: actions/cache@v4
         with:
-          toolchain: "stable"
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install nextest
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: nextest
 
       - name: version info
-        run: rustc --version; cargo --version;
+        run: rustc --version; cargo --version; cargo nextest --version
 
-      - name: Check generated function reference
+      - name: Check generated function reference is up to date
         run: |
-          cargo run --example generate_function_docs -- --check
-          cargo test --example generate_function_docs
+          cargo run --bin generate_function_docs
+          git diff --exit-code
 
       - name: Run all tests
-        run: cargo test
+        # nextest does not run doctests (the README example in src/lib.rs)
+        run: |
+          cargo nextest run
+          cargo test --doc
 
   fmt:
     runs-on: ubuntu-slim
@@ -62,19 +75,58 @@ jobs:
 
       - run: cargo fmt --all -- --check
 
+  # Uses the stable Rust toolchain preinstalled on the ubuntu-latest runner
   clippy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@master
 
-      - uses: dtolnay/rust-toolchain@master
+      # See comments above
+      - name: Cache cargo git dependencies
+        uses: actions/cache@v4
         with:
-          toolchain: "stable"
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - run: cargo clippy -- -D warnings
 
-      - run: |
-          rustup component add clippy
-          cargo clippy -- -D warnings
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - run: pip install -r docs/requirements.txt
+
+      # -W fails on broken links between pages and missing anchors.
+      - run: sphinx-build -W --keep-going -b html docs target/docs
+
+      - name: Upload site
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: target/docs
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [license-header-check, tests, fmt, clippy, docs]
+    runs-on: ubuntu-slim
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

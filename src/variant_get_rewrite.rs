@@ -67,7 +67,7 @@ impl FunctionRewrite for VariantGetRewrite {
         } else if !is_variant(target) && is_variant(&input.to_field(schema)?.1) {
             // Convert stored/composed Variants at the root, preserving their
             // input expressions. Identity casts belong to the conversion rewrite.
-            vec![input.clone(), lit("")]
+            vec![input.clone(), lit("$")]
         } else {
             return Ok(Transformed::no(expr));
         };

@@ -50,7 +50,7 @@ SELECT * FROM (VALUES
 statement ok
 CREATE TABLE schema_merge_results AS
 SELECT a.name AS left_name, b.name AS right_name,
-       schema_of_variant(variant_list_insert(a.singleton, variant_get(b.singleton, '[0]'))) AS actual,
+       schema_of_variant(variant_list_insert(a.singleton, variant_get(b.singleton, '$[0]'))) AS actual,
        'ARRAY<' || CASE
          WHEN a.name = 'null' THEN b.schema
          WHEN b.name = 'null' OR a.id = b.id THEN a.schema

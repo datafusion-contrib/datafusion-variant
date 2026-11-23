@@ -3,31 +3,32 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, StringViewArray},
+    array::{Array, ArrayRef, new_null_array},
     compute::{CastOptions, concat},
 };
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use datafusion::{
-    common::{config::ConfigOptions, exec_datafusion_err, exec_err},
+    common::{config::ConfigOptions, exec_datafusion_err, exec_err, tree_node::Transformed},
     error::{DataFusionError, Result},
     logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
-        TypeSignature, Volatility,
+        ColumnarValue, Expr, ExpressionPlacement, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF,
+        ScalarUDFImpl, Signature, TypeSignature, Volatility,
+        expr::ScalarFunction,
+        lit,
+        simplify::{ExprSimplifyResult, SimplifyContext},
     },
     scalar::ScalarValue,
 };
 use datafusion_doc::Documentation;
 use datafusion_macros::user_doc;
-use parquet_variant::{Variant, VariantPath};
+use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantType, variant_get};
-use parquet_variant_json::VariantToJson;
 
-use crate::impl_variant_get::impl_variant_get_typed;
 use crate::shared::{
-    invoke_variant_get_typed, try_field_as_variant_array, try_parse_string_columnar,
-    try_parse_string_scalar,
+    try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
 };
 use crate::sql_type::SqlTypeConfig;
+use crate::variant_path::{colon_text, concat_variant_paths, parse_variant_path};
 use crate::variant_type::validate_getter_target;
 
 fn type_hint_from_scalar(
@@ -90,17 +91,19 @@ fn invoke_variant_get(
     // Request the planned Variant output explicitly too, so Arrow can produce
     // its canonical storage schema instead of retaining shredded child types.
     let type_field = Some(Arc::clone(&args.return_field));
+    // A SQL NULL path returns SQL NULL, as in Spark.
+    let null_rows = |len| new_null_array(args.return_field.data_type(), len);
 
     let out = match (variant_arg, variant_path) {
         (ColumnarValue::Array(variant_array), ColumnarValue::Scalar(variant_path)) => {
-            let variant_path = try_parse_string_scalar(variant_path)?
-                .map(|s| s.as_str())
-                .unwrap_or_default();
+            let Some(variant_path) = try_parse_string_scalar(variant_path)? else {
+                return Ok(ColumnarValue::Array(null_rows(variant_array.len())));
+            };
 
             let res = variant_get(
                 variant_array,
                 build_get_options(
-                    VariantPath::try_from(variant_path)?,
+                    parse_variant_path(variant_path, true)?,
                     &type_field,
                     &cast_options,
                 ),
@@ -115,14 +118,16 @@ fn invoke_variant_get(
 
             let variant_array = Arc::clone(variant_array) as ArrayRef;
 
-            let variant_path = try_parse_string_scalar(variant_path)?
-                .map(|s| s.as_str())
-                .unwrap_or_default();
+            let Some(variant_path) = try_parse_string_scalar(variant_path)? else {
+                return Ok(ColumnarValue::Scalar(ScalarValue::try_new_null(
+                    args.return_field.data_type(),
+                )?));
+            };
 
             let res = variant_get(
                 &variant_array,
                 build_get_options(
-                    VariantPath::try_from(variant_path)?,
+                    parse_variant_path(variant_path, true)?,
                     &type_field,
                     &cast_options,
                 ),
@@ -146,16 +151,16 @@ fn invoke_variant_get(
             let mut out = Vec::with_capacity(variant_array.len());
 
             for (i, path) in variant_paths.iter().enumerate() {
+                let Some(path) = path else {
+                    out.push(null_rows(1));
+                    continue;
+                };
                 // Preserve SQL validity and shredded storage when selecting a row.
                 let arr = variant_array.slice(i, 1);
 
                 let res = variant_get(
                     &arr,
-                    build_get_options(
-                        VariantPath::try_from(path.unwrap_or_default())?,
-                        &type_field,
-                        &cast_options,
-                    ),
+                    build_get_options(parse_variant_path(path, true)?, &type_field, &cast_options),
                 )?;
 
                 out.push(res);
@@ -180,10 +185,13 @@ fn invoke_variant_get(
             let mut out = Vec::with_capacity(variant_paths.len());
 
             for path in variant_paths {
-                let path = path.unwrap_or_default();
+                let Some(path) = path else {
+                    out.push(null_rows(1));
+                    continue;
+                };
                 let res = variant_get(
                     &variant_array,
-                    build_get_options(VariantPath::try_from(path)?, &type_field, &cast_options),
+                    build_get_options(parse_variant_path(path, true)?, &type_field, &cast_options),
                 )?;
 
                 out.push(res);
@@ -219,17 +227,146 @@ fn return_field_for_variant_get(
     ))
 }
 
-impl_variant_get_typed!(
-    /// Extracts a value as JSON, including quotes around string values.
-    VariantGetJsonUdf, "variant_get_json", DataType::Utf8View,
-    |args| invoke_variant_get_typed(args, ScalarValue::Utf8View,
-        |values: Vec<Option<String>>| -> ArrayRef {
-            Arc::new(values.into_iter().collect::<StringViewArray>())
-        },
-        |value: Variant<'_, '_>| -> Result<Option<String>> {
-            Ok(Some(value.to_json_string()?))
-        }),
-);
+/// Extracts the path expression as a literal string, if possible.
+///
+/// A SQL NULL path is not a path: the getter returns SQL NULL for it.
+fn literal_path(expr: &Expr) -> Option<&str> {
+    let Expr::Literal(value, _) = expr else {
+        return None;
+    };
+    value.try_as_str()?
+}
+
+/// Collapse nested `variant_get` or `try_variant_get` calls into a single
+/// call with a combined path.
+///
+/// Takes the arguments of the outer call and returns its new arguments, or the
+/// original arguments if the calls can not be collapsed. Returns an error if
+/// either literal path is invalid.
+///
+/// # Background
+///
+/// A single call is more efficient as it can read shredded columns directly,
+/// whereas the nested form rebuilds an intermediate Variant for every row.
+///
+/// For example, this function chain
+///
+/// ```sql
+/// variant_get(variant_get(v, '$.a'), '$.b')
+/// ```
+///
+/// is rewritten to
+///
+/// ```sql
+/// variant_get(v, '$.a.b')
+/// ```
+///
+/// This is common in practice as `:` syntax such as `v:a:b[0]` is initially
+/// planned as `variant_get` calls.
+fn collapse_nested_getters(mut args: Vec<Expr>) -> Result<Transformed<Vec<Expr>>> {
+    let combined = (|| -> Result<Option<(Expr, String)>> {
+        let Some(Expr::ScalarFunction(ScalarFunction { func, args: inner })) = args.first() else {
+            return Ok(None);
+        };
+
+        // Can only combine the path access when the inner
+        // function returns a variant (aka is_untyped).
+        let is_untyped = func
+            .inner()
+            .downcast_ref::<VariantGetUdf>()
+            .is_some_and(VariantGetUdf::is_untyped)
+            || func
+                .inner()
+                .downcast_ref::<TryVariantGetUdf>()
+                .is_some_and(TryVariantGetUdf::is_untyped);
+        let [input, inner_path] = inner.as_slice() else {
+            return Ok(None);
+        };
+        if !is_untyped {
+            return Ok(None);
+        }
+        let (Some(inner_path), Some(outer_path)) =
+            (literal_path(inner_path), args.get(1).and_then(literal_path))
+        else {
+            return Ok(None);
+        };
+        let path = concat_variant_paths(inner_path, outer_path)?;
+        Ok(Some((input.clone(), path)))
+    })();
+
+    let Some((input, path)) = combined? else {
+        return Ok(Transformed::no(args));
+    };
+    args[0] = input;
+    args[1] = lit(path);
+    Ok(Transformed::yes(args))
+}
+
+/// Shared [`ScalarUDFImpl::simplify`] for `variant_get` and `try_variant_get`.
+///
+/// `simplify` only has
+/// `&self`, so `getter` is cloned to build the new call, but only on a rewrite.
+fn simplify_getter<T>(getter: &T, args: Vec<Expr>) -> Result<ExprSimplifyResult>
+where
+    T: ScalarUDFImpl + Clone + 'static,
+{
+    let args = collapse_nested_getters(args)?;
+    if !args.transformed {
+        return Ok(ExprSimplifyResult::Original(args.data));
+    }
+    // Only have `&self`, so must clone `getter`, but only on a rewrite.
+
+    let getter = ScalarUDF::new_from_impl(getter.clone());
+    Ok(ExprSimplifyResult::Simplified(getter.call(args.data)))
+}
+
+/// Controls how `variant_get` and `try_variant_get` are pushed into the scan.
+///
+/// In the example below, without additional placement information,
+/// `try_variant_get` is evaluated in the `AggregateExec`, requiring the entire
+/// Variant column to be read and reconstructed by the scan:
+///
+/// ```text
+/// AggregateExec: aggr=[sum(try_variant_get(t.v, $.x, BIGINT))]
+///   FilterExec: id@0 != 3, projection=[v@1]
+///     DataSourceExec: projection=[id, v]  <-- reads the entire variant column
+/// ```
+///
+/// With [`ExpressionPlacement::MoveTowardsLeafNodes`], `try_variant_get` is
+/// pushed down, out of the `AggregateExec` into the scan itself (where the
+/// source can then read only that field):
+///
+/// ```text
+/// AggregateExec: aggr=[sum(__t)]
+///   FilterExec: id@1 != 3, projection=[__t@0]
+///     DataSourceExec: projection=[try_variant_get(v@1, $.x, BIGINT) as __t, id]   <-- getter is in the scan
+/// ```
+///
+/// By pushing the getter into the scan, the Parquet reader can potentially
+/// optimize reading shredded inputs by reading only the columns needed for the
+/// getter, tracked by <https://github.com/apache/datafusion/issues/27588>
+///
+/// # Notes
+///
+/// Since the getter is evaluated *before* the `FilterExec`, potentially on
+/// rows the filter removes, only getters that never error may be pushed down.
+/// Pushing additional functions is tracked by
+/// <https://github.com/datafusion-contrib/datafusion-variant/issues/199>
+fn getter_placement(args: &[ExpressionPlacement]) -> ExpressionPlacement {
+    let Some((input, rest)) = args.split_first() else {
+        return ExpressionPlacement::KeepInPlace;
+    };
+    let input_is_pushable = matches!(
+        input,
+        ExpressionPlacement::Column | ExpressionPlacement::MoveTowardsLeafNodes
+    );
+    let rest_are_literals = rest.iter().all(|p| *p == ExpressionPlacement::Literal);
+    if input_is_pushable && rest_are_literals {
+        ExpressionPlacement::MoveTowardsLeafNodes
+    } else {
+        ExpressionPlacement::KeepInPlace
+    }
+}
 
 /// Extracts a Variant value, returning an error for failed result-type conversions.
 ///
@@ -239,7 +376,7 @@ impl_variant_get_typed!(
 #[user_doc(
     doc_section(label = "Variant Functions"),
     description = "Extracts the value at a path and optionally converts it to a SQL type.
-Without a type hint, returns Variant. SQL NULL input and missing paths return SQL NULL.
+Without a type hint, returns Variant. SQL NULL input, a SQL NULL path, and missing paths return SQL NULL.
 Variant null remains a Variant null for Variant output and becomes SQL NULL for typed output.
 Invalid paths, invalid type hints, and failed conversions raise errors.
 
@@ -258,27 +395,27 @@ type hint or cast target to retain a Variant result.",
     alternative_syntax = "value:field",
     alternative_syntax = "value:field::type",
     sql_example = r#"```sql
-> SELECT variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
+> SELECT variant_get(parse_json('{"a":1}'), '$.a', 'BIGINT') AS value;
 +-------+
 | value |
 +-------+
 | 1     |
 +-------+
-> SELECT variant_get(parse_json('{"a":1}'), 'b', 'BIGINT') IS NULL AS missing;
+> SELECT variant_get(parse_json('{"a":1}'), '$.b', 'BIGINT') IS NULL AS missing;
 +---------+
 | missing |
 +---------+
 | true    |
 +---------+
-> SELECT to_json(variant_get(parse_json('[1,"hello"]'), '[1]')) AS json;
+> SELECT to_json(variant_get(parse_json('[1,"hello"]'), '$[1]')) AS json;
 +---------+
 | json    |
 +---------+
 | "hello" |
 +---------+
 > WITH input AS (SELECT parse_json('{"price":12.5}') AS v)
-  SELECT variant_get(v, 'price', 'DECIMAL(12,2)') AS type_hint,
-         CAST(variant_get(v, 'price') AS DECIMAL(12,2)) AS sql_cast,
+  SELECT variant_get(v, '$.price', 'DECIMAL(12,2)') AS type_hint,
+         CAST(variant_get(v, '$.price') AS DECIMAL(12,2)) AS sql_cast,
          v:price::DECIMAL(12,2) AS colon_cast
   FROM input;
 +-----------+----------+------------+
@@ -290,7 +427,7 @@ type hint or cast target to retain a Variant result.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = r#"String expression selecting fields with dots and array elements with zero-based brackets, such as `a.b[0]`. Use `["a.b"]` for a literal key containing a dot. An empty string or SQL NULL selects the root. Use field paths without Spark's leading `$`; here `$` is treated as a field name. Keys containing `]` currently require escaping that bracket with a backslash, even inside quotes."#
+        description = "String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md)."
     ),
     argument(
         name = "type",
@@ -299,7 +436,7 @@ type hint or cast target to retain a Variant result.",
     related_udf(name = "try_variant_get"),
     related_udf(name = "is_variant_null")
 )]
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct VariantGetUdf {
     signature: Signature,
     config: SqlTypeConfig,
@@ -333,6 +470,8 @@ impl VariantGetUdf {
         }
     }
 
+    /// Returns true if this function returns a Variant (aka
+    /// does not convert the result into another type)
     pub(crate) fn is_untyped(&self) -> bool {
         self.target.is_none()
     }
@@ -345,6 +484,19 @@ impl ScalarUDFImpl for VariantGetUdf {
 
     fn name(&self) -> &str {
         "variant_get"
+    }
+
+    // Name columns after the `:` syntax, as `get_field` names `s[a]`.
+    fn schema_name(&self, args: &[Expr]) -> Result<String> {
+        if let [base, path] = args
+            && let Some(path) = literal_path(path)
+            && let Some(text) = colon_text(path)
+        {
+            return Ok(format!("{}:{text}", base.schema_name()));
+        }
+        // DataFusion's default name, whose helper is crate-private.
+        let args: Vec<_> = args.iter().map(|e| e.schema_name().to_string()).collect();
+        Ok(format!("{}({})", self.name(), args.join(",")))
     }
 
     fn signature(&self) -> &Signature {
@@ -371,6 +523,27 @@ impl ScalarUDFImpl for VariantGetUdf {
         return_field_for_variant_get(self.name(), args, &self.config)
     }
 
+    fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
+        simplify_getter(self, args)
+    }
+
+    fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
+        // A conversion (type hint or cast target) errors on a value that does
+        // not convert, so `variant_get` with a conversion can't be pushed down:
+        // below a filter it would error on rows the filter removes. For example
+        // this query must not fail when only the row with `id = 3` has an `x`
+        // that is not a BIGINT:
+        //
+        //   SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM t WHERE id != 3
+        //
+        // Pushing down the typed form is tracked in
+        // https://github.com/datafusion-contrib/datafusion-variant/issues/199
+        if !self.is_untyped() || args.len() != 2 {
+            return ExpressionPlacement::KeepInPlace;
+        }
+        getter_placement(args)
+    }
+
     fn invoke_with_args(
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
@@ -392,9 +565,9 @@ impl ScalarUDFImpl for VariantGetUdf {
 /// [`VariantGetUdf`].
 #[user_doc(
     doc_section(label = "Variant Functions"),
-    description = "Extracts the value at a path and optionally converts it to a SQL type.
-Uses the same paths, type hints, and null handling as `variant_get`, but failed
-result-type conversions return SQL NULL. Without a type hint, returns Variant.
+    description = "Extracts the value at a path and optionally converts it to a SQL type,
+returning SQL NULL when the result-type conversion fails. Uses the same paths, type
+hints, and null handling as `variant_get`. Without a type hint, returns Variant.
 Invalid paths and invalid type hints still raise errors.
 
 Register with `register_variant_get_functions` to enable `TRY_CAST` of getters.
@@ -404,21 +577,21 @@ getter or colon access uses the same conversion policy as `try_variant_get`.",
     alternative_syntax = "TRY_CAST(variant_get(value, path) AS type)",
     alternative_syntax = "TRY_CAST(value:field AS type)",
     sql_example = r#"```sql
-> SELECT try_variant_get(parse_json('{"a":1}'), 'a', 'BIGINT') AS value;
+> SELECT try_variant_get(parse_json('{"a":1}'), '$.a', 'BIGINT') AS value;
 +-------+
 | value |
 +-------+
 | 1     |
 +-------+
-> SELECT try_variant_get(parse_json('[1,"hello"]'), '[1]', 'BIGINT') IS NULL AS failed_cast;
+> SELECT try_variant_get(parse_json('[1,"hello"]'), '$[1]', 'BIGINT') IS NULL AS failed_cast;
 +-------------+
 | failed_cast |
 +-------------+
 | true        |
 +-------------+
 > WITH input AS (SELECT parse_json('{"price":"invalid"}') AS v)
-  SELECT try_variant_get(v, 'price', 'DECIMAL(12,2)') IS NULL AS type_hint,
-         TRY_CAST(variant_get(v, 'price') AS DECIMAL(12,2)) IS NULL AS sql_cast,
+  SELECT try_variant_get(v, '$.price', 'DECIMAL(12,2)') IS NULL AS type_hint,
+         TRY_CAST(variant_get(v, '$.price') AS DECIMAL(12,2)) IS NULL AS sql_cast,
          TRY_CAST(v:price AS DECIMAL(12,2)) IS NULL AS colon_cast
   FROM input;
 +-----------+----------+------------+
@@ -430,7 +603,7 @@ getter or colon access uses the same conversion policy as `try_variant_get`.",
     argument(name = "value", description = "Variant expression to extract from."),
     argument(
         name = "path",
-        description = "String expression using the path syntax described for `variant_get`."
+        description = "String expression starting with `$`, such as `$.a.b[0]`. See [Variant paths](paths.md)."
     ),
     argument(
         name = "type",
@@ -439,7 +612,7 @@ getter or colon access uses the same conversion policy as `try_variant_get`.",
     related_udf(name = "variant_get"),
     related_udf(name = "is_variant_null")
 )]
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TryVariantGetUdf {
     signature: Signature,
     config: SqlTypeConfig,
@@ -509,6 +682,16 @@ impl ScalarUDFImpl for TryVariantGetUdf {
             return Ok(Arc::clone(target));
         }
         return_field_for_variant_get(self.name(), args, &self.config)
+    }
+
+    fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
+        simplify_getter(self, args)
+    }
+
+    fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
+        // `try_variant_get` returns NULL rather than erroring on a value that
+        // does not convert, so it can always be pushed down below filters.
+        getter_placement(args)
     }
 
     fn invoke_with_args(
@@ -600,7 +783,7 @@ mod tests {
 
         let args = build_scalar_function_args(
             ColumnarValue::Scalar(variant_input),
-            "name",
+            "$.name",
             arg_fields,
             return_field,
             None,
@@ -656,7 +839,7 @@ mod tests {
 
         let args = build_scalar_function_args(
             ColumnarValue::Scalar(variant_input),
-            "age",
+            "$.age",
             arg_fields,
             return_field,
             Some(type_hint),
@@ -687,7 +870,7 @@ mod tests {
 
         let args = build_scalar_function_args(
             ColumnarValue::Array(variant_array),
-            "age",
+            "$.age",
             arg_fields,
             return_field,
             Some(type_hint),
@@ -710,6 +893,7 @@ mod tests {
 mod empty_paths_regression {
     use super::*;
     use crate::shared::build_variant_array_from_json;
+    use arrow::array::StringViewArray;
 
     fn check(scalar_input: bool, try_get: bool) {
         let sample = build_variant_array_from_json(&serde_json::json!({"a": 1}));

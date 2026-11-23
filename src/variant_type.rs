@@ -53,18 +53,17 @@ pub(crate) fn is_variant(field: &Field) -> bool {
 // The upstream getter handles a top-level Variant through untyped extraction,
 // but interprets nested extension fields as ordinary structs.
 pub(crate) fn validate_getter_target(field: &Field) -> Result<()> {
-    fn contains_variant(field: &Field) -> bool {
-        is_variant(field)
-            || match field.data_type() {
-                DataType::List(child) | DataType::FixedSizeList(child, _) => {
-                    contains_variant(child)
-                }
-                DataType::Struct(fields) => fields.iter().any(|child| contains_variant(child)),
-                _ => false,
-            }
-    }
     if !is_variant(field) && contains_variant(field) {
         return plan_err!("Nested VARIANT getter targets are not yet supported");
     }
     Ok(())
+}
+
+pub(crate) fn contains_variant(field: &Field) -> bool {
+    is_variant(field)
+        || match field.data_type() {
+            DataType::List(child) | DataType::FixedSizeList(child, _) => contains_variant(child),
+            DataType::Struct(fields) => fields.iter().any(|child| contains_variant(child)),
+            _ => false,
+        }
 }

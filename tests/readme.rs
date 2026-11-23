@@ -1,54 +1,136 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Execute README SQL fences and compare their results with the next `text` fence.
-//! Each level-two section starts a fresh session. Multiple queries may share one
-//! expected table; setup statements return no table. Proposed SQL is explicitly
-//! excluded with `<!-- readme-test: skip: reason -->` before its fence.
+//! Execute the SQL examples in the README and in the pages under `docs/` and
+//! compare their results with the copy/pasted output. The generated
+//! `docs/sql-reference.md` is checked by `generate_function_docs` instead.
+//!
+//! Each `sql` fence is run, and its output must match the next `text` fence
+//! exactly. For example, this Markdown passes:
+//!
+//! ```sql
+//! SELECT parse_json('{"a": 1}') AS value;
+//! ```
+//!
+//! ```text
+//! +---------+
+//! | value   |
+//! +---------+
+//! | {"a":1} |
+//! +---------+
+//! ```
+//!
+//! Statements that return no rows, such as `CREATE TABLE` and `SET`, need no
+//! `text` output. Neither do `COPY` statements, whose row count is not useful
+//! in documentation.
+//!
+//! Several queries may share one expected `text` output.
+//!
+//! Skip SQL by adding `<!-- readme-test: skip: reason -->` before its fence.
+//!
+//! Wrap SQL in an HTML comment (`<!--` ... `-->`) to hide it from readers. It
+//! still runs, and its result is compared with the next `text` fence, which can
+//! sit outside the comment.
+//!
+//! Require every statement in a fence to fail by adding
+//! `<!-- readme-test: error: message -->` before it. Put the marker on its own
+//! line before a hidden check's `<!--`, since its `-->` would end the comment.
+//!
+//! The test-only `residual_json(variant[, field, ...])` function shows the
+//! residual stored at a shredded field path as JSON.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
+use arrow::array::{Array, ArrayRef, AsArray, StructArray};
+use arrow_schema::{DataType, Field, Fields};
+use datafusion::common::{exec_datafusion_err, exec_err};
+use datafusion::logical_expr::{
+    ColumnarValue, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
+};
 use datafusion::prelude::*;
-use datafusion::sql::parser::DFParser;
+use datafusion::sql::parser::{DFParser, Statement};
 use datafusion_variant::register_all;
-use std::io::Write;
+use parquet_variant_compute::variant_to_json;
+use std::{io::Write, path::Path, sync::Arc};
 
 #[tokio::test]
-async fn readme_sql() -> Result<()> {
+async fn docs_sql() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut pages = vec![root.join("README.md")];
+    let mut dirs = vec![root.join("docs")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "md")
+                && !path.ends_with("sql-reference.md")
+            {
+                pages.push(path);
+            }
+        }
+    }
+    pages.sort();
+    let mut executed = 0;
+    for page in pages {
+        let name = page.strip_prefix(root)?.display().to_string();
+        executed += check_markdown(&name, &std::fs::read_to_string(&page)?).await?;
+    }
+    // Navigation and prose pages have no SQL, but a parser regression would find none anywhere.
+    ensure!(executed > 0, "no SQL blocks run");
+    Ok(())
+}
+
+async fn check_markdown(name: &str, markdown: &str) -> Result<usize> {
     let output = tempfile::tempdir()?;
-    let parquet_path = output.path().join("events.parquet");
-    let parquet_literal = format!(
-        "'{}'",
-        parquet_path.display().to_string().replace('\'', "''")
+    // Like `dfv`, allow `SELECT ... FROM 'file.parquet'`.
+    let config = SessionConfig::new().set_str("datafusion.format.null", "NULL");
+    let mut ctx = SessionContext::new_with_config(config).enable_url_table();
+    register_all(&mut ctx)?;
+    ctx.register_udtf(
+        "parquet_metadata",
+        Arc::new(datafusion_cli::functions::ParquetMetadataFunc {}),
     );
-    let mut ctx = SessionContext::new();
+    ctx.register_udf(ScalarUDF::from(ResidualJson {
+        signature: Signature::variadic_any(Volatility::Immutable),
+    }));
     let mut pending = Vec::<(usize, String)>::new();
     let mut skip = None;
+    let mut expect_error = None;
     let mut skipped = Vec::new();
     let mut executed = 0;
     let mut checked = 0;
-    let mut lines = include_str!("../README.md").lines().enumerate();
+    let mut lines = markdown.lines().enumerate();
 
     while let Some((index, line)) = lines.next() {
         let line_number = index + 1;
         if line.starts_with("## ") || line.starts_with("### ") {
             ensure!(
                 pending.is_empty(),
-                "README:{line_number}: query result has no expected table"
+                "{name}:{line_number}: query result has no expected table"
             );
         }
-        if line.starts_with("## ") {
-            // Like `dfv`, allow `SELECT ... FROM 'file.parquet'`.
-            let config = SessionConfig::new().set_str("datafusion.format.null", "NULL");
-            ctx = SessionContext::new_with_config(config).enable_url_table();
-            register_all(&mut ctx)?;
+        if let Some(message) = line
+            .strip_prefix("<!-- readme-test: error:")
+            .and_then(|text| text.strip_suffix("-->"))
+        {
+            ensure!(
+                expect_error.is_none(),
+                "{name}:{line_number}: repeated error marker"
+            );
+            ensure!(
+                !message.trim().is_empty(),
+                "{name}:{line_number}: missing expected error"
+            );
+            expect_error = Some(message.trim());
+            continue;
         }
         if let Some(reason) = line
             .strip_prefix("<!-- readme-test: skip:")
             .and_then(|text| text.strip_suffix("-->"))
         {
-            ensure!(skip.is_none(), "README:{line_number}: repeated skip marker");
+            ensure!(skip.is_none(), "{name}:{line_number}: repeated skip marker");
             ensure!(
                 !reason.trim().is_empty(),
-                "README:{line_number}: missing skip reason"
+                "{name}:{line_number}: missing skip reason"
             );
             skip = Some(reason.trim());
             continue;
@@ -66,50 +148,85 @@ async fn readme_sql() -> Result<()> {
             block.push_str(line);
             block.push('\n');
         }
-        ensure!(closed, "README:{line_number}: unclosed code fence");
+        ensure!(closed, "{name}:{line_number}: unclosed code fence");
         if let Some(reason) = skip.take() {
             ensure!(
                 language == "sql",
-                "README:{line_number}: skip marker must precede SQL"
+                "{name}:{line_number}: skip marker must precede SQL"
             );
             skipped.push((line_number, reason));
             continue;
         }
+        let expected_error = expect_error.take();
+        ensure!(
+            expected_error.is_none() || language == "sql",
+            "{name}:{line_number}: error marker must precede SQL"
+        );
         match language {
             "sql" => {
                 executed += 1;
-                // Keep documented relative filenames without changing the process cwd.
-                let sql = block.replace("'events.parquet'", &parquet_literal);
-                let statements = DFParser::parse_sql(&sql)
-                    .with_context(|| format!("README:{line_number}: parsing SQL"))?;
-                for statement in statements {
-                    let df = async {
-                        let plan = ctx.state().statement_to_plan(statement).await?;
-                        ctx.execute_logical_plan(plan).await
+                // Keep documented relative paths without changing the process cwd:
+                // every `'name.parquet'`, `'dir/name.parquet'` and `'dir/'` literal is
+                // redirected into the temporary directory.
+                let mut sql = String::new();
+                for (index, part) in block.split('\'').enumerate() {
+                    if index > 0 {
+                        sql.push('\'');
                     }
-                    .await
-                    .with_context(|| format!("README:{line_number}: executing SQL"))?;
-                    if !df.schema().fields().is_empty() {
-                        // Exercise the session's registered extension formatters.
-                        let table = df.to_string().await.with_context(|| {
-                            format!("README:{line_number}: displaying SQL result")
-                        })?;
-                        pending.push((line_number, table));
+                    let is_path = (part.ends_with(".parquet") || part.ends_with('/'))
+                        && !part.starts_with('/')
+                        && !part.contains(char::is_whitespace);
+                    if index % 2 == 1 && is_path {
+                        let path = output.path().display().to_string();
+                        sql.push_str(&format!("{path}/{part}").replace('\'', "''"));
                     } else {
-                        df.collect().await?;
+                        sql.push_str(part);
+                    }
+                }
+                let statements = DFParser::parse_sql(&sql)
+                    .with_context(|| format!("{name}:{line_number}: parsing SQL"))?;
+                for statement in statements {
+                    let is_copy = matches!(statement, Statement::CopyTo(_));
+                    let result = async {
+                        let plan = ctx.state().statement_to_plan(statement).await?;
+                        let df = ctx.execute_logical_plan(plan).await?;
+                        if !is_copy && !df.schema().fields().is_empty() {
+                            // Exercise the session's registered extension formatters.
+                            df.to_string().await.map(Some)
+                        } else {
+                            df.collect().await.map(|_| None)
+                        }
+                    }
+                    .await;
+                    match (expected_error, result) {
+                        (Some(message), Err(error)) => {
+                            ensure!(
+                                error.to_string().contains(message),
+                                "{name}:{line_number}: expected error containing {message:?}, got: {error}"
+                            );
+                            checked += 1;
+                        }
+                        (Some(message), Ok(_)) => {
+                            bail!("{name}:{line_number}: expected error containing {message:?}")
+                        }
+                        (None, result) => {
+                            let table = result
+                                .with_context(|| format!("{name}:{line_number}: executing SQL"))?;
+                            pending.extend(table.map(|table| (line_number, table)));
+                        }
                     }
                 }
             }
             "text" => {
                 ensure!(
                     !pending.is_empty(),
-                    "README:{line_number}: expected table has no query"
+                    "{name}:{line_number}: expected table has no query"
                 );
                 for (query_line, actual) in pending.drain(..) {
                     // Arrow's formatter checks values, headers, padding and borders together.
                     ensure!(
                         actual.trim() == block.trim(),
-                        "README:{query_line}: result differs from table at line {line_number}\nExpected:\n{block}\nActual:\n{actual}"
+                        "{name}:{query_line}: result differs from table at line {line_number}\nExpected:\n{block}\nActual:\n{actual}"
                     );
                     checked += 1;
                 }
@@ -117,21 +234,86 @@ async fn readme_sql() -> Result<()> {
             _ => {}
         }
     }
-    ensure!(skip.is_none(), "README: unused skip marker");
+    ensure!(skip.is_none(), "{name}: unused skip marker");
+    ensure!(expect_error.is_none(), "{name}: unused error marker");
     ensure!(
         pending.is_empty(),
-        "README: query result has no expected table"
+        "{name}: query result has no expected table"
     );
-    ensure!(checked > 0, "README: no query results checked");
     // Write directly so the summary is visible even with libtest's default capture.
     let mut report = std::io::stderr().lock();
     writeln!(
         report,
-        "README SQL: {executed} blocks run, {checked} results checked, {} skipped",
+        "{name} SQL: {executed} blocks run, {checked} results checked, {} skipped",
         skipped.len()
     )?;
     for (line, reason) in skipped {
-        writeln!(report, "  README:{line}: skipped ({reason})")?;
+        writeln!(report, "  {name}:{line}: skipped ({reason})")?;
     }
-    Ok(())
+    Ok(executed)
+}
+
+/// SQL cannot show a shredded residual otherwise: it is a binary column inside
+/// the shredded struct.
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct ResidualJson {
+    signature: Signature,
+}
+
+impl ScalarUDFImpl for ResidualJson {
+    fn name(&self) -> &str {
+        "residual_json"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::common::Result<DataType> {
+        Ok(DataType::Utf8)
+    }
+
+    fn invoke_with_args(
+        &self,
+        args: ScalarFunctionArgs,
+    ) -> datafusion::common::Result<ColumnarValue> {
+        let Some((variant, path)) = args.args.split_first() else {
+            return exec_err!("residual_json expects a Variant column");
+        };
+        let variant = variant.to_array(args.number_rows)?;
+        let variant = variant.as_struct();
+        let mut node = variant;
+        for field in path {
+            let Some(Some(field)) = (match field {
+                ColumnarValue::Scalar(field) => field.try_as_str(),
+                ColumnarValue::Array(_) => None,
+            }) else {
+                return exec_err!("residual_json path must be string literals");
+            };
+            node = node
+                .column_by_name("typed_value")
+                .and_then(|typed| typed.as_struct_opt())
+                .and_then(|typed| typed.column_by_name(field))
+                .and_then(|field| field.as_struct_opt())
+                .ok_or_else(|| exec_datafusion_err!("no shredded field '{field}'"))?;
+        }
+        let missing = |column| exec_datafusion_err!("residual_json input has no {column}");
+        let metadata = variant
+            .column_by_name("metadata")
+            .ok_or_else(|| missing("metadata"))?;
+        let value = node
+            .column_by_name("value")
+            .ok_or_else(|| missing("value"))?;
+        let fields = Fields::from(vec![
+            Field::new("metadata", metadata.data_type().clone(), false),
+            Field::new("value", value.data_type().clone(), true),
+        ]);
+        // Rows without a residual are SQL NULL, not Variant null.
+        let residual: ArrayRef = Arc::new(StructArray::try_new(
+            fields,
+            vec![metadata.clone(), value.clone()],
+            value.nulls().cloned(),
+        )?);
+        Ok(ColumnarValue::Array(Arc::new(variant_to_json(&residual)?)))
+    }
 }

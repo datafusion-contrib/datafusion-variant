@@ -72,12 +72,6 @@ between runs. Include relevant results when proposing performance changes.
 Broader benchmark coverage is tracked in
 [#19](https://github.com/datafusion-contrib/datafusion-variant/issues/19).
 
-For realistic Parquet workloads, [JSONBench](../benchmarks/jsonbench/README.md)
-prepares the original Bluesky data as unshredded, partially shredded, and
-query-field-shredded Variant. Its default run executes all five adapted queries
-against all three layouts, reusing prepared fixtures:
-
-```sh
-cargo run --release --example jsonbench -- prepare
-cargo run --release --example jsonbench -- run
-```
+For whole queries over Parquet, the [SQL benchmarks](../benchmarks/README.md)
+run with `dfv`. [JSONBench](../benchmarks/jsonbench/README.md) runs five queries
+over the Bluesky data stored as unshredded, shredded, and mixed Parquet Variant.

@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Paths follow Spark 4.2. The grammar is unit tested in src/variant_path.rs.
+
+# `$` selects the root.
+query TII
+SELECT to_json(variant_get(parse_json('{"$":42}'), '$')),
+       variant_get(parse_json('7'), '$', 'INT'),
+       TRY_CAST(variant_get(parse_json('7'), '$') AS INT);
+----
+{"$":42} 7 7
+
+# Quoted bracket paths select literal keys; dots select nested fields.
+# Include both in the same object so traversing the wrong path cannot pass.
+statement ok
+CREATE TABLE literal_keys (id INT, json_str TEXT) AS VALUES
+  (1, '{"a.b":1,"a":{"b":2}}'),
+  (2, '{"a.b":3}'),
+  (3, '{}');
+
+query IIII
+SELECT id,
+       variant_get(parse_json(json_str), '$["a.b"]', 'BIGINT'),
+       variant_get(parse_json(json_str), '$.a.b', 'BIGINT'),
+       try_variant_get(parse_json(json_str), '$["a.b"]', 'BIGINT')
+FROM literal_keys ORDER BY id;
+----
+1 1 2 1
+2 3 NULL 3
+3 NULL NULL NULL
+
+# Quoted keys stay literal when they look like the root, an index or a bracket,
+# with either quote style and in `:` access.
+query IIIIII
+SELECT variant_get(j, '$["$"]', 'INT'),
+       variant_get(j, '$["0"]', 'INT'),
+       variant_get(j, '$["a]b"]', 'INT'),
+       variant_get(j, '$[''[0]'']', 'INT'),
+       j:['$']::INT,
+       j:["$"]::INT
+FROM (SELECT parse_json('{"$":1,"0":2,"a]b":3,"[0]":4}') AS j);
+----
+1 2 3 4 1 1
+
+# Spark 4.2 preserves backslashes in quoted keys.
+query I
+SELECT variant_get(parse_json('{"a\\nb":1,"a\nb":2}'), '$[''a\nb'']', 'INT');
+----
+1
+
+# A SQL NULL path returns SQL NULL, as in Spark, for column and scalar paths.
+query ITT rowsort
+SELECT variant_get(parse_json(j), p, 'INT'),
+       to_json(variant_get(parse_json(j), p)),
+       to_json(variant_get(parse_json('{"a":5}'), p))
+FROM (VALUES ('{"a":1}', '$.a'), ('{"a":3}', NULL)) t(j,p);
+----
+1 1 5
+NULL NULL NULL
+
+query BB
+SELECT variant_get(parse_json(j), CAST(NULL AS VARCHAR)) IS NULL,
+       variant_get(parse_json('{"a":5}'), CAST(NULL AS VARCHAR)) IS NULL
+FROM (VALUES ('{"a":1}')) t(j);
+----
+true true
+
+# Paths start with `$`, as in Spark.
+statement error invalid Variant path "a": paths start with
+SELECT variant_get(parse_json('{"a":1}'), 'a');
+
+# Other path functions share the parser.
+statement error invalid Variant path
+SELECT variant_object_keys(parse_json('{}'), '$bad');

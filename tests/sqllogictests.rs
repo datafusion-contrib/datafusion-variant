@@ -46,6 +46,7 @@ impl AsyncDB for TestDatabase {
         let df = display::format_for_display(df, options)?;
         let schema = Arc::clone(df.schema().inner());
         let rows = convert_batches(&schema, df.collect().await?, false)?;
+        let rows = normalize_paths(rows);
         if rows.is_empty() && types.is_empty() {
             Ok(DBOutput::StatementComplete(0))
         } else {
@@ -62,6 +63,20 @@ impl AsyncDB for TestDatabase {
     }
 
     async fn shutdown(&mut self) {}
+}
+
+/// Replaces the absolute path of this crate with `WORKSPACE_ROOT` so that
+/// plans which include file paths (e.g. `EXPLAIN` of a Parquet scan) are the
+/// same on all machines.
+fn normalize_paths(mut rows: Vec<Vec<String>>) -> Vec<Vec<String>> {
+    // Plans show paths without the leading `/`
+    let workspace_root = env!("CARGO_MANIFEST_DIR").trim_start_matches('/');
+    for value in rows.iter_mut().flatten() {
+        if value.contains(workspace_root) {
+            *value = value.replace(workspace_root, "WORKSPACE_ROOT");
+        }
+    }
+    rows
 }
 
 fn register_shredded_null_fixture(
@@ -194,6 +209,16 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
 
         register_all(&mut ctx)?;
 
+        // Allow querying files directly: `SELECT ... FROM '<path>'`
+        let ctx = ctx.enable_url_table();
+
+        if relative_path == Path::new("parquet_shredding.slt") {
+            ctx.register_udtf(
+                "parquet_metadata",
+                Arc::new(datafusion_cli::functions::ParquetMetadataFunc {}),
+            );
+        }
+
         if relative_path == Path::new("is_valid_variant.slt")
             || relative_path == Path::new("variant_delete.slt")
             || relative_path == Path::new("variant_explode.slt")
@@ -211,9 +236,32 @@ async fn run_sqllogictests() -> Result<(), Box<dyn std::error::Error>> {
             register_binary_variant_fixture(&ctx)?;
         }
 
+        if relative_path == Path::new("schema_evolution.slt") {
+            // SQL type syntax cannot construct ListView/LargeListView storage.
+            // Reuse the fixture builder; file writes and assertions stay in SQL.
+            let item = Arc::new(Field::new_list_field(DataType::Int64, true));
+            for (name, list_type) in [
+                ("list_view_inputs", DataType::ListView(Arc::clone(&item))),
+                ("large_list_view_inputs", DataType::LargeListView(item)),
+            ] {
+                register_shredded_null_fixture(
+                    &ctx,
+                    name,
+                    vec![
+                        Some(r#"{"items":[1,null,"x"]}"#),
+                        Some(r#"{"items":[]}"#),
+                        Some("null"),
+                        None,
+                    ],
+                    DataType::Struct(vec![Field::new("items", list_type, true)].into()),
+                )?;
+            }
+        }
+
         if relative_path == Path::new("schema_of_variant.slt") {
-            // UUID casting is pending upstream; variant_list_construct accepts
-            // only scalar arguments, so also build the UUID array cases here.
+            // UUID-to-Variant conversion is pending in Arrow (arrow-rs#11937);
+            // variant_list_construct accepts only scalar arguments, so also
+            // build the UUID array cases here.
             let uuid = Variant::Uuid(Uuid::from_bytes([1; 16]));
             let mut builder = VariantArrayBuilder::new(3);
             builder.append_variant(uuid.clone());

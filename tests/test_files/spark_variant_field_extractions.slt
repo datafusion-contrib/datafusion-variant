@@ -347,9 +347,6 @@ SELECT v:`field name` FROM additional_path_data;
 "space"
 
 # A closing bracket inside a quoted field name is part of the key.
-# TODO(arrow-rs): parquet-variant's parse_in_bracket must respect quoted closing
-# brackets. SQL parsing succeeds; the Arrow path parser currently rejects this.
-skipif DataFusion
 query ?
 SELECT v:['a]b'] FROM additional_path_data;
 ----

@@ -10,28 +10,47 @@ CREATE TABLE json_data (id INT, json_str TEXT) AS VALUES
   (6, '123'),
   (7, 'true');
 
-query ?
-select variant_get(parse_json(json_str), 'name') from json_data;
+# Indexing a non-array selects nothing.
+query ??
+select variant_get(parse_json(json_str), '$.name'), variant_get(parse_json(json_str), '$.age[0]') from json_data;
 ----
-"Alice"
-"Bob"
-NULL
-NULL
-NULL
-NULL
-NULL
+"Alice" NULL
+"Bob" NULL
+NULL NULL
+NULL NULL
+NULL NULL
+NULL NULL
+NULL NULL
+
+# Columns are named after the `:` syntax. The root path and the type-hint form keep the function name.
+statement ok
+CREATE TABLE events AS SELECT id, parse_json(json_str) AS event FROM json_data;
+
+query TTT
+DESCRIBE SELECT event:name, variant_get(event, '$'), variant_get(event, '$.age', 'INT') FROM events;
+----
+events.event:name Variant YES
+variant_get(events.event,Utf8("$")) Variant YES
+variant_get(events.event,Utf8("$.age"),Utf8("INT")) Int32 YES
+
+# Qualifiers keep the same path on both sides of a join distinct, also inside an expression input.
+query TTT
+DESCRIBE SELECT parse_json(a.json_str):name, parse_json(b.json_str):name FROM json_data a JOIN json_data b ON a.id = b.id;
+----
+parse_json(a.json_str):name Variant YES
+parse_json(b.json_str):name Variant YES
 
 # Strict and try getters share extraction; only conversion failure handling differs.
 # Scalar/scalar conversions are covered by spark_variant_get_casts_primitives.slt.
 statement ok
 CREATE TABLE cast_inputs (id INT, doc TEXT, path TEXT) AS VALUES
-  (1, '{"n":7}', 'n'),
-  (2, '{"n":128}', 'n'),
-  (3, '{"n":"bad"}', 'n');
+  (1, '{"n":7}', '$.n'),
+  (2, '{"n":128}', '$.n'),
+  (3, '{"n":"bad"}', '$.n');
 
 # Array input, scalar path: preserve successful rows when other rows cannot cast.
 query I
-SELECT try_variant_get(parse_json(doc), 'n', 'TINYINT')
+SELECT try_variant_get(parse_json(doc), '$.n', 'TINYINT')
 FROM cast_inputs ORDER BY id;
 ----
 7
@@ -39,7 +58,7 @@ NULL
 NULL
 
 statement error (?i)(cast|extract|overflow)
-SELECT variant_get(parse_json(doc), 'n', 'TINYINT') FROM cast_inputs;
+SELECT variant_get(parse_json(doc), '$.n', 'TINYINT') FROM cast_inputs;
 
 # Array input and array paths use the same cast policy.
 query I
@@ -56,7 +75,7 @@ SELECT variant_get(parse_json(doc), path, 'TINYINT') FROM cast_inputs;
 # Scalar input, array paths: a failed cast does not null the entire result.
 query I
 SELECT try_variant_get(parse_json('{"ok":7,"large":128,"bad":"bad"}'), path, 'TINYINT')
-FROM (VALUES (1, 'ok'), (2, 'large'), (3, 'bad')) AS paths(id, path)
+FROM (VALUES (1, '$.ok'), (2, '$.large'), (3, '$.bad')) AS paths(id, path)
 ORDER BY id;
 ----
 7
@@ -65,29 +84,163 @@ NULL
 
 statement error (?i)(cast|extract|overflow)
 SELECT variant_get(parse_json('{"ok":7,"large":128}'), path, 'TINYINT')
-FROM (VALUES ('ok'), ('large')) AS paths(path);
+FROM (VALUES ('$.ok'), ('$.large')) AS paths(path);
 
 # Representative shared behavior: both return a usable Variant without a type
 # hint. The full extraction matrix is exercised through variant_get elsewhere.
-query II
+query TT
 WITH input AS (SELECT parse_json('{"user":{"age":7}}') AS v)
-SELECT variant_get(variant_get(v, 'user'), 'age', 'BIGINT'),
-       variant_get(try_variant_get(v, 'user'), 'age', 'BIGINT') FROM input;
+SELECT to_json(variant_get(v, '$.user')), to_json(try_variant_get(v, '$.user')) FROM input;
 ----
-7 7
+{"age":7} {"age":7}
 
 # Try must not suppress malformed path errors, for scalar or column paths.
-statement error (?i)parser error
-SELECT try_variant_get(parse_json('{"n":7}'), 'n[', 'TINYINT');
+statement error invalid Variant path
+SELECT try_variant_get(parse_json('{"n":7}'), '$.n[', 'TINYINT');
 
-statement error (?i)parser error
-SELECT variant_get(parse_json('{"n":7}'), 'n[', 'TINYINT');
+statement error invalid Variant path
+SELECT variant_get(parse_json('{"n":7}'), '$.n[', 'TINYINT');
 
-statement error (?i)parser error
+statement error invalid Variant path
 SELECT try_variant_get(parse_json(doc), path || '[', 'TINYINT') FROM cast_inputs;
 
-statement error (?i)(parse|unsupported|invalid)
-SELECT try_variant_get(parse_json('7'), '', 'NotAType');
+statement error invalid Variant path
+SELECT try_variant_get(parse_json('{}'), p) FROM (VALUES ('$[')) t(p);
 
 statement error (?i)(parse|unsupported|invalid)
-SELECT variant_get(parse_json('7'), '', 'NotAType');
+SELECT try_variant_get(parse_json('7'), '$', 'NotAType');
+
+statement error (?i)(parse|unsupported|invalid)
+SELECT variant_get(parse_json('7'), '$', 'NotAType');
+
+# Chained `:` access is collapsed into a single getter over the combined path,
+# so that shredded fields are read directly (#176).
+statement ok
+CREATE TABLE nested AS SELECT parse_json(column1) AS v FROM VALUES
+  ('{"a": {"b": {"c": [1, {"d": 5}]}}}'),
+  ('{"a": {"b": null}}'),
+  ('{"a": 7}'),
+  (NULL);
+
+statement ok
+SET datafusion.explain.logical_plan_only = true;
+
+# Expect to see a single variant_get call, also below a cast.
+query TT
+EXPLAIN SELECT v:a:b:c[1]:d::INT AS d_int FROM nested;
+----
+logical_plan
+01)Projection: variant_get(nested.v, Utf8("$.a.b.c[1].d")) AS d_int
+02)--TableScan: nested projection=[v]
+
+# Chained access keeps working where expressions are matched by name.
+query II
+SELECT v:a:b:c[1]:d::INT, count(*) FROM nested WHERE v:a:b IS NOT NULL GROUP BY v:a:b:c[1]:d::INT ORDER BY 1;
+----
+5 1
+NULL 1
+
+# try_variant_get collapses as the inner and the outer getter, keeping the
+# outer type hint.
+query TT
+EXPLAIN SELECT try_variant_get(try_variant_get(v, '$.a'), '$.b.c[0]', 'INT') FROM nested;
+----
+logical_plan
+01)Projection: try_variant_get(nested.v, Utf8("$.a.b.c[0]"), Utf8("INT")) AS try_variant_get(try_variant_get(nested.v,Utf8("$.a")),Utf8("$.b.c[0]"),Utf8("INT"))
+02)--TableScan: nested projection=[v]
+
+# An inner getter with a type hint is kept, even for 'VARIANT'.
+query TT
+EXPLAIN SELECT variant_get(variant_get(v, '$.a', 'VARIANT'), '$.b') FROM nested;
+----
+logical_plan
+01)Projection: variant_get(variant_get(nested.v, Utf8("$.a"), Utf8("VARIANT")), Utf8("$.b"))
+02)--TableScan: nested projection=[v]
+
+# Nested getters are not collapsed when the outer path (`p`) is a non literal.
+# The inner `variant_get(v, '$.a')` is still pushed down (see the pushdown
+# tests below).
+query TT
+EXPLAIN SELECT variant_get(variant_get(v, '$.a'), p) FROM nested, (SELECT '$.b' AS p);
+----
+logical_plan
+01)Projection: variant_get(__datafusion_extracted_1, p) AS variant_get(nested.v:a,p)
+02)--Cross Join:
+03)----Projection: variant_get(nested.v, Utf8("$.a")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+05)----Projection: Utf8("$.b") AS p
+06)------EmptyRelation: rows=1
+
+# variant_get / try_variant_get on a column are pushed down towards the scan.
+# Only getters that cannot error are pushed down: `try_variant_get`, and
+# `variant_get` without a conversion.
+
+# try_variant_get is pushed down below an aggregate
+query TT
+EXPLAIN SELECT avg(try_variant_get(v, '$.a', 'BIGINT')) FROM nested;
+----
+logical_plan
+01)Projection: avg(__datafusion_extracted_1) AS avg(try_variant_get(nested.v,Utf8("$.a"),Utf8("BIGINT")))
+02)--Aggregate: groupBy=[[]], aggr=[[avg(CAST(__datafusion_extracted_1 AS Float64))]]
+03)----Projection: try_variant_get(nested.v, Utf8("$.a"), Utf8("BIGINT")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+
+# untyped variant_get (`v:a:b`) in a group key is pushed down
+query TT
+EXPLAIN SELECT v:a:b, count(*) FROM nested GROUP BY 1;
+----
+logical_plan
+01)Projection: nested.v:a:b, count(Int64(1)) AS count(*)
+02)--Aggregate: groupBy=[[__datafusion_extracted_1 AS nested.v:a:b]], aggr=[[count(Int64(1))]]
+03)----Projection: variant_get(nested.v, Utf8("$.a.b")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+
+# try_variant_get in a sort key is pushed down
+query TT
+EXPLAIN SELECT to_json(v) FROM nested ORDER BY try_variant_get(v, '$.a', 'BIGINT') DESC LIMIT 2;
+----
+logical_plan
+01)Projection: to_json(nested.v)
+02)--Sort: __datafusion_extracted_1 DESC NULLS FIRST, fetch=2
+03)----Projection: to_json(nested.v), try_variant_get(nested.v, Utf8("$.a"), Utf8("BIGINT")) AS __datafusion_extracted_1
+04)------TableScan: nested projection=[v]
+
+# Results do not change when the getter is pushed down.
+query R
+SELECT avg(try_variant_get(v, '$.a', 'BIGINT')) FROM nested;
+----
+7
+
+query TI
+SELECT to_json(v:a:b), count(*) FROM nested GROUP BY 1 ORDER BY 1;
+----
+null 1
+{"c":[1,{"d":5}]} 1
+NULL 2
+
+# variant_get with a conversion is not pushed down: below the filter it would
+# error on rows the filter removes. (The untyped `v:a:b` in the filter is
+# pushed down.)
+# https://github.com/datafusion-contrib/datafusion-variant/issues/199
+query TT
+EXPLAIN SELECT avg(variant_get(v, '$.a', 'BIGINT')) FROM nested WHERE v:a:b IS NULL;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[avg(CAST(variant_get(nested.v, Utf8("$.a"), Utf8("BIGINT")) AS Float64))]]
+02)--Projection: nested.v
+03)----Filter: __datafusion_extracted_1 IS NULL
+04)------Projection: variant_get(nested.v, Utf8("$.a.b")) AS __datafusion_extracted_1, nested.v
+05)--------TableScan: nested projection=[v]
+
+query R
+SELECT avg(variant_get(v, '$.a', 'BIGINT')) FROM nested WHERE v:a:b IS NULL;
+----
+7
+
+# A getter on a computed input (not a column) is not pushed down.
+query TT
+EXPLAIN SELECT avg(try_variant_get(parse_json(to_json(v)), '$.a', 'BIGINT')) FROM nested;
+----
+logical_plan
+01)Aggregate: groupBy=[[]], aggr=[[avg(CAST(try_variant_get(parse_json(to_json(nested.v)), Utf8("$.a"), Utf8("BIGINT")) AS Float64))]]
+02)--TableScan: nested projection=[v]

@@ -68,12 +68,12 @@ query BBBB
 SELECT is_valid_variant(NULL) AS untyped_null,
        is_valid_variant(CAST(NULL AS VARIANT)) AS typed_null,
        is_valid_variant(try_parse_json('{')),
-       is_valid_variant(variant_get(parse_json('{"a":null}'), 'missing'));
+       is_valid_variant(variant_get(parse_json('{"a":null}'), '$.missing'));
 ----
 NULL NULL NULL NULL
 
 query B
-SELECT is_valid_variant(variant_get(parse_json('{"a":null}'), 'a'));
+SELECT is_valid_variant(variant_get(parse_json('{"a":null}'), '$.a'));
 ----
 true
 
