@@ -17,7 +17,9 @@ such data to [Apache Parquet](https://parquet.apache.org/) files.
 > [!NOTE]
 > This crate is under active development and aims to match
 > [Apache Spark](https://spark.apache.org/) Variant behavior. Compatibility is
-> incomplete, and APIs may change. See the
+> incomplete, and APIs may change. See
+> [Spark compatibility](https://datafusion-contrib.github.io/datafusion-variant/spark-compatibility.html)
+> for known differences, and the
 > [roadmap](https://github.com/datafusion-contrib/datafusion-variant/issues/69)
 > for more details.
 <!-- docs-intro-end -->

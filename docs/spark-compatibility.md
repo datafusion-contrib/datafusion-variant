@@ -1,154 +1,108 @@
 # Spark compatibility
 
-This crate targets Spark Variant behavior, but compatibility is incomplete.
-This document collects the known differences recorded in the implementation and
-tests, explains where they originate, and links the supporting evidence. It is
-not a claim of exhaustive compatibility with every Spark SQL feature.
+This crate aims to match the Variant behavior of
+[Apache Spark 4.2.0][spark-functions] (`32f72996`). That covers `parse_json`,
+`try_parse_json`, `is_variant_null`, `variant_get`, `try_variant_get`,
+`schema_of_variant`, `schema_of_variant_agg`, `to_variant_object`,
+`is_valid_variant`, `variant_explode` and `variant_explode_outer`, plus Variant
+support in `to_json`, `CAST` and the `:` operator. All of them are implemented.
 
-## Baseline and evidence
+The Spark test suites for these functions are ported to the
+[SQL tests][sql-tests], and each file names the Spark revision its expected
+results come from. The ported cases pass, except for the differences below.
+Each difference links the skipped or adapted test cases that record Spark's
+result.
 
-Reviewed against datafusion-variant `642248a` with the Arrow Variant crates and
-`arrow-cast` resolved to **60.1.0**, and DataFusion pinned to `484183dc34ea`.
-The comparison uses Spark 4.2.0 and the exact Spark revisions recorded in the
-linked tests. Newer ports, such as `variant_delete`, use their own pinned
-revision; they do not imply coverage of all later Spark additions.
-
-The test headers distinguish expectations previously executed on Spark from
-expectations checked against Spark source/tests. This documentation review did
-not rerun Spark. A `skipif DataFusion` record preserves a desired result; it is
-not proof that the discrepancy still exists after a dependency upgrade. See
-[stale skips](#skipped-expectations-needing-revalidation) below.
-
-Primary Spark references:
-
-- [Spark 4.2.0 Variant function reference][spark-functions].
-- [Variant expression tests][spark-expressions] and [evaluation tests][spark-eval]
-  at `32f7299601108917fb01920a54e084595b7b3bf8`: JSON parsing, primitive casts,
-  and conversion to Variant.
-- [SQL field-extraction cases][spark-fields] at
-  `5c63836176a2a15a5d43a61f2e18890eb4ac7ece`.
-- [Schema inference and merge tests][spark-schema] at
-  `4ccf07b6d91e2b126b7001741778ee28f22c6609`.
-- [Variant expressions and path parser][spark-paths] and
-  [VariantBuilder][spark-builder] at
-  `046f574fce3ffd93925f7bcdd459221fa11a730d`: deletion and path semantics.
+Paths follow Spark 4.2 syntax. See [Variant paths](paths.md).
 
 ## JSON parsing and schema inference
 
-| Difference from Spark | Origin and evidence |
+| Difference from Spark | Cause and evidence |
 | --- | --- |
-| Fractional JSON numbers become `DOUBLE` instead of Spark's exact decimals where representable. Integers outside `i64`, such as `9223372036854775809`, can lose precision. | **Arrow JSON parser:** `variant_from_number` uses `i64`, then `f64`, rather than decimal parsing. [Arrow source][arrow-json], [parse tests](../tests/test_files/parse_json.slt), [Arrow #11169](https://github.com/apache/arrow-rs/issues/11169). |
-| `schema_of_variant(parse_json('1.0'))` reports `DOUBLE` rather than `DECIMAL(1,0)`. The difference propagates through nested schemas and `schema_of_variant_agg`. | **Parsing, not a separate schema-merge rule:** the inference functions see the types produced by the parser. Explicit decimal-to-Variant inputs exercise Spark's decimal inference and merging. [Scalar tests](../tests/test_files/schema_of_variant.slt), [aggregate tests](../tests/test_files/schema_of_variant_agg.slt), [225 merge pairs](../tests/test_files/spark_schema_of_variant_merge.slt). |
-| Duplicate JSON object keys are accepted, keeping the last value; Spark rejects them by default. This includes nested objects and keys equal after Unicode decoding. | **Arrow/serde_json:** parsing through `serde_json::Value` collapses duplicate keys before building Variant. [Parser][arrow-json], [pending Spark expectations](../tests/test_files/parse_json.slt). |
-| Input `1 2` is rejected here; the recorded Spark behavior consumes the first root. Input `1e309` is rejected here; Spark parses it as Double infinity. | **Parser policy:** serde_json rejects trailing input and numeric overflow. These require compatibility decisions, rather than being Variant encoding bugs. [Recorded comparisons and local error tests](../tests/test_files/parse_json.slt), [Spark parser][spark-builder]. `try_parse_json` returns SQL NULL for the locally rejected input. |
-| Spark's 16 MiB value/metadata limit is not enforced here. | **Engine policy:** Spark's builder enforces `SIZE_LIMIT`; this crate delegates to Arrow without adding that limit. [Recorded comparison](../tests/test_files/parse_json.slt), [Spark builder][spark-builder]. |
-| Spark's configurable duplicate-key allowance and legacy Unicode-validation behavior are not exposed. | **Crate API:** `parse_json` and `try_parse_json` accept one string argument and use the Arrow parser. [Implementation](../src/parse_json.rs), [scope notes](../tests/test_files/parse_json.slt). |
+| Fractional JSON numbers become `DOUBLE`, where Spark keeps an exact decimal. Integers outside the `i64` range, such as `9223372036854775809`, lose precision. This also changes `schema_of_variant` and `schema_of_variant_agg`, for example `DOUBLE` instead of `DECIMAL(1,0)` for `1.0`. | **Arrow JSON parser:** numbers are read as `i64`, then `f64`. [Parser][arrow-json], [arrow-rs#11169](https://github.com/apache/arrow-rs/issues/11169), [`parse_json.slt`][t-parse-json], [`schema_of_variant.slt`][t-schema]. Schema merging itself matches Spark: [merge cases][t-schema-merge]. |
+| Duplicate object keys are accepted and the last value wins. Spark rejects them by default. | **Arrow JSON parser:** duplicates collapse while parsing. [`parse_json.slt`][t-parse-json]. |
+| `1 2` is rejected, where Spark reads the first value. `1e309` is rejected, where Spark reads Double infinity. `try_parse_json` returns NULL for both. | **Arrow JSON parser:** trailing input and numeric overflow are errors. [`parse_json.slt`][t-parse-json]. |
+| Spark's 16 MiB limit on a Variant value or its metadata is not enforced. | **Not implemented here.** Spark's builder enforces [`SIZE_LIMIT`][spark-util]. [`parse_json.slt`][t-parse-json]. |
+| Spark's settings for allowing duplicate keys and for legacy Unicode validation are not available. | **Crate API:** `parse_json` and `try_parse_json` take one argument. [`parse_json.slt`][t-parse-json]. |
 
-## Extraction, casts, and SQL syntax
+## Field access and casts
 
-Typed getters, casts of untyped getters, `:` casts, and casts from stored Variant
-values share the Arrow extraction/conversion path. A kernel limitation therefore
-affects more than just the three-argument `variant_get` call.
+Typed getters, `:` casts, and casts of Variant values all use the same Arrow
+conversion, so each limitation below applies to all of them.
 
-| Difference from Spark | Origin and evidence |
+| Difference from Spark | Cause and evidence |
 | --- | --- |
-| Getter paths use `a.b[0]` and `''` for the root, rather than `$.a.b[0]` and `$`. `$` is a literal field name here. A SQL NULL path also selects the root. | **Crate integration with Arrow's path grammar:** paths are passed to `VariantPath`; Spark uses its own JSONPath parser and NULL propagation. [Getter](../src/variant_get.rs), [getter tests](../tests/test_files/variant_get.slt), [Spark implementation][spark-paths]. |
-| Backtick-quoted names after `:` can return SQL NULL instead of selecting the field, including ordinary names and names containing spaces. Arithmetic may need parentheses around a right-hand `:` expression. | **DataFusion/sqlparser and the crate's colon planner:** the planner forwards the parsed right operand to the getter. [Planner](../src/expr_planner.rs), [cases 23 and 29 plus additional quoting cases](../tests/test_files/spark_variant_field_extractions.slt). |
-| Numeric strings do not convert to integer or floating-point targets, including strings such as `"1"`, `"-0.0"`, and `"inf"`. Strict getters fail and try getters return NULL where Spark succeeds. | **Arrow conversion kernel:** numeric conversion does not parse string variants. String-to-decimal and string-to-Boolean conversions have passing coverage and are separate cases. [Kernel][arrow-conversions], [primitive cast tests](../tests/test_files/spark_variant_get_casts_primitives.slt). |
-| String-to-date, numeric-to-timestamp, and Boolean-to-decimal conversions covered by Spark remain unsupported. | **Arrow conversion kernel:** the relevant conversion branches are missing. [Kernel][arrow-conversions], [pending primitive cast cases](../tests/test_files/spark_variant_get_casts_primitives.slt). |
-| Casting a numeric Variant to a SQL string fails instead of producing Spark's string representation. | **Arrow string extraction:** `VariantToStringArrowBuilder` uses `as_string`, not general Variant serialization. [Kernel][arrow-to-arrow], [field-extraction case 03](../tests/test_files/spark_variant_field_extractions.slt). Use `to_json` when JSON serialization is intended; it retains quotes around Variant strings. |
-| Nested Variant targets such as `ARRAY<VARIANT>` or `STRUCT<a VARIANT>` are rejected. | **Crate guard for Arrow metadata support:** the kernel interprets nested extension fields as ordinary storage structs. [Target validation](../src/variant_type.rs), [SQL type tests](../tests/test_files/variant_get_sql_types.slt). |
-| Type-hint spellings and meanings follow DataFusion SQL and session settings. The Spark cast suite uses `BYTEA` for Spark `BINARY` and explicit timestamp precision/time-zone syntax. | **DataFusion type planner:** hints resolve through the same planner as SQL casts. [Resolver](../src/sql_type.rs), [type tests](../tests/test_files/variant_get_sql_types.slt), [Spark cast adaptations](../tests/test_files/spark_variant_get_casts_primitives.slt). |
-| `coalesce(variant_value, 'default_value')` does not perform Spark's common-type coercion to Variant. | **DataFusion coercion:** the crate supplies explicit cast rewrites, not general implicit Variant coercion. [Pending field-extraction case 39](../tests/test_files/spark_variant_field_extractions.slt). Explicitly cast the fallback to `VARIANT`. |
-| Spark's `typeof(v)` result `variant` is not provided. | **SQL introspection integration:** `arrow_typeof` exposes the physical Arrow type. The crate already adapts `DESCRIBE` and `information_schema.columns`; those are distinct from Spark's `typeof`. [Pending cases 33–36](../tests/test_files/spark_variant_field_extractions.slt), [schema adapter](../src/schema_display_shim.rs). |
-| Spark's `SELECT explode(CAST(v:scores AS ARRAY<INT>))` form is not ported. Correlated `variant_explode` supports CROSS/INNER JOIN LATERAL, not arbitrary outer lateral joins. | **SQL planning:** general Spark generator syntax and DataFusion lateral decorrelation differ. `variant_explode` and `variant_explode_outer` themselves are implemented. Use the latter to preserve empty inputs. [Pending case 30](../tests/test_files/spark_variant_field_extractions.slt), [planner](../src/variant_explode.rs), [working table-function cases](../tests/test_files/variant_explode.slt). |
+| A backtick-quoted name after `:`, such as ``v:`a b` ``, returns SQL NULL instead of the field. Arithmetic needs parentheses around a right-hand `:` access, as in `v:a::int + (v:b::int)`. | **Crate `:` planner and the DataFusion SQL parser.** [Field extraction cases 23, 29 and 39][t-fields]. |
+| Numeric strings, such as `"1"`, `"-0.0"` and `"inf"`, do not convert to integer or floating-point types. `variant_get` fails and `try_variant_get` returns NULL. | **Arrow conversion:** numeric targets do not parse strings. [Primitive cast cases][t-casts]. |
+| Strings do not convert to dates, numbers do not convert to timestamps, and Booleans do not convert to decimals. | **Arrow conversion:** these conversions are missing. [arrow-rs#10102](https://github.com/apache/arrow-rs/issues/10102), [primitive cast cases][t-casts]. |
+| Casting a number to a string fails, where Spark returns its text form. Use `to_json` for JSON text. | **Arrow conversion:** string targets accept only Variant strings. [arrow-rs#10024](https://github.com/apache/arrow-rs/issues/10024), [field extraction case 03][t-fields]. |
+| Nested Variant targets, such as `ARRAY<VARIANT>` or `STRUCT<a VARIANT>`, are rejected. | **Arrow conversion:** nested Variant fields are not supported, so the crate rejects them while planning. [`variant_get_sql_types.slt`][t-sql-types]. |
+| Type names follow DataFusion SQL. For example, Spark's `BINARY` is `BYTEA` here. | **DataFusion type planner:** type hints resolve like SQL casts. [Primitive cast cases][t-casts]. |
+| `coalesce(v, 'default')` does not coerce the string to Variant. Cast it explicitly with `CAST('default' AS VARIANT)`. | **DataFusion coercion:** Variant has no implicit coercion rules. [Field extraction case 39][t-fields]. |
+| `explode(CAST(v:scores AS ARRAY<INT>))` is not supported. `variant_explode` works with `CROSS JOIN LATERAL` and `INNER JOIN LATERAL`, but not with `LEFT JOIN LATERAL`. Use `variant_explode_outer` to keep rows with empty input. | **Not ported:** Spark's `explode`. **DataFusion:** correlated outer lateral joins, [apache/datafusion#21201](https://github.com/apache/datafusion/issues/21201). [Field extraction case 30][t-fields], [`variant_explode.slt`][t-explode]. |
 
 ## Conversion to Variant and JSON output
 
-| Difference from Spark | Origin and evidence |
+| Difference from Spark | Cause and evidence |
 | --- | --- |
-| `to_variant_object` omits null-valued object fields instead of retaining Variant null, and keeps the last duplicate key instead of rejecting duplicates. | **Arrow object building/conversion:** `ObjectFieldBuilder::append_null` is a no-op; conversion does not enable duplicate-field validation. [Object builder][arrow-object-builder], [pending conversion tests](../tests/test_files/spark_variant_conversions.slt), [Arrow #11947](https://github.com/apache/arrow-rs/issues/11947), [#11948](https://github.com/apache/arrow-rs/issues/11948). |
-| Arrays/objects containing Variant values cannot reliably be converted back to Variant. Preserved nested Variant metadata is explicitly rejected; constructors that lose it can expose physical storage fields instead. | **Arrow plus DataFusion:** Arrow conversion lacks nested extension-field handling, and DataFusion constructors such as `named_struct` can lose that metadata. [Validator](../src/variant_conversion.rs), [pending tests](../tests/test_files/spark_variant_conversions.slt), [Arrow #11942](https://github.com/apache/arrow-rs/issues/11942). |
-| `to_json(v, options)` ignores the second argument, including `timeZone`; timestamp JSON formatting and session-time-zone parity are incomplete. | **Crate option handling plus Arrow serialization:** both scalar and batch serializers need time-zone support, then the UDF must pass options/session settings through. [Implementation](../src/to_json.rs), [conversion test notes](../tests/test_files/spark_variant_conversions.slt), [Arrow #11945](https://github.com/apache/arrow-rs/issues/11945). |
-| This crate's `to_json` accepts only Variant, whereas Spark also serializes ordinary arrays, maps, and structs. | **Crate function registration:** the Variant-only UDF replaces any existing function with that name. Convert supported containers with `to_variant_object` first, subject to the limitations above. [UDF](../src/to_json.rs), [registration](../src/lib.rs). |
+| `to_variant_object` drops fields whose value is NULL, where Spark keeps them as Variant null. Duplicate keys keep the last value, where Spark fails. | **Arrow `cast_to_variant`.** [arrow-rs#11947](https://github.com/apache/arrow-rs/issues/11947), [arrow-rs#11948](https://github.com/apache/arrow-rs/issues/11948), [conversion cases][t-conversions]. |
+| Arrays and structs that contain Variant values cannot be converted to Variant. | **Arrow `cast_to_variant`** has no support for nested Variant fields, and DataFusion's `named_struct` drops their extension metadata. [arrow-rs#11942](https://github.com/apache/arrow-rs/issues/11942), [conversion cases][t-conversions]. |
+| `to_json(v, options)` ignores its second argument, including `timeZone`. Timestamps are not formatted in the session time zone. | **Crate and Arrow:** the options are not read, and Arrow's serializer has no time zone setting. [arrow-rs#11945](https://github.com/apache/arrow-rs/issues/11945), [conversion cases][t-conversions]. |
+| `to_json` accepts only Variant. Spark also serializes arrays, maps and structs. | **Crate:** registering the Variant `to_json` replaces any other function with that name. Convert other values with `to_variant_object` first. |
 
-`CAST(struct_or_map AS VARIANT)` requiring `to_variant_object` is shared with
-the pinned Spark implementation, so it is not a discrepancy. SQL NULL versus
-Variant null is also intentionally preserved for supported unshredded paths;
-the exceptions below concern shredded storage and result schemas.
+Like Spark 4.2, `CAST(struct_or_map AS VARIANT)` is an error and
+`to_variant_object` is the way to convert them. SQL NULL and Variant null stay
+distinct, as described in
+[Tell SQL NULL from Variant null](cookbook/common-pitfalls.md#tell-sql-null-from-variant-null),
+except in the shredded cases below.
 
-## Shredded values and validation
+## Shredded data and validation
 
-| Difference or limitation | Origin and evidence |
+| Difference from Spark | Cause and evidence |
 | --- | --- |
-| Extracting Variant from shredded objects/lists can lose the distinction between a missing path and a present Variant null. Converting a shredded Variant null to a struct can produce a valid struct of NULL fields instead of a SQL NULL struct. | **Arrow extraction:** pending parity cases cover both getters and casts. [Shredded tests](../tests/test_files/variant_sql_type.slt), upstream work [#11504](https://github.com/apache/arrow-rs/pull/11504) and [#11052](https://github.com/apache/arrow-rs/pull/11052). |
-| Materializing getter results can fail when the actual output contains `typed_value` or uses Binary/LargeBinary storage while the declared return field promises the canonical layout. | **Crate return-field inference:** the declared physical schema does not always match Arrow's output. [Shredded predicate tests](../tests/test_files/is_variant_null.slt), [binary-layout tests](../tests/test_files/variant_sql_type.slt), [getter](../src/variant_get.rs). |
-| `is_valid_variant` can reject bytes Spark accepts: metadata, UTF-8, key ordering/uniqueness, offsets, nesting, and date/time ranges are checked more strictly. | **Arrow validation policy:** the UDF uses `Variant::try_new`. This is a validation-contract difference, not a promise to reproduce Spark's permissiveness. [Implementation](../src/is_valid_variant.rs), [raw-byte fixtures](../tests/test_files/is_valid_variant.slt). |
-| `variant_delete` and `variant_explode` can reject malformed nested payloads even when Spark's lazy traversal need not decode them, such as a subtree being deleted. | **Crate use of full Arrow validation:** inputs are validated before traversal/copying. [Deletion code](../src/variant_delete.rs), [deletion regression](../tests/test_files/variant_delete.slt), [explode code and rationale](../src/variant_explode.rs). |
-| Malformed shredded metadata can still panic during reconstruction; unsupported reconstruction/layouts can raise errors rather than returning a validation Boolean. | **Arrow unshredding:** missing field names in metadata are a known failure path shared by validation, deletion, and explosion. [Validation code](../src/is_valid_variant.rs), [Arrow #11069](https://github.com/apache/arrow-rs/issues/11069), [fallible decoder request #11260](https://github.com/apache/arrow-rs/issues/11260). |
-| `variant_delete` uses Spark's default escaped JSONPath grammar, including the leading `$`, but does not expose Spark's legacy literal-backslash setting. | **Crate API choice:** deletion has a separate parser because Arrow's getter grammar differs. Do not reuse rootless getter paths for deletion. [Parser rationale](../src/variant_delete.rs), [Spark-derived tests](../tests/test_files/variant_delete.slt). |
+| Reading a missing field from a shredded object as Variant returns Variant null instead of SQL NULL. Casting a shredded Variant null to a struct returns a struct of NULL fields instead of NULL. A missing shredded list index also returns Variant null. | **Arrow `variant_get`.** [arrow-rs#11191](https://github.com/apache/arrow-rs/issues/11191), [arrow-rs#11301](https://github.com/apache/arrow-rs/issues/11301), and [arrow-rs#11050](https://github.com/apache/arrow-rs/issues/11050), which is fixed on arrow-rs `main` but not yet released. [`variant_sql_type.slt`][t-variant-sql-type]. |
+| Some `variant_get` calls on shredded data, or on Variant columns stored as `Binary` or `LargeBinary`, fail because the result does not match the declared output type. | **Crate:** the declared return type does not always match what Arrow returns. [`variant_sql_type.slt`][t-variant-sql-type], [`is_variant_null.slt`][t-is-variant-null]. |
+| `is_valid_variant` rejects some bytes that Spark accepts. It checks metadata, UTF-8, key order and uniqueness, offsets, nesting, and date and time ranges. | **Arrow validation** is stricter than Spark, and this crate keeps Arrow's rules. [`is_valid_variant.slt`][t-is-valid]. |
+| `variant_explode` and `variant_delete` validate the whole input, so they reject malformed values that Spark never reads. | **Crate:** inputs are fully validated before they are traversed. [`variant_delete.slt`][t-delete]. |
+| Malformed shredded metadata can panic while a value is reconstructed. | **Arrow `unshred_variant`.** [arrow-rs#11069](https://github.com/apache/arrow-rs/issues/11069). |
 
-## Additional types and integration scope
+## Beyond Spark 4.2
 
-- Arrow inputs include unsigned integers, Float16, narrow decimals, and additional
-  storage layouts without direct Spark SQL equivalents. Variant `TIME` and
-  nanosecond timestamp encodings are also accepted by Arrow validation where the
-  Spark revision pinned by the validation tests rejects them.
-  [Conversion cases](../tests/test_files/variant_conversion.slt),
-  [schema cases](../tests/test_files/schema_of_variant.slt),
-  [validation contract](../src/is_valid_variant.rs).
-- UUID Variant values can be inspected from fixtures, but SQL UUID construction
-  and preserving UUID extension metadata during conversion remain pending. This
-  is an integration gap, not a claim that Spark has an equivalent SQL UUID type.
-  [Pending conversion test](../tests/test_files/variant_conversion.slt),
-  [Arrow #11937](https://github.com/apache/arrow-rs/issues/11937).
-- Variant is an Arrow extension over struct storage here. Parquet reads currently
-  require `datafusion.execution.parquet.skip_metadata = false` to preserve its
-  identifying metadata. See the [README](../README.md#read-variant-from-parquet).
-- `variant_get_json`, `variant_object_construct`, `variant_object_insert`,
-  `variant_object_keys`, `variant_list_construct`, and `variant_list_insert` are
-  additional crate APIs, not a promise of equivalent Spark functions. In
-  particular, the object/list constructors currently require scalar arguments.
-  [Registration](../src/lib.rs), [object constructor](../src/variant_object_construct.rs),
-  [list constructor](../src/variant_list_construct.rs).
-- Errors use DataFusion/Arrow messages rather than Spark error classes and exact
-  wording. Ported tests check the relevant error category or NULL behavior.
+- Arrow types without a Spark equivalent, such as unsigned integers, `Float16`
+  and nanosecond timestamps, convert to Variant.
+  [`variant_conversion.slt`][t-variant-conversion].
+- `is_valid_variant` accepts Variant `TIME` values, which the Spark revision in
+  [`is_valid_variant.slt`][t-is-valid] rejects.
+- UUID values in Variant can be read, but SQL UUID values cannot be converted to
+  Variant yet. [arrow-rs#11937](https://github.com/apache/arrow-rs/issues/11937).
+- `variant_object_construct`, `variant_object_insert`, `variant_object_keys`,
+  `variant_list_construct`, `variant_list_insert` and `variant_delete` are not
+  Spark 4.2 functions. Spark added `variant_delete` in 4.3.
+- Errors use DataFusion and Arrow messages, not Spark error classes. The ported
+  tests check the kind of error.
+- `typeof` and other general Spark functions are not provided.
+  [Field extraction cases 33 to 36][t-fields].
 
-## Skipped expectations needing revalidation
+## Keeping this page current
 
-The following historical discrepancies are still marked as skipped in the tests,
-but **60.1.0 source contains the corresponding fixes**. They should not be counted
-as confirmed current failures. Re-enable and run the cases before declaring
-end-to-end parity; this documentation change does not alter the tests.
-
-| Historical discrepancy | Current dependency evidence | Tests to revisit |
-| --- | --- | --- |
-| A `]` inside a quoted getter key required an extra backslash. | Arrow's `parse_in_bracket` now tracks quotes and only terminates at an unquoted `]`. [Source][arrow-paths]. | [Literal keys](../tests/test_files/variant_get_literal_keys.slt), [additional field-extraction case](../tests/test_files/spark_variant_field_extractions.slt). The getter documentation also retains the old restriction. |
-| Float-to-decimal conversion accepted values exceeding the target precision, such as `12345.678` to `DECIMAL(3,2)`. | The Variant conversion calls `float_to_decimal_opt`, whose checked helper now validates the result precision. [Variant conversion][arrow-conversions], [decimal helper][arrow-decimal]. | [Field-extraction case 04](../tests/test_files/spark_variant_field_extractions.slt). |
-| Schema inference rejected an empty object key because metadata offsets repeated. | `VariantMetadata::with_full_validation` now allows equal offsets for an empty entry. [Source][arrow-metadata]. | [Final scalar-schema case](../tests/test_files/schema_of_variant.slt). |
-
-## Keeping this inventory current
-
-When fixing a discrepancy, update its linked tests and this document together.
-Record the Spark revision, expected result, responsible implementation layer,
-and tracking issue where available. Recheck skipped cases after Arrow or
-DataFusion upgrades instead of carrying their comments forward as current facts.
-The main compatibility tracker is [#71][compatibility-issue]; overall scope is
-tracked in the [roadmap][roadmap].
+When a difference is fixed, enable its test cases and remove its row. Upstream
+fixes and their releases are tracked in
+[#141](https://github.com/datafusion-contrib/datafusion-variant/issues/141).
 
 [spark-functions]: https://spark.apache.org/docs/4.2.0/sql-ref-functions-builtin.html#variant-functions
-[spark-expressions]: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionSuite.scala
-[spark-eval]: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionEvalUtilsSuite.scala
-[spark-fields]: https://github.com/apache/spark/blob/5c63836176a2a15a5d43a61f2e18890eb4ac7ece/sql/core/src/test/resources/sql-tests/inputs/variant-field-extractions.sql
-[spark-schema]: https://github.com/apache/spark/blob/4ccf07b6d91e2b126b7001741778ee28f22c6609/sql/catalyst/src/test/scala/org/apache/spark/sql/catalyst/expressions/variant/VariantExpressionSuite.scala
-[spark-paths]: https://github.com/apache/spark/blob/046f574fce3ffd93925f7bcdd459221fa11a730d/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/variant/variantExpressions.scala
-[spark-builder]: https://github.com/apache/spark/blob/046f574fce3ffd93925f7bcdd459221fa11a730d/common/variant/src/main/java/org/apache/spark/types/variant/VariantBuilder.java
+[spark-util]: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/common/variant/src/main/java/org/apache/spark/types/variant/VariantUtil.java
 [arrow-json]: https://github.com/apache/arrow-rs/blob/60.1.0/parquet-variant-json/src/from_json.rs
-[arrow-conversions]: https://github.com/apache/arrow-rs/blob/60.1.0/parquet-variant-compute/src/type_conversion.rs
-[arrow-to-arrow]: https://github.com/apache/arrow-rs/blob/60.1.0/parquet-variant-compute/src/variant_to_arrow.rs
-[arrow-object-builder]: https://github.com/apache/arrow-rs/blob/60.1.0/parquet-variant/src/builder/object.rs
-[arrow-paths]: https://github.com/apache/arrow-rs/blob/60.1.0/parquet-variant/src/utils.rs
-[arrow-decimal]: https://github.com/apache/arrow-rs/blob/60.1.0/arrow-cast/src/cast/decimal.rs
-[arrow-metadata]: https://github.com/apache/arrow-rs/blob/60.1.0/parquet-variant/src/variant/metadata.rs
-[compatibility-issue]: https://github.com/datafusion-contrib/datafusion-variant/issues/71
-[roadmap]: https://github.com/datafusion-contrib/datafusion-variant/issues/69
+[sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/tree/main/tests/test_files
+[t-parse-json]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt
+[t-schema]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt
+[t-schema-merge]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_schema_of_variant_merge.slt
+[t-fields]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_field_extractions.slt
+[t-casts]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_get_casts_primitives.slt
+[t-sql-types]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_get_sql_types.slt
+[t-explode]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_explode.slt
+[t-conversions]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_variant_conversions.slt
+[t-variant-sql-type]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_sql_type.slt
+[t-is-variant-null]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_variant_null.slt
+[t-is-valid]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/is_valid_variant.slt
+[t-delete]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_delete.slt
+[t-variant-conversion]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/variant_conversion.slt

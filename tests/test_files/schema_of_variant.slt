@@ -400,9 +400,7 @@ SELECT schema_of_variant(CAST(TIME '12:34:56' AS VARIANT)),
 ----
 TIME TIMESTAMP TIMESTAMP_NTZ
 
-# TODO: Arrow 59's full metadata validator rejects the repeated offset for an
-# empty key. Keep the desired behavior until parquet-variant accepts this input.
-skipif DataFusion
+# An empty key repeats an offset in the metadata dictionary.
 query T
 SELECT schema_of_variant(parse_json('{"": null}'));
 ----

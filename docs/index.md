@@ -24,6 +24,7 @@ getting-started
 paths
 shredding
 sql-reference
+spark-compatibility
 benchmarks
 contributing
 ```
