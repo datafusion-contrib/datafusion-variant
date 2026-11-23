@@ -1,19 +1,18 @@
 # Spark compatibility
 
-This crate aims to match the Variant behavior of
-[Apache Spark 4.2.0][spark-functions] (`32f72996`). That covers `parse_json`,
-`try_parse_json`, `is_variant_null`, `variant_get`, `try_variant_get`,
-`schema_of_variant`, `schema_of_variant_agg`, `to_variant_object`,
-`is_valid_variant`, `variant_explode` and `variant_explode_outer`, plus Variant
-support in `to_json`, `CAST` and the `:` operator. All of them are implemented.
+This crate aims to match Apache Spark's Variant behavior. The first release
+targets the [Variant functions of Spark 4.2.0][spark-functions] (`32f72996`),
+and later releases follow Spark's development.
 
-The Spark test suites for these functions are ported to the
-[SQL tests][sql-tests], and each file names the Spark revision its expected
-results come from. The ported cases pass, except for the differences below.
-Each difference links the skipped or adapted test cases that record Spark's
-result.
+Spark's tests for these functions are ported to the [SQL tests][sql-tests],
+and each file names the Spark revision its expected results come from. The
+ported cases pass, except for the differences below. Each difference links the
+skipped or adapted test cases that record Spark's result.
 
 Paths follow Spark 4.2 syntax. See [Variant paths](paths.md).
+
+If you find a difference that is not listed here, please
+[open an issue][issues].
 
 ## JSON parsing and schema inference
 
@@ -93,6 +92,7 @@ fixes and their releases are tracked in
 [spark-util]: https://github.com/apache/spark/blob/32f7299601108917fb01920a54e084595b7b3bf8/common/variant/src/main/java/org/apache/spark/types/variant/VariantUtil.java
 [arrow-json]: https://github.com/apache/arrow-rs/blob/60.1.0/parquet-variant-json/src/from_json.rs
 [sql-tests]: https://github.com/datafusion-contrib/datafusion-variant/tree/main/tests/test_files
+[issues]: https://github.com/datafusion-contrib/datafusion-variant/issues
 [t-parse-json]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/parse_json.slt
 [t-schema]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/schema_of_variant.slt
 [t-schema-merge]: https://github.com/datafusion-contrib/datafusion-variant/blob/main/tests/test_files/spark_schema_of_variant_merge.slt
