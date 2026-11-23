@@ -17,6 +17,8 @@ use parquet_variant_compute::{VariantArray, VariantType};
 
 use crate::shared::{ensure, try_parse_string_scalar, try_parse_variant_scalar};
 
+/// `variant_object_insert(object, key, value)`: returns the Variant object
+/// with the field `key` set to the Variant `value`.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantObjectInsert {
     signature: Signature,

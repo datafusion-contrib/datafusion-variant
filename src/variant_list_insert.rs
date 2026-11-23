@@ -17,6 +17,8 @@ use parquet_variant_compute::{VariantArray, VariantType};
 
 use crate::shared::{ensure, try_parse_variant_scalar};
 
+/// `variant_list_insert(list, value)`: returns the Variant list with the
+/// Variant `value` appended.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListInsert {
     signature: Signature,

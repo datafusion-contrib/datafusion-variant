@@ -17,6 +17,8 @@ use parquet_variant_compute::{VariantArray, VariantType};
 
 use crate::shared::{ensure, try_parse_string_scalar, try_parse_variant_scalar};
 
+/// `variant_object_construct(key, value [, key, value ...])`: builds a Variant
+/// object from pairs of string keys and Variant values.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantObjectConstruct {
     signature: Signature,

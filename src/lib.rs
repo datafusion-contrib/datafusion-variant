@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
+//! Variant SQL type and functions for [Apache DataFusion].
+//!
+//! Call [`register_all`] on a [`SessionContext`] to install the `VARIANT` SQL
+//! type, the Variant functions, and reading and writing shredded Variant
+//! columns in Parquet files.
+//!
+//! See the [user guide] for the SQL reference and examples.
+//!
+//! [Apache DataFusion]: https://datafusion.apache.org/
+//! [user guide]: https://datafusion-contrib.github.io/datafusion-variant/
+
 #![warn(clippy::all)]
+// Enforced in CI: clippy runs with `-D warnings`.
+#![warn(missing_docs)]
 
 #[cfg(doctest)]
 #[doc = include_str!("../docs/getting-started.md")]

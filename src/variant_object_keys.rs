@@ -16,6 +16,9 @@ use parquet_variant_compute::{GetOptions, VariantArray, variant_get as compute_v
 use crate::shared::{try_field_as_variant_array, try_parse_string_scalar};
 use crate::variant_path::parse_variant_path;
 
+/// `variant_object_keys(v [, path])`: returns the field names of a Variant
+/// object as a list of strings, or NULL if the value (or the value at `path`)
+/// is not an object.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantObjectKeys {
     signature: Signature,

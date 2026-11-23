@@ -16,6 +16,8 @@ use parquet_variant_compute::{VariantArray, VariantType};
 
 use crate::shared::{ensure, try_parse_variant_scalar};
 
+/// `variant_list_construct(value [, value ...])`: builds a Variant list from
+/// one or more Variant values.
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct VariantListConstruct {
     signature: Signature,

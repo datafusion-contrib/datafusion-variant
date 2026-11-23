@@ -91,7 +91,32 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-git-
 
+      # Also fails on undocumented public APIs: src/lib.rs sets
+      # `#![warn(missing_docs)]`
       - run: cargo clippy -- -D warnings
+
+  # Uses the stable Rust toolchain preinstalled on the ubuntu-latest runner
+  rustdoc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+
+      # See comments above
+      - name: Cache cargo git dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      # Fails on rustdoc warnings such as broken intra-doc links, including
+      # those in the docs of private items.
+      - name: Build API docs
+        run: cargo doc --workspace --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   docs:
     runs-on: ubuntu-latest
@@ -118,7 +143,7 @@ jobs:
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [license-header-check, tests, fmt, clippy, docs]
+    needs: [license-header-check, tests, fmt, clippy, rustdoc, docs]
     runs-on: ubuntu-slim
     permissions:
       pages: write

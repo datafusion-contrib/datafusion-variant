@@ -25,6 +25,7 @@ use crate::shared::{
 };
 use crate::variant_type::variant_field;
 
+/// Removes the fields or array elements at one or more paths from a Variant.
 #[user_doc(
     doc_section(label = "Variant Functions"),
     description = "Deletes object fields or array elements at one or more JSONPaths, applied left to right. Missing targets and type mismatches leave the value unchanged. SQL NULL input returns SQL NULL; NULL paths are skipped. Paths must start with `$` and cannot select the root alone.",
