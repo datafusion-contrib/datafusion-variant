@@ -284,7 +284,7 @@ SELECT event:id, event FROM mixed_events ORDER BY event:id::BIGINT;
 Use `CREATE EXTERNAL TABLE` for such directories. Reading the directory directly
 with `SELECT ... FROM 'mixed_events/'` does not unify the layouts yet and
 returns an error or NULL for the fields that are shredded differently
-([apache/datafusion#27089](https://github.com/apache/datafusion/issues/27089)).
+([#177](https://github.com/datafusion-contrib/datafusion-variant/issues/177)).
 
 See the documentation on [`VariantExprAdapterFactory`](../src/expr_adapter.rs)
 for more details.
