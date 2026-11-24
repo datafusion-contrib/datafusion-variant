@@ -11,7 +11,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use datafusion::config::ConfigOptions;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::SessionStateBuilder;
@@ -81,6 +81,33 @@ impl Args {
     }
 }
 
+/// A `-f` file or `-c` command to run.
+#[derive(Debug, Clone, PartialEq)]
+enum Step {
+    File(String),
+    Command(String),
+}
+
+impl Step {
+    /// Return the `-f` files and `-c` commands in the order they were given
+    /// on the command line, so `-c "CREATE ..." -f query.sql` runs the
+    /// command before the file.
+    fn in_command_line_order(matches: &ArgMatches, args: &Args) -> Vec<Self> {
+        let indexed = |id: &str, values: &[String], step: fn(String) -> Self| {
+            matches
+                .indices_of(id)
+                .into_iter()
+                .flatten()
+                .zip(values.iter().cloned().map(step))
+                .collect::<Vec<_>>()
+        };
+        let mut steps = indexed("file", &args.file, Self::File);
+        steps.extend(indexed("command", &args.command, Self::Command));
+        steps.sort_by_key(|(index, _)| *index);
+        steps.into_iter().map(|(_, step)| step).collect()
+    }
+}
+
 #[tokio::main]
 pub async fn main() -> ExitCode {
     if let Err(e) = main_inner().await {
@@ -92,7 +119,9 @@ pub async fn main() -> ExitCode {
 
 async fn main_inner() -> Result<()> {
     env_logger::init();
-    let args = Args::parse();
+    let matches = Args::command().get_matches();
+    let args = Args::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    let steps = Step::in_command_line_order(&matches, &args);
 
     println!(
         "dfv (DataFusion Variant CLI) v{} based on DataFusion CLI v{DATAFUSION_CLI_VERSION}",
@@ -172,12 +201,16 @@ async fn main_inner() -> Result<()> {
     let mut elapsed_ms = Vec::new();
     for iteration in 1..=args.iterations {
         let start = Instant::now();
-        if !args.file.is_empty() {
-            exec::exec_from_files(&cli_ctx, args.file.clone(), &print_options).await?;
-        }
-
-        if !args.command.is_empty() {
-            exec::exec_from_commands(&cli_ctx, args.command.clone(), &print_options).await?;
+        for step in &steps {
+            match step {
+                Step::File(file) => {
+                    exec::exec_from_files(&cli_ctx, vec![file.clone()], &print_options).await?
+                }
+                Step::Command(command) => {
+                    exec::exec_from_commands(&cli_ctx, vec![command.clone()], &print_options)
+                        .await?
+                }
+            }
         }
 
         if args.iterations > 1 {
