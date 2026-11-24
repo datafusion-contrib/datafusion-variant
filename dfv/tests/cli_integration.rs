@@ -717,8 +717,8 @@ fn test_load_bsky_reads_local_file() {
     });
 }
 
-/// `load_bsky(first, last)` reads files `first` to `last` in order, one at a
-/// time.
+/// With a single target partition, `load_bsky(first, last)` reads files
+/// `first` to `last` in order, one at a time.
 #[test]
 fn test_load_bsky_reads_file_range() {
     let temp_dir = tempfile::tempdir().unwrap();
@@ -729,6 +729,7 @@ fn test_load_bsky_reads_file_range() {
     let context = snapshot_output(
         cargo_bin_cmd!("dfv")
             .env("DFV_BSKY_DIR", temp_dir.path())
+            .env("DATAFUSION_EXECUTION_TARGET_PARTITIONS", "1")
             .args(["-c", "SELECT count(*) AS rows FROM load_bsky(1, 3)"]),
     );
 
@@ -753,6 +754,73 @@ fn test_load_bsky_reads_file_range() {
         Loaded 3 rows
         Loading [BSKY_DIR]/file_0003.json.gz
         Loaded 3 rows
+        ");
+    });
+}
+
+/// `load_bsky(first, last)` divides the files evenly among
+/// `target_partitions` partitions that are read in parallel: 5 files and 2
+/// target partitions are scanned as 2 partitions, and every file is read.
+#[test]
+fn test_load_bsky_reads_file_range_in_parallel() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    for n in 1..=5 {
+        write_bsky_file(temp_dir.path(), n, &BSKY_ROWS);
+    }
+
+    let output = cargo_bin_cmd!("dfv")
+        .env("DFV_BSKY_DIR", temp_dir.path())
+        .env("DATAFUSION_EXECUTION_TARGET_PARTITIONS", "2")
+        .env("DATAFUSION_EXPLAIN_FORMAT", "indent")
+        .args([
+            "-c",
+            "EXPLAIN SELECT json_data FROM load_bsky(1, 5)",
+            "-c",
+            "SELECT count(*) AS rows FROM load_bsky(1, 5)",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // The partitions report their progress concurrently: sort for a stable order
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let mut stderr = stderr.lines().collect::<Vec<_>>();
+    stderr.sort();
+    let context = format!("stdout:\n{stdout}\nstderr (sorted):\n{}", stderr.join("\n"));
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r"
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        +---------------+---------------------------------------------------------------+
+        | plan_type     | plan                                                          |
+        +---------------+---------------------------------------------------------------+
+        | logical_plan  | TableScan: load_bsky() projection=[json_data]                 |
+        | physical_plan | StreamingTableExec: partition_sizes=2, projection=[json_data] |
+        |               |                                                               |
+        +---------------+---------------------------------------------------------------+
+        2 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        +------+
+        | rows |
+        +------+
+        | 15   |
+        +------+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr (sorted):
+        Loaded 3 rows
+        Loaded 3 rows
+        Loaded 3 rows
+        Loaded 3 rows
+        Loaded 3 rows
+        Loading [BSKY_DIR]/file_0001.json.gz
+        Loading [BSKY_DIR]/file_0002.json.gz
+        Loading [BSKY_DIR]/file_0003.json.gz
+        Loading [BSKY_DIR]/file_0004.json.gz
+        Loading [BSKY_DIR]/file_0005.json.gz
         ");
     });
 }
