@@ -8,9 +8,11 @@
 //! Files are read from `DFV_BSKY_DIR` (default `data/bluesky`), for example
 //! `data/bluesky/file_0001.json.gz`.
 //!
-//! Missing files are downloaded first (about 135 MB per file). Files are read
-//! one at a time as the query consumes them, so a range does not have to fit
-//! in memory.
+//! Missing files are downloaded first (about 135 MB per file). A range is
+//! divided evenly among up to `datafusion.execution.target_partitions`
+//! partitions that are read in parallel, so rows from different files are
+//! interleaved. Each partition reads its files one at a time as the query
+//! consumes them, so a range does not have to fit in memory.
 //!
 //! [ClickHouse Bluesky dataset]: https://clickhouse.com/docs/getting-started/example-datasets/bluesky
 
@@ -80,16 +82,38 @@ impl TableFunctionImpl for LoadBskyFunc {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(DEFAULT_DIR));
         let schema = bsky_schema();
-        let files = BskyFiles {
-            schema: Arc::clone(&schema),
-            dir,
-            files,
-        };
-        Ok(Arc::new(StreamingTable::try_new(
-            schema,
-            vec![Arc::new(files)],
-        )?))
+        let target_partitions = args.session().config().target_partitions();
+        let partitions = split_files(files, target_partitions)
+            .into_iter()
+            .map(|files| {
+                Arc::new(BskyFiles {
+                    schema: Arc::clone(&schema),
+                    dir: dir.clone(),
+                    files,
+                }) as Arc<dyn PartitionStream>
+            })
+            .collect();
+        Ok(Arc::new(StreamingTable::try_new(schema, partitions)?))
     }
+}
+
+/// Divide `files` into at most `target_partitions` contiguous ranges whose
+/// lengths differ by at most one. For example, files `1..=10` and 4 target
+/// partitions gives `[1..=3, 4..=6, 7..=8, 9..=10]`.
+fn split_files(files: RangeInclusive<i64>, target_partitions: usize) -> Vec<RangeInclusive<i64>> {
+    let num_files = files.end() - files.start() + 1;
+    let num_partitions = (target_partitions.max(1) as i64).min(num_files);
+    let (len, extra) = (num_files / num_partitions, num_files % num_partitions);
+    let mut first = *files.start();
+    (0..num_partitions)
+        .map(|partition| {
+            // the first `extra` partitions each read one more file
+            let last = first + len - 1 + i64::from(partition < extra);
+            let files = first..=last;
+            first = last + 1;
+            files
+        })
+        .collect()
 }
 
 fn bsky_schema() -> SchemaRef {
@@ -100,9 +124,8 @@ fn bsky_schema() -> SchemaRef {
     )]))
 }
 
-/// Bluesky files read in order as a single partition, which DataFusion
-/// repartitions as needed. Each file is downloaded if needed when the scan
-/// reaches it.
+/// Bluesky files read in order as one partition of a `load_bsky` scan. Each
+/// file is downloaded if needed when the scan reaches it.
 #[derive(Debug)]
 struct BskyFiles {
     schema: SchemaRef,
@@ -226,5 +249,23 @@ fn read_json_lines(
         if tx.blocking_send(Ok(batch)).is_err() {
             return Ok(rows);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_files_divides_evenly() {
+        // more files than partitions: lengths differ by at most one
+        assert_eq!(split_files(1..=10, 4), vec![1..=3, 4..=6, 7..=8, 9..=10]);
+        assert_eq!(split_files(1..=8, 4), vec![1..=2, 3..=4, 5..=6, 7..=8]);
+        // no more partitions than files
+        assert_eq!(split_files(5..=7, 16), vec![5..=5, 6..=6, 7..=7]);
+        assert_eq!(split_files(3..=3, 16), vec![3..=3]);
+        // a single partition reads every file
+        assert_eq!(split_files(1..=1000, 1), vec![1..=1000]);
+        assert_eq!(split_files(1..=3, 0), vec![1..=3]);
     }
 }
