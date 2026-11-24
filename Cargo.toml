@@ -59,11 +59,11 @@ members = ["dfv"]
 default-members = [".", "dfv"]
 
 [workspace.dependencies]
-datafusion = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-cli = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-doc = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-macros = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
+datafusion = "56"
+datafusion-cli = "56"
+datafusion-doc = "56"
+datafusion-macros = "56"
+datafusion-sqllogictest = "56"
 arrow = "60"
 parquet = { version = "60", features = ["variant_experimental"] }
 async-trait = "0.1"

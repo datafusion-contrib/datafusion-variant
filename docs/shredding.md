@@ -93,7 +93,7 @@ contains them: `service` in the residual of `request`, and `region` in the
 residual of `request.detail`. Rows without a shredded field have `NULL` in its
 typed column:
 
-<!-- TODO: remove `to_json` below when https://github.com/apache/datafusion/issues/24860 is fixed -->
+<!-- TODO: remove `to_json` below when we depend on a DataFusion release with the fix for https://github.com/apache/datafusion/issues/24860 (not in 56.0.0) -->
 <!--
 ```sql
 SELECT residual_json(request) AS "request (residual)",
