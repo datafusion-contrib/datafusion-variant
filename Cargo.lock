@@ -1430,7 +1430,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -1483,7 +1483,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1507,7 +1507,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1530,7 +1530,7 @@ dependencies = [
 [[package]]
 name = "datafusion-cli"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1558,7 +1558,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-ipc",
@@ -1585,7 +1585,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "futures",
  "log",
@@ -1595,7 +1595,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-compression",
@@ -1631,7 +1631,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-arrow"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-ipc",
@@ -1654,7 +1654,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-avro"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-avro",
@@ -1677,7 +1677,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1699,7 +1699,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1721,7 +1721,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-parquet"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -1752,12 +1752,12 @@ dependencies = [
 [[package]]
 name = "datafusion-doc"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 
 [[package]]
 name = "datafusion-execution"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-buffer",
@@ -1783,7 +1783,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -1806,7 +1806,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1817,7 +1817,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-buffer",
@@ -1849,7 +1849,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-select",
@@ -1871,7 +1871,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1882,7 +1882,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-nested"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-ord",
@@ -1906,7 +1906,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1921,7 +1921,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1937,7 +1937,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -1946,7 +1946,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "datafusion-doc",
  "quote",
@@ -1956,7 +1956,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "chrono",
@@ -1975,7 +1975,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -1998,7 +1998,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-adapter"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2012,7 +2012,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "chrono",
@@ -2029,7 +2029,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2049,7 +2049,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-data",
@@ -2086,7 +2086,7 @@ dependencies = [
 [[package]]
 name = "datafusion-pruning"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2101,7 +2101,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow-schema",
  "async-trait",
@@ -2116,7 +2116,7 @@ dependencies = [
 [[package]]
 name = "datafusion-spark"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "base64",
@@ -2146,7 +2146,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -2166,7 +2166,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sqllogictest"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion.git?branch=branch-56#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
+source = "git+https://github.com/alamb/datafusion.git?branch=alamb%2Fnested-input-access-branch-56#8e3e523058267a12cb375551a9bbd0d9c423f909"
 dependencies = [
  "arrow",
  "async-trait",
