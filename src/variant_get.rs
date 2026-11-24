@@ -350,8 +350,8 @@ where
 ///
 /// Since the getter is evaluated *before* the `FilterExec`, potentially on
 /// rows the filter removes, only getters that never error may be pushed down.
-/// Pushing additional functions is tracked by
-/// <https://github.com/datafusion-contrib/datafusion-variant/issues/199>
+/// `variant_get` with a conversion can error, so it is split into a part that
+/// is pushed down and a part that is not by [`split_conversion`].
 fn getter_placement(args: &[ExpressionPlacement]) -> ExpressionPlacement {
     let Some((input, rest)) = args.split_first() else {
         return ExpressionPlacement::KeepInPlace;
@@ -366,6 +366,59 @@ fn getter_placement(args: &[ExpressionPlacement]) -> ExpressionPlacement {
     } else {
         ExpressionPlacement::KeepInPlace
     }
+}
+
+/// Split `variant_get` with a conversion into an extraction that can be pushed
+/// down and a conversion that can not.
+///
+/// Takes the arguments of the call and returns its new arguments, or the
+/// original arguments if the call can not be split.
+///
+/// # Background
+///
+/// A conversion errors on a value that does not convert, so it can't be pushed
+/// below a filter, where it would error on rows the filter removes. For
+/// example, this query must not fail when only the row with `id = 3` has an `x`
+/// that is not a BIGINT:
+///
+/// ```sql
+/// SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM t WHERE id != 3
+/// ```
+///
+/// Extracting the field without a conversion never errors, so this call
+///
+/// ```sql
+/// variant_get(v, '$.x', 'BIGINT')
+/// ```
+///
+/// is rewritten to
+///
+/// ```sql
+/// variant_get(variant_get(v, '$.x'), '$', 'BIGINT')
+/// ```
+///
+/// The inner call is pushed down (see [`getter_placement`]) and the outer call
+/// converts only the rows that pass the filter:
+///
+/// ```text
+/// AggregateExec: aggr=[sum(variant_get(__t, $, BIGINT))]   <-- conversion stays here
+///   FilterExec: id@1 != 3, projection=[__t@0]
+///     DataSourceExec: projection=[variant_get(v@1, $.x) as __t, id]   <-- extraction is in the scan
+/// ```
+fn split_conversion(getter: &VariantGetUdf, mut args: Vec<Expr>) -> Transformed<Vec<Expr>> {
+    // The root path is the already split form.
+    let path = args.get(1).and_then(literal_path);
+    if path.is_none_or(|path| path == "$") {
+        return Transformed::no(args);
+    }
+    let untyped = VariantGetUdf {
+        config: getter.config.clone(),
+        ..Default::default()
+    };
+    let extracted = ScalarUDF::new_from_impl(untyped).call(args[..2].to_vec());
+    args[0] = extracted;
+    args[1] = lit("$");
+    Transformed::yes(args)
 }
 
 /// Extracts a Variant value, returning an error for failed result-type conversions.
@@ -524,20 +577,27 @@ impl ScalarUDFImpl for VariantGetUdf {
     }
 
     fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
-        simplify_getter(self, args)
+        // No conversion (no cast target or type hint)
+        if self.is_untyped() && args.len() == 2 {
+            return simplify_getter(self, args);
+        }
+        // Already split: collapsing the root path would undo the split.
+        if args.get(1).and_then(literal_path) == Some("$") {
+            return Ok(ExprSimplifyResult::Original(args));
+        }
+        let collapsed = collapse_nested_getters(args)?;
+        let split = split_conversion(self, collapsed.data);
+        if !collapsed.transformed && !split.transformed {
+            return Ok(ExprSimplifyResult::Original(split.data));
+        }
+        let getter = ScalarUDF::new_from_impl(self.clone());
+        Ok(ExprSimplifyResult::Simplified(getter.call(split.data)))
     }
 
     fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
         // A conversion (type hint or cast target) errors on a value that does
-        // not convert, so `variant_get` with a conversion can't be pushed down:
-        // below a filter it would error on rows the filter removes. For example
-        // this query must not fail when only the row with `id = 3` has an `x`
-        // that is not a BIGINT:
-        //
-        //   SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM t WHERE id != 3
-        //
-        // Pushing down the typed form is tracked in
-        // https://github.com/datafusion-contrib/datafusion-variant/issues/199
+        // not convert, so only the extraction is pushed down: see
+        // `split_conversion`.
         if !self.is_untyped() || args.len() != 2 {
             return ExpressionPlacement::KeepInPlace;
         }

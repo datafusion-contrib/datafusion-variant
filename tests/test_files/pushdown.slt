@@ -179,9 +179,10 @@ physical_plan
 04)------DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[variant_get(v@1, $.y) as __datafusion_extracted_1, try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_2, id], file_type=parquet, predicate=id@0 != 3, pruning_predicate=id_null_count@2 != row_count@3 AND (id_min@0 != 3 OR 3 != id_max@1), required_guarantees=[id not in (3)]
 
 ###
-# variant_get with a type: errors on a value that does not convert, so it is
-# NOT pushed down (could error on rows before a filter removes it)
-# https://github.com/datafusion-contrib/datafusion-variant/issues/199
+# variant_get with a type: errors on a value that does not convert, so only
+# the extraction `variant_get(v, '$.x')` is pushed down. The conversion
+# `variant_get(.., '$', 'BIGINT')` is NOT pushed down (could error on rows
+# before a filter removes it)
 ###
 
 # aggregate + filter
@@ -194,14 +195,15 @@ query TT
 EXPLAIN SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM p WHERE id != 3;
 ----
 logical_plan
-01)Aggregate: groupBy=[[]], aggr=[[sum(variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")))]]
-02)--Projection: p.v
+01)Aggregate: groupBy=[[]], aggr=[[sum(variant_get(__datafusion_extracted_1, Utf8("$"), Utf8("BIGINT"))) AS sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]]
+02)--Projection: __datafusion_extracted_1
 03)----Filter: p.id != Int64(3)
-04)------TableScan: p projection=[id, v], partial_filters=[p.id != Int64(3)]
+04)------Projection: variant_get(p.v, Utf8("$.x")) AS __datafusion_extracted_1, p.id
+05)--------TableScan: p projection=[id, v], partial_filters=[p.id != Int64(3)]
 physical_plan
-01)AggregateExec: mode=Single, gby=[], aggr=[sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
-02)--FilterExec: id@0 != 3, projection=[v@1]
-03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[id, v], file_type=parquet, predicate=id@0 != 3, pruning_predicate=id_null_count@2 != row_count@3 AND (id_min@0 != 3 OR 3 != id_max@1), required_guarantees=[id not in (3)]
+01)AggregateExec: mode=Single, gby=[], aggr=[sum(variant_get(__datafusion_extracted_1, Utf8("$"), Utf8("BIGINT"))) as sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
+02)--FilterExec: id@1 != 3, projection=[__datafusion_extracted_1@0]
+03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[variant_get(v@1, $.x) as __datafusion_extracted_1, id], file_type=parquet, predicate=id@0 != 3, pruning_predicate=id_null_count@2 != row_count@3 AND (id_min@0 != 3 OR 3 != id_max@1), required_guarantees=[id not in (3)]
 
 # aggregate (errors without the filter, as `x` is not a BIGINT for `id = 3`)
 query error Failed to extract primitive of type Int64
@@ -211,11 +213,12 @@ query TT
 EXPLAIN SELECT sum(variant_get(v, '$.x', 'BIGINT')) FROM p;
 ----
 logical_plan
-01)Aggregate: groupBy=[[]], aggr=[[sum(variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")))]]
-02)--TableScan: p projection=[v]
+01)Aggregate: groupBy=[[]], aggr=[[sum(variant_get(__datafusion_extracted_1, Utf8("$"), Utf8("BIGINT"))) AS sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]]
+02)--Projection: variant_get(p.v, Utf8("$.x")) AS __datafusion_extracted_1
+03)----TableScan: p projection=[v]
 physical_plan
-01)AggregateExec: mode=Single, gby=[], aggr=[sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
-02)--DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[v], file_type=parquet
+01)AggregateExec: mode=Single, gby=[], aggr=[sum(variant_get(__datafusion_extracted_1, Utf8("$"), Utf8("BIGINT"))) as sum(variant_get(p.v,Utf8("$.x"),Utf8("BIGINT")))]
+02)--DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[variant_get(v@1, $.x) as __datafusion_extracted_1], file_type=parquet
 
 ###
 # Getters that are not on a column are not pushed down
