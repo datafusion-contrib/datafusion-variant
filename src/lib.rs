@@ -14,6 +14,7 @@ mod expr_adapter;
 mod expr_planner;
 mod is_valid_variant;
 mod is_variant_null;
+mod nested_access;
 mod parse_json;
 mod schema_of_variant;
 mod to_json;

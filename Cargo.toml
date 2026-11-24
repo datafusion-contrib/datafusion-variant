@@ -59,11 +59,14 @@ members = ["dfv"]
 default-members = [".", "dfv"]
 
 [workspace.dependencies]
-datafusion = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-cli = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-doc = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-macros = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion.git", branch = "branch-56" }
+# TEMPORARY: `branch-56` plus the `NestedInputAccess` API proposed in
+# https://github.com/apache/datafusion/pull/26282
+# See https://github.com/alamb/datafusion/pull/41
+datafusion = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/nested-input-access-branch-56" }
+datafusion-cli = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/nested-input-access-branch-56" }
+datafusion-doc = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/nested-input-access-branch-56" }
+datafusion-macros = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/nested-input-access-branch-56" }
+datafusion-sqllogictest = { git = "https://github.com/alamb/datafusion.git", branch = "alamb/nested-input-access-branch-56" }
 arrow = "60"
 parquet = { version = "60", features = ["variant_experimental"] }
 async-trait = "0.1"

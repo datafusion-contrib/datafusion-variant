@@ -106,7 +106,7 @@ logical_plan
 04)------TableScan: p projection=[id, v], partial_filters=[try_variant_get(p.v, Utf8("$.x"), Utf8("BIGINT")) > Int64(1)]
 physical_plan
 01)FilterExec: __datafusion_extracted_1@0 > 1, projection=[id@1]
-02)--DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1, id], file_type=parquet
+02)--DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1, id], file_type=parquet, predicate=try_variant_get(v@1, $.x, BIGINT) > 1
 
 # sort
 query I
@@ -126,7 +126,7 @@ logical_plan
 physical_plan
 01)ProjectionExec: expr=[id@0 as id]
 02)--SortExec: TopK(fetch=2), expr=[__datafusion_extracted_1@1 DESC], preserve_partitioning=[false]
-03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[id, try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1], file_type=parquet
+03)----DataSourceExec: file_groups={1 group: [[WORKSPACE_ROOT/tests/test_files/scratch/pushdown/t.parquet]]}, projection=[id, try_variant_get(v@1, $.x, BIGINT) as __datafusion_extracted_1], file_type=parquet, predicate=DynamicFilter [ empty ], dynamic_rg_pruning=eligible
 
 ###
 # variant_get without a type (returns a Variant): never errors, so it is

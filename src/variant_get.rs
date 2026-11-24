@@ -8,11 +8,14 @@ use arrow::{
 };
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use datafusion::{
-    common::{config::ConfigOptions, exec_datafusion_err, exec_err, tree_node::Transformed},
+    common::{
+        ColumnStatistics, Statistics, config::ConfigOptions, exec_datafusion_err, exec_err,
+        tree_node::Transformed,
+    },
     error::{DataFusionError, Result},
     logical_expr::{
-        ColumnarValue, Expr, ExpressionPlacement, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF,
-        ScalarUDFImpl, Signature, TypeSignature, Volatility,
+        ColumnarValue, Expr, ExpressionPlacement, FieldPath, NestedInputAccess, ReturnFieldArgs,
+        ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, TypeSignature, Volatility,
         expr::ScalarFunction,
         lit,
         simplify::{ExprSimplifyResult, SimplifyContext},
@@ -24,6 +27,7 @@ use datafusion_macros::user_doc;
 use parquet_variant::VariantPath;
 use parquet_variant_compute::{GetOptions, VariantType, variant_get};
 
+use crate::nested_access::GetterAccess;
 use crate::shared::{
     try_field_as_variant_array, try_parse_string_columnar, try_parse_string_scalar,
 };
@@ -342,9 +346,8 @@ where
 ///     DataSourceExec: projection=[try_variant_get(v@1, $.x, BIGINT) as __t, id]   <-- getter is in the scan
 /// ```
 ///
-/// By pushing the getter into the scan, the Parquet reader can potentially
-/// optimize reading shredded inputs by reading only the columns needed for the
-/// getter, tracked by <https://github.com/apache/datafusion/issues/27588>
+/// By pushing the getter into the scan, the Parquet reader reads only the
+/// shredded columns the getter needs (see `GetterAccess`).
 ///
 /// # Notes
 ///
@@ -366,6 +369,32 @@ fn getter_placement(args: &[ExpressionPlacement]) -> ExpressionPlacement {
     } else {
         ExpressionPlacement::KeepInPlace
     }
+}
+
+/// Shared [`NestedInputAccess::required_fields`] for `variant_get` and
+/// `try_variant_get`: the leaves of the Variant column that hold the path.
+///
+/// Without this, a getter in the scan reads (and the scan decodes) the whole
+/// Variant column, even when the path is shredded into its own columns.
+fn getter_required_fields(args: &ReturnFieldArgs) -> Vec<Option<Vec<FieldPath>>> {
+    vec![GetterAccess::try_new(args).map(GetterAccess::into_paths)]
+}
+
+/// Shared [`NestedInputAccess::output_statistics`] for `variant_get` and
+/// `try_variant_get`, used to skip row groups and pages.
+fn getter_output_statistics<T: ScalarUDFImpl>(
+    getter: &T,
+    args: &ReturnFieldArgs,
+    inputs: &Statistics,
+) -> Option<ColumnStatistics> {
+    let access = GetterAccess::try_new(args)?;
+    let return_field = getter
+        .return_field_from_args(ReturnFieldArgs {
+            arg_fields: args.arg_fields,
+            scalar_arguments: args.scalar_arguments,
+        })
+        .ok()?;
+    access.output_statistics(return_field.data_type(), inputs)
 }
 
 /// Extracts a Variant value, returning an error for failed result-type conversions.
@@ -477,6 +506,20 @@ impl VariantGetUdf {
     }
 }
 
+impl NestedInputAccess for VariantGetUdf {
+    fn required_fields(&self, args: &ReturnFieldArgs) -> Vec<Option<Vec<FieldPath>>> {
+        getter_required_fields(args)
+    }
+
+    fn output_statistics(
+        &self,
+        args: &ReturnFieldArgs,
+        inputs: &Statistics,
+    ) -> Option<ColumnStatistics> {
+        getter_output_statistics(self, args, inputs)
+    }
+}
+
 impl ScalarUDFImpl for VariantGetUdf {
     fn documentation(&self) -> Option<&Documentation> {
         self.doc()
@@ -542,6 +585,10 @@ impl ScalarUDFImpl for VariantGetUdf {
             return ExpressionPlacement::KeepInPlace;
         }
         getter_placement(args)
+    }
+
+    fn as_nested_input_access(&self) -> Option<&dyn NestedInputAccess> {
+        Some(self)
     }
 
     fn invoke_with_args(
@@ -651,6 +698,20 @@ impl TryVariantGetUdf {
     }
 }
 
+impl NestedInputAccess for TryVariantGetUdf {
+    fn required_fields(&self, args: &ReturnFieldArgs) -> Vec<Option<Vec<FieldPath>>> {
+        getter_required_fields(args)
+    }
+
+    fn output_statistics(
+        &self,
+        args: &ReturnFieldArgs,
+        inputs: &Statistics,
+    ) -> Option<ColumnStatistics> {
+        getter_output_statistics(self, args, inputs)
+    }
+}
+
 impl ScalarUDFImpl for TryVariantGetUdf {
     fn documentation(&self) -> Option<&Documentation> {
         self.doc()
@@ -692,6 +753,10 @@ impl ScalarUDFImpl for TryVariantGetUdf {
         // `try_variant_get` returns NULL rather than erroring on a value that
         // does not convert, so it can always be pushed down below filters.
         getter_placement(args)
+    }
+
+    fn as_nested_input_access(&self) -> Option<&dyn NestedInputAccess> {
+        Some(self)
     }
 
     fn invoke_with_args(

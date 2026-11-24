@@ -23,8 +23,8 @@ use datafusion::common::{Result, exec_err, internal_err, plan_err};
 use datafusion::datasource::listing::ListingTable;
 use datafusion::execution::session_state::SessionState;
 use datafusion::logical_expr::CreateExternalTable;
-use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::Column;
+use datafusion::physical_expr::{PhysicalExpr, ScalarFunctionExpr};
 use datafusion::physical_expr_adapter::{
     DefaultPhysicalExprAdapterFactory, PhysicalExprAdapter, PhysicalExprAdapterFactory,
 };
@@ -32,6 +32,7 @@ use datafusion::physical_plan::ColumnarValue;
 use parquet_variant_compute::{VariantArray, shred_variant, unshred_variant};
 
 use crate::variant_type::is_variant;
+use crate::{TryVariantGetUdf, VariantGetUdf};
 
 /// Adapts the output of Parquet files whose Variant shredding layout differs
 /// from the table's.
@@ -168,6 +169,24 @@ impl PhysicalExprAdapter for VariantExprAdapter {
         let mut placeholders = Vec::new();
         let expr = expr
             .transform_down(|expr| {
+                // A getter reads any layout, so give it the file's column as
+                // is. The scan can then read only the leaves the getter needs
+                // (see `NestedInputAccess`) rather than the whole column.
+                if let Some(column) = getter_input(&expr)
+                    && let Some(index) = self.reshred_index(column)
+                {
+                    let file_column: Arc<dyn PhysicalExpr> =
+                        Arc::new(Column::new(column.name(), index));
+                    let placeholder: Arc<dyn PhysicalExpr> = Arc::new(Placeholder {
+                        id: placeholders.len(),
+                        data_type: file_column.data_type(&self.physical_file_schema)?,
+                    });
+                    placeholders.push(file_column);
+                    let mut children: Vec<_> = expr.children().into_iter().cloned().collect();
+                    children[0] = placeholder;
+                    let expr = expr.with_new_children(children)?;
+                    return Ok(Transformed::new(expr, true, TreeNodeRecursion::Jump));
+                }
                 let Some(column) = expr.downcast_ref::<Column>() else {
                     return Ok(Transformed::no(expr));
                 };
@@ -209,6 +228,20 @@ impl VariantExprAdapter {
     /// `column` refers to the table (logical) schema, so `column.index()` is
     /// its position in the table, not in the file.
     fn reshred_expr(&self, column: &Column) -> Option<Arc<dyn PhysicalExpr>> {
+        let index = self.reshred_index(column)?;
+        let logical = self
+            .logical_file_schema
+            .field_with_name(column.name())
+            .ok()?;
+        Some(Arc::new(VariantReshredExpr::new(
+            Arc::new(Column::new(column.name(), index)),
+            Arc::new(logical.clone()),
+        )))
+    }
+
+    /// Returns the index in the file of a Variant column whose file layout
+    /// differs from the table layout, or `None` if the layouts are the same.
+    fn reshred_index(&self, column: &Column) -> Option<usize> {
         // Look the column up by name in both schemas, as DataFusion's default
         // adapter does. `column.index()` is only valid for the table schema.
         let logical = self
@@ -227,11 +260,19 @@ impl VariantExprAdapter {
         if !is_variant(physical) || physical.data_type() == logical.data_type() {
             return None;
         }
-        Some(Arc::new(VariantReshredExpr::new(
-            Arc::new(Column::new(column.name(), index)),
-            Arc::new(logical.clone()),
-        )))
+        Some(index)
     }
+}
+
+/// If `expr` is `variant_get(column, ..)` or `try_variant_get(column, ..)`,
+/// returns `column`.
+fn getter_input(expr: &Arc<dyn PhysicalExpr>) -> Option<&Column> {
+    let func = expr.downcast_ref::<ScalarFunctionExpr>()?;
+    let udf = func.fun().inner();
+    if !udf.is::<VariantGetUdf>() && !udf.is::<TryVariantGetUdf>() {
+        return None;
+    }
+    func.args().first()?.downcast_ref::<Column>()
 }
 
 /// Stands in for a reshredded Variant column while the wrapped adapter rewrites
