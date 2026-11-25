@@ -856,6 +856,51 @@ fn test_load_bsky_rejects_bad_arguments() {
     });
 }
 
+/// `-f` files and `-c` commands run in the order given on the command line,
+/// so a `-c` can create a table that a later `-f` file queries.
+#[test]
+fn test_files_and_commands_run_in_command_line_order() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let script = temp_dir.path().join("query.sql");
+    std::fs::write(&script, "SELECT x + 1 AS from_file FROM t;\n").unwrap();
+
+    let context = snapshot_output(
+        cargo_bin_cmd!("dfv")
+            .args(["-c", "CREATE TABLE t AS SELECT 1 AS x", "-f"])
+            .arg(&script)
+            .args(["-c", "SELECT x + 2 AS from_command FROM t"]),
+    );
+
+    dfv_snapshot_settings().bind(|| {
+        insta::assert_snapshot!(context, @r"
+        exit code: 0
+        stdout:
+        dfv (DataFusion Variant CLI) v[VERSION] based on DataFusion CLI v[DATAFUSION_VERSION]
+        0 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        +-----------+
+        | from_file |
+        +-----------+
+        | 2         |
+        +-----------+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+        +--------------+
+        | from_command |
+        +--------------+
+        | 3            |
+        +--------------+
+        1 row(s) fetched.
+        Elapsed [ELAPSED] seconds.
+
+
+        stderr:
+        ");
+    });
+}
+
 /// `-i N` runs the `-f` files and `-c` commands N times in one session and
 /// prints the time of each run. SQL from stdin cannot be read again, so it is
 /// rejected.
