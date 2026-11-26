@@ -5,22 +5,14 @@ updates:
     schedule:
       interval: weekly
     target-branch: main
-    # Track library dependencies and keep Parquet aligned with Arrow.
     allow:
       - dependency-name: "arrow"
       - dependency-name: "arrow-schema"
-      - dependency-name: "async-trait"
+      - dependency-name: "parquet"
+      - dependency-name: "parquet-variant*"
       - dependency-name: "datafusion"
       - dependency-name: "datafusion-doc"
       - dependency-name: "datafusion-macros"
-      - dependency-name: "futures"
-      - dependency-name: "parquet"
-      - dependency-name: "parquet-variant"
-      - dependency-name: "parquet-variant-compute"
-      - dependency-name: "parquet-variant-json"
-      - dependency-name: "serde"
-      - dependency-name: "serde_json"
-      - dependency-name: "sqlparser"
     groups:
       arrow-parquet:
         patterns:
