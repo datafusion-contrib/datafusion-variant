@@ -6,19 +6,14 @@ updates:
       interval: weekly
     target-branch: main
     allow:
-      - dependency-name: "arrow"
-      - dependency-name: "arrow-schema"
-      - dependency-name: "parquet"
-      - dependency-name: "parquet-variant*"
-      - dependency-name: "datafusion"
-      - dependency-name: "datafusion-doc"
-      - dependency-name: "datafusion-macros"
+      - dependency-name: "arrow*"
+      - dependency-name: "parquet*"
+      - dependency-name: "datafusion*"
     groups:
       arrow-parquet:
         patterns:
           - "arrow*"
-          - "parquet"
-          - "parquet-variant*"
+          - "parquet*"
       datafusion:
         patterns:
           - "datafusion*"
