@@ -4,16 +4,6 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    # Coordinate major upgrades with the supported DataFusion release.
-    ignore:
-      - dependency-name: "arrow*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "parquet"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "parquet-variant*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "datafusion*"
-        update-types: ["version-update:semver-major"]
     groups:
       arrow-parquet:
         applies-to: version-updates
