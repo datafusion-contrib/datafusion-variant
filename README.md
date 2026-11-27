@@ -71,11 +71,11 @@ tasks: converting JSON, querying fields, and reading and writing Parquet.
 ## Versioning
 
 The major version of `datafusion-variant` matches the major version of
-DataFusion it is compatible with. For example, `datafusion-variant` `56.x.y`
-works with DataFusion `56.x.y`.
+DataFusion. For example, `datafusion-variant` `56.a.b` works with DataFusion
+`56.x.y`.
 
 Minor and patch versions are independent of DataFusion's: `datafusion-variant`
-`56.1.0` has no relationship to DataFusion `56.1.0`, and any `56.x.y` release of
+`56.1.0` has no relationship to DataFusion `56.1.0`, and any `56.a.b` release of
 this crate works with any `56.x.y` release of DataFusion.
 
 ## Documentation

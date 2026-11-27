@@ -6,16 +6,11 @@ First, enable Variant in your project by adding the following to `Cargo.toml`:
 
 ```toml
 [dependencies]
-datafusion-variant = { git = "https://github.com/datafusion-contrib/datafusion-variant.git" }
-datafusion = "56" # match this crate
+datafusion = "56"
+datafusion-variant = "56" # match datafusion major version
 parquet = { version = "60", features = ["variant_experimental"] } # enable Parquet Variant support
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
-
-The major version of `datafusion-variant` matches the major version of
-DataFusion it works with (`datafusion-variant` `56.x.y` works with DataFusion
-`56.x.y`). Minor and patch versions are independent: `datafusion-variant`
-`56.1.0` has no relationship to DataFusion `56.1.0`.
 
 Then, configure your DataFusion [`SessionContext`] to use the Variant functions,
 SQL field access, and `VARIANT` type with `register_all`. See the
