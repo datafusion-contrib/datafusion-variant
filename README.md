@@ -68,6 +68,16 @@ access in SQL. The [getting started guide][getting-started] walks through the
 setup and the bundled `dfv` SQL shell, and the [cookbook][cookbook] shows common
 tasks: converting JSON, querying fields, and reading and writing Parquet.
 
+## Versioning
+
+The major version of `datafusion-variant` matches the major version of
+DataFusion. For example, `datafusion-variant` `56.a.b` works with DataFusion
+`56.x.y`.
+
+Minor and patch versions are independent of DataFusion's: `datafusion-variant`
+`56.1.0` has no relationship to DataFusion `56.1.0`, and any `56.a.b` release of
+this crate works with any `56.x.y` release of DataFusion.
+
 ## Documentation
 
 - [User guide][docs]
