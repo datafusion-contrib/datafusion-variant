@@ -12,6 +12,11 @@ parquet = { version = "60", features = ["variant_experimental"] } # enable Parqu
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
+The major version of `datafusion-variant` matches the major version of
+DataFusion it works with (`datafusion-variant` `56.x.y` works with DataFusion
+`56.x.y`). Minor and patch versions are independent: `datafusion-variant`
+`56.1.0` has no relationship to DataFusion `56.1.0`.
+
 Then, configure your DataFusion [`SessionContext`] to use the Variant functions,
 SQL field access, and `VARIANT` type with `register_all`. See the
 [Apache DataFusion documentation] for more details on creating a session and
