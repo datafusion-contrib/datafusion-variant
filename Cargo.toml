@@ -1,11 +1,22 @@
 [package]
 name = "datafusion-variant"
-description = "Variant functions for DataFusion"
+description = "Parquet Variant semi-structured data support for Apache DataFusion"
 version = "56.0.0"
 edition = "2024"
 rust-version = "1.95.0"
 license = "Apache-2.0"
-authors = ["Matthew Kim <matthew@pydantic.dev>"]
+repository = "https://github.com/datafusion-contrib/datafusion-variant"
+homepage = "https://datafusion-contrib.github.io/datafusion-variant/"
+readme = "README.md"
+keywords = ["datafusion", "variant", "parquet", "arrow", "json"]
+categories = ["database", "data-structures"]
+# Keep CI config and the JSONBench scripts out of the published crate.
+exclude = [".github/", "benchmarks/", "licenserc.toml"]
+authors = [
+    "Matthew Kim <matthew@pydantic.dev>",
+    "Andrew Lamb <alamb@apache.org>",
+    "Kosta Tarasov <kosta@apache.org>",
+]
 
 [dependencies]
 datafusion = { workspace = true }
