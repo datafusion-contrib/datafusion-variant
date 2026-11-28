@@ -131,11 +131,11 @@ impl ScalarUDFImpl for VariantToJsonUdf {
 
 #[cfg(test)]
 mod tests {
-    use arrow_schema::{Field, Fields};
-    use parquet_variant_compute::VariantType;
+    use arrow_schema::Field;
     use serde_json::Value;
 
     use crate::shared::build_variant_array_from_json;
+    use crate::variant_type::variant_field;
 
     use super::*;
 
@@ -148,10 +148,7 @@ mod tests {
 
         let udf = VariantToJsonUdf::default();
         let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
-        let arg_field = Arc::new(
-            Field::new("input", DataType::Struct(Fields::empty()), true)
-                .with_extension_type(VariantType),
-        );
+        let arg_field = Arc::new(variant_field("input"));
 
         let args = ScalarFunctionArgs {
             args: vec![ColumnarValue::Scalar(variant_input)],
@@ -185,10 +182,7 @@ mod tests {
         let udf = VariantToJsonUdf::default();
 
         let return_field = Arc::new(Field::new("result", DataType::Utf8View, true));
-        let arg_field = Arc::new(
-            Field::new("input", DataType::Struct(Fields::empty()), true)
-                .with_extension_type(VariantType),
-        );
+        let arg_field = Arc::new(variant_field("input"));
 
         let args = ScalarFunctionArgs {
             args: vec![ColumnarValue::Scalar(variant_input)],

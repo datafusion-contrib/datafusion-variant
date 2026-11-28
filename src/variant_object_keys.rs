@@ -137,11 +137,9 @@ impl ScalarUDFImpl for VariantObjectKeys {
 
 #[cfg(test)]
 mod tests {
-    use arrow::array::{Array, ListArray, StructArray};
-    use arrow_schema::Fields;
-    use parquet_variant_compute::VariantType;
-
     use crate::shared::{build_variant_array_from_json, build_variant_array_from_json_array};
+    use crate::variant_type::variant_field;
+    use arrow::array::{Array, ListArray, StructArray};
 
     use super::*;
 
@@ -151,10 +149,7 @@ mod tests {
             DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
             true,
         ));
-        let mut arg_fields: Vec<Arc<Field>> = vec![Arc::new(
-            Field::new("input", DataType::Struct(Fields::empty()), true)
-                .with_extension_type(VariantType),
-        )];
+        let mut arg_fields: Vec<Arc<Field>> = vec![Arc::new(variant_field("input"))];
         let mut args = vec![variant_input];
 
         if let Some(p) = path {
