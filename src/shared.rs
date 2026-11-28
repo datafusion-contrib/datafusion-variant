@@ -5,8 +5,6 @@ use std::sync::Arc;
 use arrow::array::{Array, cast::AsArray};
 #[cfg(test)]
 use arrow::array::{ArrayRef, StructArray};
-#[cfg(test)]
-use arrow_schema::Fields;
 use arrow_schema::{DataType, Field};
 use datafusion::common::exec_datafusion_err;
 use datafusion::error::Result;
@@ -18,6 +16,9 @@ use parquet_variant_compute::VariantArrayBuilder;
 
 #[cfg(test)]
 use parquet_variant_json::JsonToVariant;
+
+#[cfg(test)]
+use crate::variant_type::variant_field;
 
 pub fn try_field_as_variant_array(field: &Field) -> Result<()> {
     // TODO: rely on complete storage-schema validation once Arrow fixes
@@ -139,10 +140,7 @@ pub fn variant_array_from_json_rows(json_rows: &[serde_json::Value]) -> ArrayRef
 #[cfg(test)]
 pub fn standard_variant_get_arg_fields() -> Vec<Arc<Field>> {
     vec![
-        Arc::new(
-            Field::new("input", DataType::Struct(Fields::empty()), true)
-                .with_extension_type(VariantType),
-        ),
+        Arc::new(variant_field("input")),
         Arc::new(Field::new("path", DataType::Utf8, true)),
     ]
 }
