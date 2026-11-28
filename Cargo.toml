@@ -1,6 +1,6 @@
 [package]
 name = "datafusion-variant"
-description = "Parquet Variant Semi-structured data support for Apache DataFusion"
+description = "Parquet Variant semi-structured data support for Apache DataFusion"
 version = "56.0.0"
 edition = "2024"
 rust-version = "1.95.0"
