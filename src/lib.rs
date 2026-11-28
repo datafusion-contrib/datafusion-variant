@@ -1,5 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
+//! [Variant] SQL type and functions for querying semi-structured data with
+//! [Apache DataFusion], and reading and writing such data to [Apache Parquet]
+//! files.
+//!
+//! Call [`register_all`] to add the `VARIANT` type, the Variant functions, and
+//! `:` field access to a [`SessionContext`]:
+//!
+//! ```
+//! use datafusion::prelude::*;
+//! use datafusion_variant::register_all;
+//!
+//! # #[tokio::main]
+//! # async fn main() -> datafusion::error::Result<()> {
+//! let mut ctx = SessionContext::new();
+//! register_all(&mut ctx)?;
+//!
+//! ctx.sql(r#"SELECT parse_json('{"service":"api","status":200}'):status::BIGINT"#)
+//!     .await?
+//!     .show()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! See the [user guide] for the SQL reference, cookbook, and Spark
+//! compatibility notes.
+//!
+//! [Variant]: https://parquet.apache.org/docs/file-format/types/variantencoding/
+//! [Apache DataFusion]: https://datafusion.apache.org/
+//! [Apache Parquet]: https://parquet.apache.org/
+//! [user guide]: https://datafusion-contrib.github.io/datafusion-variant/
+
 #![warn(clippy::all)]
 
 #[cfg(doctest)]
