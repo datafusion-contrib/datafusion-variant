@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! [Variant] SQL type and functions for querying semi-structured data with
-//! [Apache DataFusion], and reading and writing such data to [Apache Parquet]
-//! files.
+//! Semi-structured data support for [Apache DataFusion] and [Apache
+//! Parquet] .
 //!
-//! Call [`register_all`] to add the `VARIANT` type, the Variant functions, and
-//! `:` field access to a [`SessionContext`]:
+//! [Variant]  is a semi-structured data type that can represent JSON-like data in a
+//! compact binary format.
+//!
+//! To use Variant in DataFusion, register the type and functions with a
+//! [`SessionContext`] by calling [`register_all`]:
 //!
 //! ```
 //! use datafusion::prelude::*;
