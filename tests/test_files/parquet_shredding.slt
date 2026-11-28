@@ -136,10 +136,10 @@ Event.typed_value.status.typed_value BYTE_ARRAY
 metric.typed_value BYTE_ARRAY
 
 # Chained `:` access reads shredded columns through a single getter (#176).
-# A missing object field or list element reads as Variant null where the
-# unshredded copy returns SQL NULL (row 1):
+# A missing object field reads as Variant null where the unshredded copy
+# returns SQL NULL (row 1):
 # https://github.com/apache/arrow-rs/issues/11191
-# https://github.com/apache/arrow-rs/issues/11050
+# A missing list element reads as SQL NULL in both.
 query I
 COPY (SELECT column1 AS id, parse_json(column2) AS v, parse_json(column2) AS original
       FROM (VALUES (0, '{"a":{"b":1},"l":[1,2]}'), (1, '{"a":{},"l":[3]}')))
@@ -155,7 +155,7 @@ query I????
 SELECT id, v:a:b, original:a:b, v:l:[1], original:l:[1] FROM chained ORDER BY id;
 ----
 0 1 1 2 2
-1 null NULL null NULL
+1 null NULL NULL NULL
 
 # Constant object and SQL NULL inputs exercise optimizer folding while
 # retaining the Variant extension metadata and SQL NULL validity.
