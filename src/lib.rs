@@ -1,5 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 
+//! Semi-structured data support for [Apache DataFusion] and [Apache
+//! Parquet] .
+//!
+//! [Variant]  is a semi-structured data type that can represent JSON-like data in a
+//! compact binary format.
+//!
+//! To use Variant in DataFusion, register the type and functions with a
+//! [`SessionContext`] by calling [`register_all`]:
+//!
+//! ```
+//! use datafusion::prelude::*;
+//! use datafusion_variant::register_all;
+//!
+//! # #[tokio::main]
+//! # async fn main() -> datafusion::error::Result<()> {
+//! let mut ctx = SessionContext::new();
+//! register_all(&mut ctx)?;
+//!
+//! ctx.sql(r#"SELECT parse_json('{"service":"api","status":200}'):status::BIGINT"#)
+//!     .await?
+//!     .show()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! See the [user guide] for the SQL reference, cookbook, and Spark
+//! compatibility notes.
+//!
+//! [Variant]: https://parquet.apache.org/docs/file-format/types/variantencoding/
+//! [Apache DataFusion]: https://datafusion.apache.org/
+//! [Apache Parquet]: https://parquet.apache.org/
+//! [user guide]: https://datafusion-contrib.github.io/datafusion-variant/
+
 #![warn(clippy::all)]
 
 #[cfg(doctest)]
