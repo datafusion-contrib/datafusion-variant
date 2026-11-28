@@ -5,7 +5,11 @@ version = "56.0.0"
 edition = "2024"
 rust-version = "1.95.0"
 license = "Apache-2.0"
-authors = ["Matthew Kim <matthew@pydantic.dev>"]
+authors = [
+    "Matthew Kim <matthew@pydantic.dev>",
+    "Andrew Lamb <alamb@apache.org>",
+    "Kosta Tarasov <kosta@apache.org>",
+]
 
 [dependencies]
 datafusion = { workspace = true }
