@@ -20,10 +20,11 @@ use parquet_variant_json::JsonToVariant;
 #[cfg(test)]
 use crate::variant_type::variant_field;
 
+/// Checks that `field` is a Variant: it has the Variant extension type and a
+/// valid storage schema (a struct with `metadata` and `value` or `typed_value`).
+///
+/// The shredded `typed_value` schema is checked by `VariantArray::try_new`.
 pub fn try_field_as_variant_array(field: &Field) -> Result<()> {
-    // TODO: rely on complete storage-schema validation once Arrow fixes
-    // https://github.com/apache/arrow-rs/issues/11938. Currently any Struct passes;
-    // callers must still use VariantArray::try_new before reading the storage.
     ensure(
         field.has_valid_extension_type::<VariantType>(),
         "field does not have extension type VariantType",
@@ -156,4 +157,36 @@ pub fn build_variant_array_from_json_array(jsons: &[Option<serde_json::Value>]) 
     });
 
     builder.build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow_schema::Fields;
+    use arrow_schema::extension::{EXTENSION_TYPE_NAME_KEY, ExtensionType};
+    use std::collections::HashMap;
+
+    fn tagged_as_variant(data_type: DataType) -> Field {
+        // `with_extension_type` panics on invalid storage, so set the name directly.
+        let name = (
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            VariantType::NAME.to_string(),
+        );
+        Field::new("v", data_type, true).with_metadata(HashMap::from([name]))
+    }
+
+    #[test]
+    fn variant_field_requires_valid_storage() {
+        try_field_as_variant_array(&variant_field("v")).unwrap();
+
+        let untagged = Field::new("v", variant_field("v").data_type().clone(), true);
+        try_field_as_variant_array(&untagged).unwrap_err();
+
+        let empty_struct = tagged_as_variant(DataType::Struct(Fields::empty()));
+        try_field_as_variant_array(&empty_struct).unwrap_err();
+
+        let metadata_only = Fields::from(vec![Field::new("metadata", DataType::BinaryView, false)]);
+        try_field_as_variant_array(&tagged_as_variant(DataType::Struct(metadata_only)))
+            .unwrap_err();
+    }
 }
