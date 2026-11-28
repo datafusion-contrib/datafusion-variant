@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: main
+    allow:
+      - dependency-name: "arrow*"
+      - dependency-name: "parquet*"
+      - dependency-name: "datafusion*"
+    groups:
+      arrow-parquet:
+        patterns:
+          - "arrow*"
+          - "parquet*"
+      datafusion:
+        patterns:
+          - "datafusion*"
