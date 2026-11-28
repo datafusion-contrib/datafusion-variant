@@ -48,9 +48,6 @@ select int_price_variant:price::string from variant_test_data;
 # Spark case 04
 # Spark schema: struct<>
 # Spark expected error: INVALID_VARIANT_CAST (DECIMAL(3,2), value 12345.678)
-# TODO: The Variant kernel's float-to-decimal conversion does not validate
-# precision yet; both CAST and the typed getter currently return 12345.68.
-skipif DataFusion
 statement error (?i)(cast|extract|precision|overflow)
 select double_price_variant:price::decimal(3, 2) from variant_test_data;
 
